@@ -8,6 +8,7 @@ Kode sekali pakai untuk membuktikan risiko. **Bukan kode produk** — jangan dii
 | S1 sidecar `opencode serve` | `s1-sidecar/` | ADR-019 | Windows lulus · mac/Linux ditunda (tidak ada perangkat) |
 | S2 pemetaan event SSE | `s2-events/` | ADR-021 | Lulus (rekaman nyata, 12/12 test) · beberapa jenis part belum terekam |
 | S4 secret keychain + injeksi | `s4-secrets/` | ADR-022 | Windows lulus (6/6) · mac/Linux ditunda |
+| S6 plugin memori | `s6-memory-plugin/` | ADR-023 | Lulus (10/10, opencode asli + mock model) |
 | S3 child webview browser | `s3-webview/` | ADR-020 | Windows lulus (termasuk login Google manual) · persistensi sesi belum konsisten · mac/Linux ditunda |
 
 ## Prasyarat
@@ -23,6 +24,11 @@ ZANDOR_SELFTEST=/tmp/s1.json ./target/debug/zandor-spike-s1
 ZANDOR_SELFTEST=/tmp/s3.json ./target/debug/zandor-spike-s3
 ```
 Tanpa `ZANDOR_SELFTEST`, app terbuka untuk uji manual.
+
+S6 (butuh Bun + `cargo build -p zandor-spike-s1` lebih dulu):
+```
+cd s6-memory-plugin && bun install && bun test && bun x tsc --noEmit
+```
 
 S2 (butuh Bun):
 ```

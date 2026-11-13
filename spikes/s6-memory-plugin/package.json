@@ -1,0 +1,12 @@
+{
+  "name": "zandor-spike-s6",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test", "typecheck": "tsc --noEmit" },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.19.5",
+    "@opencode-ai/sdk": "1.19.5",
+    "@types/bun": "latest",
+    "typescript": "5.9.3"
+  }
+}
