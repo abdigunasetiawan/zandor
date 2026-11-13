@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "s5-bench",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["spikes/s5-renderers/tools/serve.ts"],
+      "port": 5175
+    }
+  ]
+}

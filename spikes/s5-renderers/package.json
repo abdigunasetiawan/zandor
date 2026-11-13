@@ -1,0 +1,25 @@
+{
+  "name": "zandor-spike-s5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fixtures": "bun tools/make-fixtures.ts",
+    "build": "bun build src/bench.ts src/xlsx-worker.ts --outdir public/dist --target browser --splitting --minify",
+    "serve": "bun tools/serve.ts",
+    "licenses": "bun tools/licenses.ts"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.5.438",
+    "docx-preview": "0.4.1",
+    "mammoth": "1.13.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "exceljs": "4.4.0",
+    "@aiden0z/pptx-renderer": "1.4.0",
+    "pptx-preview": "1.0.7"
+  },
+  "devDependencies": {
+    "pdf-lib": "1.17.1",
+    "docx": "9.15.3",
+    "pptxgenjs": "4.0.1"
+  }
+}

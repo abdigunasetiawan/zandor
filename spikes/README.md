@@ -11,6 +11,7 @@ Kode sekali pakai untuk membuktikan risiko. **Bukan kode produk** — jangan dii
 | S6 plugin memori | `s6-memory-plugin/` | ADR-023 | Lulus (10/10, opencode asli + mock model) |
 | S7 terminal xterm.js + PTY | `s7-terminal/` | ADR-024 | Windows lulus (A & B) · mac/Linux ditunda |
 | S8 layout 5 panel + zoom | `s8-layout/` | ADR-025 | Windows 100% lulus (15/15 ×3) · HiDPI, mac/Linux belum |
+| S5 renderer Panel 3 | `s5-renderers/` | ADR-026 | PDF/DOCX/XLSX lulus · PPTX menunggu keputusan MPL-2.0 |
 | S3 child webview browser | `s3-webview/` | ADR-020 | Windows lulus (termasuk login Google manual) · persistensi sesi belum konsisten · mac/Linux ditunda |
 
 ## Prasyarat
