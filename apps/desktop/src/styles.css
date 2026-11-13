@@ -1514,3 +1514,75 @@
   min-height: 8rem;
   border-top: var(--z-border-width) solid var(--z-color-border);
 }
+
+/* ---------- Halaman Memori & Skill (Fase 9) ---------- */
+.mempage {
+  max-width: calc(var(--z-space-7) * 16);
+  margin: 0 auto;
+  padding: var(--z-space-5);
+  overflow-y: auto;
+}
+.mempage__head {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+}
+.mempage__title {
+  flex: 1;
+  margin: 0;
+}
+.mempage__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+  padding-top: var(--z-space-3);
+}
+.mempage__muted {
+  color: var(--z-color-fg-muted);
+}
+.mempage__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mempage__row {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+}
+.mempage__grow {
+  flex: 1;
+}
+.mempage__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  padding: var(--z-space-3);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+}
+.mempage__cardhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+.mempage__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+}
+.mempage__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--z-space-2);
+}
+.infop__memory {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  margin-top: var(--z-space-3);
+}

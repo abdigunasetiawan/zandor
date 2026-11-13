@@ -5,6 +5,7 @@ import { applyScale, applyTheme, ConfirmProvider, ErrorBoundary, ShortcutProvide
 import { useEffect } from "react";
 import { DesignSystemPage } from "./design-system/DesignSystemPage";
 import { CommandCenter } from "./shell/CommandCenter";
+import { MemoryPage } from "./shell/MemoryPage";
 import { ProvidersPage } from "./shell/ProvidersPage";
 import { SettingsPage } from "./shell/SettingsPage";
 import { ShellLayout } from "./shell/ShellLayout";
@@ -15,12 +16,14 @@ export type Route =
   | { page: "home" }
   | { page: "settings" }
   | { page: "providers" }
+  | { page: "memory" }
   | { page: "design-system"; section: string | null };
 
 /** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
 export function parseRoute(path: string): Route {
   if (/^\/settings\/?$/.test(path)) return { page: "settings" };
   if (/^\/providers\/?$/.test(path)) return { page: "providers" };
+  if (/^\/memory\/?$/.test(path)) return { page: "memory" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -109,6 +112,7 @@ function Page() {
   }, [page, section]);
   if (page === "settings") return <SettingsPage />;
   if (page === "providers") return <ProvidersPage />;
+  if (page === "memory") return <MemoryPage />;
   if (page === "design-system") return <DesignSystemPage />;
   return <ShellLayout />;
 }

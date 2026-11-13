@@ -142,6 +142,8 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - UI: kelola memori dan skill (lihat, edit, hapus).
 - Adapter opsional: Hindsight (MCP/REST), Graphify (`graph.json`).
 
+**Status: fitur inti Fase 9 selesai di lokal (14-11-2026)** — plugin memori/skill, antrean persetujuan, UI, opt-in per sesi/project; terbukti di engine asli dan aplikasi asli. Belum: adapter Hindsight/Graphify, opt-in di dialog Tambah project, tombol sematkan di chat. Lihat ADR-037 dan `docs/features/memory.md`.
+
 ## Fase 10 — Kustomisasi
 
 - Engine tema + preset (Gemini, Claude, ChatGPT, Discord, Vercel, Raycast, dll); impor/ekspor tema.

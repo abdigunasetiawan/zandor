@@ -4,7 +4,7 @@
 // Pemakaian (Windows): bun e2e-native/smoke.ts <path zandor-desktop.exe>
 // Build dengan UI tertanam: `bun run tauri build --debug --no-bundle` (cargo build biasa memuat devUrl).
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -20,7 +20,7 @@ if (!exe) {
 const exePath: string = exe;
 const PORT = 9333;
 // Tidak semua model di endpoint pengembang berfungsi; model ini diketahui bisa dipakai (bisa diganti lewat env).
-const SMOKE_MODEL = process.env.ZANDOR_SMOKE_MODEL ?? "Gemini 3.8 Flash (High)";
+const SMOKE_MODEL = process.env.ZANDOR_SMOKE_MODEL ?? "DeepSeek";
 
 /** Status jendela Windows asli milik proses (IsZoomed/IsIconic/IsWindowVisible + ada title bar sistem?). */
 function winState(pid: number): { found: boolean; zoomed: boolean; iconic: boolean; caption: boolean } {
@@ -65,6 +65,19 @@ const extraDirs = [
   mkdtempSync(join(tmpdir(), "zandor-smoke-docs-b-")),
   mkdtempSync(join(tmpdir(), "zandor-smoke-docs-c-")),
 ];
+// Fase 9: smoke menyentuh data memori asli (settings, global.md, antrean skill); semuanya dicadangkan dan dipulihkan.
+const appDataDir = join(process.env.APPDATA ?? "", "id.web.zandor.app");
+const memoryDir = join(appDataDir, "memory");
+const smokeSkillDir = join(appDataDir, "engine", "config", "opencode", "skills", "smoke-skill");
+const MEMORY_FILES = ["settings.json", "global.md", "skill-queue.jsonl"];
+const memoryBackup = new Map<string, string | null>();
+for (const f of MEMORY_FILES) {
+  try {
+    memoryBackup.set(f, readFileSync(join(memoryDir, f), "utf8"));
+  } catch {
+    memoryBackup.set(f, null);
+  }
+}
 let originalRegistry: string | null = null;
 try {
   originalRegistry = readFileSync(registryFile, "utf8");
@@ -403,6 +416,86 @@ try {
     `${await sessionRows.count()} sesi; ${pageErrors.slice(0, 2).join(" | ")}`,
   );
 
+  // 1b1d) Fase 9: plugin Zandor memuat opsi memoryDir, halaman Memori & Skill bekerja di aplikasi asli.
+  mkdirSync(memoryDir, { recursive: true });
+  writeFileSync(
+    join(memoryDir, "skill-queue.jsonl"),
+    `${JSON.stringify({
+      id: "sk_smoke",
+      t: Date.now(),
+      status: "pending",
+      trigger: "correction",
+      excerpt: "salah, bukan begitu",
+      name: "smoke-skill",
+      description: "Skill uji dari smoke native Zandor.",
+      body: "1. Ini hanya skill uji.\n2. Boleh dihapus kapan saja.",
+    })}\n`,
+  );
+  await waitFor(
+    "plugin Zandor menulis meta.json (opsi memoryDir diterima engine)",
+    () => existsSync(join(memoryDir, "meta.json")),
+    (v) => v,
+    20000,
+  );
+  check("plugin Zandor memuat opsi memoryDir di engine asli (meta.json dibuat)", true);
+  await page.getByRole("button", { name: "Memori & skill", exact: true }).click();
+  await page.getByRole("heading", { name: "Memori & Skill" }).waitFor({ timeout: 10000 });
+  check(
+    "halaman Memori & Skill tanpa label pratinjau (host Tauri terhubung)",
+    (await page.getByText(/TIDAK dibaca engine/).count()) === 0,
+  );
+  await page.getByRole("switch", { name: "Aktifkan memori secara bawaan" }).click();
+  await waitFor(
+    "settings.json defaultEnabled",
+    () => {
+      try {
+        return JSON.parse(readFileSync(join(memoryDir, "settings.json"), "utf8")).defaultEnabled === true;
+      } catch {
+        return false;
+      }
+    },
+    (v) => v,
+    8000,
+  );
+  check("opt-in memori lewat UI tertulis ke settings.json asli", true);
+  await page.getByRole("tab", { name: "Memori", exact: true }).click();
+  const memBox = page.getByRole("textbox", { name: "Memori global" });
+  await memBox.fill("- kunci sk-CONTOHPALSU0123456789abcdefghij");
+  await page.getByRole("button", { name: "Simpan", exact: true }).click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: /memuat secret/ })
+    .waitFor({ timeout: 5000 });
+  check(
+    "memori global menolak teks berisi secret",
+    !existsSync(join(memoryDir, "global.md")) ||
+      !readFileSync(join(memoryDir, "global.md"), "utf8").includes("sk-CONTOH"),
+  );
+  await memBox.fill("- Kode rahasia proyek uji adalah BIRU-77.\n");
+  await page.getByRole("button", { name: "Simpan", exact: true }).click();
+  await waitFor(
+    "global.md tersimpan",
+    () => readFileSync(join(memoryDir, "global.md"), "utf8"),
+    (v) => v.includes("BIRU-77"),
+    8000,
+  );
+  check("memori global tersimpan di berkas asli (dibaca plugin tiap giliran)", true);
+  await page.getByRole("tab", { name: /Antrean skill/ }).click();
+  const skillCard = page.getByRole("listitem", { name: "smoke-skill" });
+  await skillCard.getByRole("button", { name: "Setujui & pasang" }).click();
+  await waitFor(
+    "SKILL.md terpasang",
+    () => existsSync(join(smokeSkillDir, "SKILL.md")),
+    (v) => v,
+    8000,
+  );
+  check("skill disetujui → SKILL.md terpasang di folder skill engine (global)", true);
+  await page.getByRole("tab", { name: "Skill terpasang" }).click();
+  await page.getByRole("listitem", { name: "smoke-skill" }).waitFor({ timeout: 8000 });
+  check("skill terpasang tampil di daftar", true);
+  await page.getByRole("button", { name: "Kembali ke chat" }).click();
+  await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).first().waitFor({ timeout: 10000 });
+
   let providerHealthy = false;
   // 1b2) Provider (Fase 6): kunci di keychain, ping nyata lewat Rust. Hanya bila mesin ini punya koneksi terkonfigurasi.
   await page.evaluate(() => {
@@ -541,6 +634,18 @@ try {
     } finally {
       webServer.close();
     }
+
+    // Fase 9: memori global (opt-in aktif dari uji di atas) disuntik plugin ke prompt → model nyata menjawab dari memori.
+    await box.fill("Apa kode rahasia proyek uji? Jawab hanya dengan kodenya.");
+    await box.press("Enter");
+    await page
+      .getByRole("article", { name: "Asisten" })
+      .filter({ hasText: /BIRU-77/ })
+      .first()
+      .waitFor({ timeout: 180000 });
+    check("memori nyata: model menjawab dari memori global yang disuntik plugin (BIRU-77)", true);
+    // Giliran harus benar-benar selesai (tidak ada kartu izin/dialog tertinggal) sebelum menguji kontrol jendela.
+    await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 120000 });
   }
 
   // 2) Jendela asli tanpa title bar sistem (frameless) — bit WS_CAPTION bisa tetap menyala pada jendela
@@ -651,6 +756,11 @@ try {
   try {
     if (originalRegistry === null) rmSync(registryFile, { force: true });
     else writeFileSync(registryFile, originalRegistry);
+    for (const [f, text] of memoryBackup) {
+      if (text === null) rmSync(join(memoryDir, f), { force: true });
+      else writeFileSync(join(memoryDir, f), text);
+    }
+    rmSync(smokeSkillDir, { recursive: true, force: true });
     rmSync(docDir, { recursive: true, force: true });
     for (const d of extraDirs) rmSync(d, { recursive: true, force: true });
   } catch {

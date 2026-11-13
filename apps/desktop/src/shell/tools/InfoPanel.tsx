@@ -1,7 +1,9 @@
 // Panel 4 — Info sesi: model, penggunaan token/konteks, biaya (bila dilaporkan engine), tool call, waktu.
-import { sessionTitle, sessionUsage } from "@zandor/core";
+import { memoryEnabled, projectKey, sessionTitle, sessionUsage } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { useChat, useProjects, useServices } from "../services";
+import { Select } from "@zandor/ui";
+import { useEffect, useState } from "react";
+import { useChat, useMemory, useProjects, useServices } from "../services";
 
 const nf = new Intl.NumberFormat();
 
@@ -19,6 +21,45 @@ function duration(ms: number): string {
   if (s < 60) return `${s} dtk`;
   const m = Math.floor(s / 60);
   return `${m} mnt ${s % 60} dtk`;
+}
+
+/** Opt-in memori per sesi (PRD: opt-in saat membuat project/sesi, bisa diubah kemudian). */
+function SessionMemory({ sessionId, projectPath }: { sessionId: string; projectPath: string | null }) {
+  const { t } = useI18n();
+  const { memory } = useServices();
+  const state = useMemory();
+  const [key, setKey] = useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: sekali per sesi/project
+  useEffect(() => {
+    void memory.loadSettings();
+    let live = true;
+    if (projectPath) void projectKey(projectPath).then((k) => live && setKey(k));
+    else setKey(null);
+    return () => {
+      live = false;
+    };
+  }, [memory, projectPath]);
+  const own = state.settings.sessions[sessionId];
+  const value = typeof own === "boolean" ? (own ? "on" : "off") : "follow";
+  const effective = memoryEnabled(state.settings, key, sessionId);
+  return (
+    <div className="infop__memory" data-testid="info-memory">
+      <h4 className="z-label">{t("mem.session.title")}</h4>
+      <Select
+        aria-label={t("mem.session.title")}
+        value={value}
+        onValueChange={(v) => void memory.setSessionEnabled(sessionId, v === "follow" ? null : v === "on")}
+        items={[
+          { value: "follow", label: t("mem.session.follow") },
+          { value: "on", label: t("mem.session.on") },
+          { value: "off", label: t("mem.session.off") },
+        ]}
+      />
+      <p className="z-small">
+        {t("mem.session.effective", { state: t(effective ? "mem.session.stateOn" : "mem.session.stateOff") })}
+      </p>
+    </div>
+  );
 }
 
 export function InfoPanel() {
@@ -89,6 +130,7 @@ export function InfoPanel() {
           <code>{sel.session.id}</code>
         </Row>
       </dl>
+      <SessionMemory sessionId={sel.session.id} projectPath={sel.project?.path ?? null} />
     </div>
   );
 }

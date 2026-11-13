@@ -9,6 +9,7 @@ import {
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
+  BrainIcon,
   Button,
   ChatIcon,
   ChevronDownIcon,
@@ -409,6 +410,7 @@ function SidebarFooter() {
       {(engine.status === "error" || engine.status === "stopped") && host.native && (
         <IconButton label={t("engine.retry")} size="sm" icon={<RefreshIcon />} onClick={() => void host.restart()} />
       )}
+      <IconButton label={t("mem.manage")} size="sm" icon={<BrainIcon />} onClick={() => nav.push("/memory")} />
       <IconButton label={t("pv.manage")} size="sm" icon={<SettingsIcon />} onClick={() => nav.push("/providers")} />
       <span className="z-small sidebar__version">{t("app.version", { version: build.version })}</span>
     </footer>

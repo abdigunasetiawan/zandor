@@ -1,6 +1,6 @@
 # Kondisi Saat Ini
 
-> Snapshot, selalu ditimpa. Terakhir diperbarui: 13-11-2026.
+> Snapshot, selalu ditimpa. Terakhir diperbarui: 14-11-2026.
 
 ## Fase
 
@@ -13,6 +13,7 @@
 - **Fase 6 — Provider & Model:** selesai dengan batasan (CI hijau).
 - **Fase 7 — Panel 3 Viewer Dokumen:** selesai (CI hijau).
 - **Fase 8 — Panel 4 Tools:** selesai (CI hijau).
+- **Fase 9 — Memori & Skill Creator:** selesai di lokal (belum di-push); ADR-037, `docs/features/memory.md`. Adapter Hindsight/Graphify dan opt-in di dialog Tambah project belum.
 - **Status MVP:** audit PRD §13 selesai — kelima kriteria terpenuhi (`docs/features/mvp.md`); menunggu keputusan rilis `0.1.0`.
 
 ## Checklist Fase 1

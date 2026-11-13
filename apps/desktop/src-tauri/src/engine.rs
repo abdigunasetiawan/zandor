@@ -58,6 +58,8 @@ pub struct EnginePaths {
     /// Direktori kerja sesi tanpa project ("Chat").
     pub chats: PathBuf,
     pub marker: PathBuf,
+    /// Data memori dan antrean skill (dibaca/ditulis plugin Zandor dan UI).
+    pub memory: PathBuf,
     /// Daftar provider model kustom (berisi kunci API; di luar repo).
     pub providers: PathBuf,
 }
@@ -69,6 +71,7 @@ impl EnginePaths {
             sidecar,
             plugin,
             marker: engine_root.join("guard-loaded"),
+            memory: app_data.join("memory"),
             engine_root,
             chats: app_data.join("chats"),
             providers: app_data.join("providers.json"),
@@ -117,13 +120,14 @@ pub fn percent_encode(s: &str) -> String {
 pub fn config_content(
     plugin: &Path,
     marker: &Path,
+    memory: &Path,
     providers: &[Provider],
     with_key: &dyn Fn(&str) -> bool,
 ) -> String {
     serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
-        "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy() }]],
+        "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy(), "memoryDir": memory.to_string_lossy() }]],
         // Bawaan aman: opencode mengizinkan edit/shell tanpa bertanya. Zandor meminta persetujuan (kartu izin di chat).
         "permission": { "edit": "ask", "bash": "ask", "webfetch": "ask", "external_directory": "ask" },
         "provider": providers::config_section(providers, with_key),
@@ -159,7 +163,13 @@ fn engine_config(paths: &EnginePaths) -> EngineConfig {
             .map(Provider::env_name);
         name.is_some_and(|n| secret_env.iter().any(|(k, _)| *k == n))
     };
-    let content = config_content(&paths.plugin, &paths.marker, &providers, &has_key);
+    let content = config_content(
+        &paths.plugin,
+        &paths.marker,
+        &paths.memory,
+        &providers,
+        &has_key,
+    );
     cfg.env.extend(secret_env.iter().cloned());
     cfg.env.push(("OPENCODE_CONFIG_CONTENT".into(), content));
     cfg
@@ -413,12 +423,14 @@ mod tests {
         let c = config_content(
             Path::new(r"C:\app\zandor-plugin.js"),
             Path::new(r"C:\data\guard-loaded"),
+            Path::new(r"C:\data\memory"),
             &[],
             &|_| false,
         );
         let v: serde_json::Value = serde_json::from_str(&c).unwrap();
         assert_eq!(v["plugin"][0][0], "file:///C:/app/zandor-plugin.js");
         assert_eq!(v["plugin"][0][1]["markerFile"], r"C:\data\guard-loaded");
+        assert_eq!(v["plugin"][0][1]["memoryDir"], r"C:\data\memory");
         assert_eq!(v["autoupdate"], false);
         for k in ["edit", "bash", "webfetch", "external_directory"] {
             assert_eq!(v["permission"][k], "ask", "{k} harus meminta izin");

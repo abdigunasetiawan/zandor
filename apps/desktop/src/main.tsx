@@ -6,6 +6,7 @@ import { App, hashToPath } from "./App";
 import { loadDocHost } from "./shell/doc-host";
 import { loadEngineHost } from "./shell/engine-host";
 import { loadGitHost } from "./shell/git-host";
+import { loadMemoryHost } from "./shell/memory-host";
 import { loadProviderHost } from "./shell/provider-host";
 import { createServices } from "./shell/services";
 import "@zandor/ui";
@@ -29,6 +30,7 @@ const services = createServices({
   providerHost,
   docHost,
   gitHost: await loadGitHost(),
+  memoryHost: await loadMemoryHost(),
   activity,
   initialPath: hashToPath(window.location.hash),
   storage: {

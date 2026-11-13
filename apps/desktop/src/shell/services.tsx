@@ -17,6 +17,9 @@ import {
   isAbsolutePath,
   type Logger,
   locateInRoots,
+  type MemoryHost,
+  type MemoryState,
+  MemoryStore,
   NavigationHistory,
   ProjectStore,
   type ProjectsState,
@@ -109,6 +112,7 @@ export type Services = {
   projects: ProjectStore;
   chat: ChatStore;
   providers: ProviderStore;
+  memory: MemoryStore;
   docs: DocStore;
   docHost: DocHost;
   terminals: TerminalStore;
@@ -124,6 +128,7 @@ export function createServices(options: {
   providerHost: ProviderHost;
   docHost: DocHost;
   gitHost: GitHost;
+  memoryHost: MemoryHost;
   /** Log aktivitas bersama; dibuat di main.tsx supaya sink logger sudah terpasang sejak awal. */
   activity: ActivityLog;
 }): Services {
@@ -166,6 +171,7 @@ export function createServices(options: {
     docHost: options.docHost,
     terminals: new TerminalStore(),
     git: new GitStore(options.gitHost),
+    memory: new MemoryStore(options.memoryHost),
     activity: options.activity,
     docs: new DocStore({
       source: options.docHost.source,
@@ -356,5 +362,14 @@ export function useActivity(): readonly ActivityEntry[] {
     (cb) => activity.subscribe(cb),
     () => activity.list(),
     () => activity.list(),
+  );
+}
+
+export function useMemory(): MemoryState {
+  const { memory } = useServices();
+  return useSyncExternalStore(
+    (cb) => memory.subscribe(cb),
+    () => memory.state(),
+    () => memory.state(),
   );
 }

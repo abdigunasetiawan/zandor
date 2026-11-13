@@ -4,6 +4,7 @@ mod browser;
 mod engine;
 mod files;
 mod git;
+mod memory;
 mod netprobe;
 mod providers;
 mod registry;
@@ -169,6 +170,92 @@ fn open_external(url: String) -> Result<(), String> {
     {
         Err("belum didukung di platform ini (ADR-027)".into())
     }
+}
+
+// ---------- Memori dan skill (Fase 9) ----------
+
+fn memory_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data(app)?.join("memory"))
+}
+
+fn skills_dir(
+    app: &tauri::AppHandle,
+    scope: &str,
+    project: Option<&str>,
+) -> Result<PathBuf, String> {
+    let data = app_data(app)?;
+    let project_dir = match (scope, project) {
+        ("project", Some(p)) => Some(files::resolve_dir(&files::allowed_roots(&data), p)?),
+        _ => None,
+    };
+    memory::skills_root(scope, project_dir.as_deref(), &data.join("engine"))
+}
+
+#[tauri::command]
+fn memory_list(app: tauri::AppHandle) -> Result<Vec<memory::MemoryFile>, String> {
+    Ok(memory::list_memory(&memory_dir(&app)?))
+}
+
+#[tauri::command]
+fn memory_read(app: tauri::AppHandle, rel: String) -> Result<String, String> {
+    memory::read_memory(&memory_dir(&app)?, &rel)
+}
+
+#[tauri::command]
+fn memory_write(app: tauri::AppHandle, rel: String, text: String) -> Result<(), String> {
+    memory::write_memory(&memory_dir(&app)?, &rel, &text)
+}
+
+#[tauri::command]
+fn memory_delete(app: tauri::AppHandle, rel: String) -> Result<(), String> {
+    memory::delete_memory(&memory_dir(&app)?, &rel)
+}
+
+#[tauri::command]
+fn skill_list(
+    app: tauri::AppHandle,
+    scope: String,
+    project: Option<String>,
+) -> Result<Vec<memory::SkillInfo>, String> {
+    let root = skills_dir(&app, &scope, project.as_deref())?;
+    Ok(memory::list_skills(&root, &scope))
+}
+
+#[tauri::command]
+fn skill_read(
+    app: tauri::AppHandle,
+    scope: String,
+    project: Option<String>,
+    name: String,
+) -> Result<String, String> {
+    memory::read_skill(&skills_dir(&app, &scope, project.as_deref())?, &name)
+}
+
+#[tauri::command]
+fn skill_write(
+    app: tauri::AppHandle,
+    scope: String,
+    project: Option<String>,
+    name: String,
+    markdown: String,
+    overwrite: bool,
+) -> Result<String, String> {
+    memory::write_skill(
+        &skills_dir(&app, &scope, project.as_deref())?,
+        &name,
+        &markdown,
+        overwrite,
+    )
+}
+
+#[tauri::command]
+fn skill_delete(
+    app: tauri::AppHandle,
+    scope: String,
+    project: Option<String>,
+    name: String,
+) -> Result<(), String> {
+    memory::delete_skill(&skills_dir(&app, &scope, project.as_deref())?, &name)
 }
 
 // ---------- Berkas untuk Panel 3 (Fase 7) ----------
@@ -376,6 +463,14 @@ pub fn run() {
             provider_ping,
             providers_detect_local,
             open_external,
+            memory_list,
+            memory_read,
+            memory_write,
+            memory_delete,
+            skill_list,
+            skill_read,
+            skill_write,
+            skill_delete,
             fs_read,
             fs_copy_to,
             fs_open_external,
