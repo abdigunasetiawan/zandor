@@ -396,3 +396,149 @@
   color: var(--z-color-fg-muted);
   font-weight: var(--z-type-label-weight);
 }
+
+/* ---------- Sidebar: project, sesi, files ---------- */
+.shell-panel__inner:has(> .sidebar) {
+  padding: 0;
+  overflow: hidden;
+}
+.sidebar {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.sidebar__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--z-space-2) var(--z-space-3);
+}
+.sidebar__head h2 {
+  margin: 0;
+}
+.sidebar .z-tabs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.sidebar .z-tabs__panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.sidebar__tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  padding: var(--z-space-2) var(--z-space-3);
+}
+.sidebar__note {
+  margin: 0;
+  padding: var(--z-space-2) var(--z-space-3);
+  color: var(--z-color-fg-muted);
+}
+.sidebar__foot {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-2);
+  padding: var(--z-space-2) var(--z-space-3);
+  border-top: var(--z-border-width) solid var(--z-color-border);
+}
+.sidebar__status {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--z-space-2);
+  font-size: var(--z-type-small-size);
+}
+.sidebar__dot {
+  width: var(--z-space-2);
+  height: var(--z-space-2);
+  border-radius: var(--z-radius-full);
+  background: var(--z-color-warning);
+}
+.sidebar__status[data-tone="ok"] .sidebar__dot {
+  background: var(--z-color-success);
+}
+.sidebar__status[data-tone="bad"] .sidebar__dot {
+  background: var(--z-color-danger);
+}
+.sidebar__version {
+  color: var(--z-color-fg-subtle);
+}
+.tree,
+.tree__children {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tree__children {
+  padding-left: var(--z-space-4);
+}
+.tree__row {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-1);
+}
+.tree__toggle,
+.tree__session,
+.tree__file {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--z-space-2);
+  min-width: 0;
+  padding: var(--z-space-1) var(--z-space-2);
+  border: 0;
+  border-radius: var(--z-radius-md);
+  background: transparent;
+  color: var(--z-color-fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tree__file {
+  cursor: default;
+}
+.tree__toggle:hover,
+.tree__session:hover {
+  background: var(--z-color-hover);
+}
+.tree__toggle[data-selected],
+.tree__session[aria-current="true"] {
+  background: var(--z-color-active);
+}
+.tree__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree__action {
+  opacity: 0;
+}
+.tree__row:hover .tree__action,
+.tree__row:focus-within .tree__action,
+.tree__action[aria-expanded="true"] {
+  opacity: 1;
+}
+.tree__note {
+  margin: 0;
+  padding: var(--z-space-1) var(--z-space-4);
+  color: var(--z-color-fg-muted);
+}
+.tree__note--error {
+  color: var(--z-color-danger);
+}
+[data-ignored] > .tree__toggle,
+[data-ignored] > .tree__file {
+  color: var(--z-color-fg-subtle);
+}
+.file-icon {
+  flex: none;
+  width: var(--z-icon-sm);
+  height: var(--z-icon-sm);
+}

@@ -2,8 +2,12 @@
 import {
   type CommandDef,
   CommandRegistry,
+  ConnectionStore,
+  type EngineState,
   type Logger,
   NavigationHistory,
+  ProjectStore,
+  type ProjectsState,
   type SettingKey,
   type Settings,
   SettingsStore,
@@ -17,6 +21,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { EngineHost } from "./engine-host";
 import { loadWindowApi, type WindowApi } from "./window-api";
 
 export const TOOL_IDS = ["terminal", "git", "browser", "info", "log"] as const;
@@ -80,12 +85,16 @@ export type Services = {
   nav: NavigationHistory<string>;
   panels: PanelBridge;
   logger: Logger;
+  host: EngineHost;
+  connection: ConnectionStore;
+  projects: ProjectStore;
 };
 
 export function createServices(options: {
   storage: { get(): string | null; set(v: string): void };
   initialPath: string;
   logger: Logger;
+  host: EngineHost;
 }): Services {
   return {
     settings: new SettingsStore({
@@ -96,6 +105,12 @@ export function createServices(options: {
     nav: new NavigationHistory(options.initialPath),
     panels: new PanelBridge(),
     logger: options.logger,
+    host: options.host,
+    connection: new ConnectionStore(),
+    projects: new ProjectStore({
+      storage: { load: () => options.host.registryLoad(), save: (t) => options.host.registrySave(t) },
+      onWarning: (m) => options.logger.warn(m),
+    }),
   };
 }
 
@@ -165,4 +180,22 @@ export function useWindowApi(): WindowApi | null {
     };
   }, []);
   return api;
+}
+
+export function useEngineState(): EngineState {
+  const { connection } = useServices();
+  return useSyncExternalStore(
+    (cb) => connection.subscribe(cb),
+    () => connection.state(),
+    () => connection.state(),
+  );
+}
+
+export function useProjects(): ProjectsState {
+  const { projects } = useServices();
+  return useSyncExternalStore(
+    (cb) => projects.subscribe(cb),
+    () => projects.state(),
+    () => projects.state(),
+  );
 }

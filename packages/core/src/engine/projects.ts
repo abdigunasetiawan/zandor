@@ -170,6 +170,11 @@ export class ProjectStore {
   }
 
   /** Pasang/lepas koneksi engine. Saat terpasang, semua daftar sesi dimuat ulang. */
+  /** Klien engine aktif (null bila engine belum siap); dipakai UI untuk pohon file. */
+  engineApi(): EngineApi | null {
+    return this.api;
+  }
+
   setApi(api: EngineApi | null) {
     this.api = api;
     this.update({ engineReady: api !== null });

@@ -87,6 +87,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Tab Files: pohon file nyata dari project aktif.
 
 **Kriteria keluar:** project dan sesi persisten di engine; restart aplikasi tidak menghilangkan data.
+**Status: selesai di lokal (13-11-2026)** — terbukti di smoke native (restart aplikasi → sesi tetap); lihat ADR-032 dan `docs/features/projects.md`. Menunggu CI hijau.
 
 ## Fase 5 — Chat Inti
 

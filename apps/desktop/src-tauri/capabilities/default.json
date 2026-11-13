@@ -2,9 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-ui",
   "description": "Hanya webview UI lokal yang punya IPC (ADR-020). Jangan tambahkan remote.urls.",
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-minimize",

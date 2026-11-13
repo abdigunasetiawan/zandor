@@ -1,6 +1,7 @@
 export * from "./build-info";
 export * from "./commands";
 export * from "./engine";
+export * from "./file-icons";
 export * from "./layout-plan";
 export * from "./logger";
 export * from "./navigation";

@@ -7,7 +7,8 @@
 - **Fase 0 — Spike Risiko:** lulus untuk Windows (ADR-019–027).
 - **Fase 2 — Design System:** lulus 13-11-2026 (CI run 43427766836).
 - **Fase 1 — Fondasi Repo, Docs, dan CI:** lulus 13-11-2026 (CI GitHub Actions run 43412491664, 14m50s).
-- **Fase aktif: Fase 3 — App Shell** (kode selesai, menunggu CI).
+- **Fase 3 — App Shell:** lulus (CI hijau).
+- **Fase aktif: Fase 4 — Engine & Project** (kode selesai di lokal, menunggu push + CI).
 
 ## Checklist Fase 1
 
@@ -49,3 +50,14 @@
 - Lisensi Zandor sendiri belum ditentukan (paket ditandai `UNLICENSED`/private).
 - Ikon aplikasi masih placeholder dari spike.
 - Menu Edit ditunda sampai ada fitur yang bisa diedit.
+
+## Fase 4 — Engine & Project: selesai di lokal (menunggu CI hijau)
+
+- [x] Supervisor engine produksi (start, health, restart terbatas, mati bersama app), engine di-pin + sha256
+- [x] Plugin guard wajib + penanda diverifikasi (temuan: plugin dimuat per-instance; path `\?\` merusak URL)
+- [x] Connection manager lokal (struktur remote ada, belum diisi)
+- [x] Project (tambah/daftar/ganti nama/lepas), sesi (buat/ganti nama/hapus/pilih), sesi tanpa project, pencarian
+- [x] Tab Files: pohon file nyata, ikon Material Icon Theme; ikon UI Lucide
+- [x] Terbukti end-to-end: smoke native 12/12 termasuk restart aplikasi → sesi tetap ada
+- [ ] Belum: UI warna project, single-instance (DB terkunci bila dua Zandor), remote engine (Fase 11)
+- Catatan CI: langkah baru `bun run prepare:engine` dan `ZANDOR_REQUIRE_ENGINE=1`; belum pernah dijalankan di runner.

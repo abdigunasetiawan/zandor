@@ -8,7 +8,7 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
-use zandor_engine_supervisor::{Engine, EngineConfig, ExitInfo, BASIC_USER};
+use zandor_engine_supervisor::{http, Engine, EngineConfig, ExitInfo, BASIC_USER};
 
 /// Versi engine yang di-pin. Harus sama dengan `engine.json` (dijaga test).
 pub const PINNED_ENGINE_VERSION: &str = "1.19.5";
@@ -73,7 +73,11 @@ impl EnginePaths {
 
 /// `file:///C:/a%20b/x.js` dari path Windows/Unix.
 pub fn file_url(path: &Path) -> String {
-    let s = path.to_string_lossy().replace('\\', "/");
+    // Tauri `resource_dir()` di Windows memakai awalan verbatim `\\?\`; bila tidak dibuang, URL tidak valid dan
+    // opencode melewati plugin secara diam-diam (guard tidak termuat).
+    let raw = path.to_string_lossy();
+    let raw = raw.strip_prefix(r"\\?\").unwrap_or(&raw);
+    let s = raw.replace('\\', "/");
     let encoded: String = s
         .chars()
         .map(|c| match c {
@@ -89,6 +93,18 @@ pub fn file_url(path: &Path) -> String {
     } else {
         format!("file:///{encoded}")
     }
+}
+
+/// Percent-encode untuk query string (semua selain unreserved RFC 3986).
+pub fn percent_encode(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            b => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// Isi `OPENCODE_CONFIG_CONTENT`: hanya memuat plugin guard (tanpa secret apa pun).
@@ -175,7 +191,10 @@ impl EngineManager {
         let (tx, rx) = mpsc::channel::<Msg>();
         *manager.tx.lock().unwrap() = Some(tx.clone());
         let app_thread = app.clone();
-        let _ = std::fs::create_dir_all(&paths.chats);
+        // cwd engine dan data XDG harus ada sebelum spawn (os error 267 bila tidak).
+        for dir in [&paths.chats, &paths.engine_root] {
+            let _ = std::fs::create_dir_all(dir);
+        }
         let spawned = std::thread::Builder::new().name("engine-supervisor".into()).spawn(move || {
             let app = app_thread;
             let manager = app.state::<EngineManager>();
@@ -281,14 +300,43 @@ fn launch(paths: &EnginePaths, tx: Sender<Msg>) -> Result<Engine, String> {
     })
     .map_err(|e| e.to_string())?;
 
+    // opencode memuat plugin per-instance (saat request pertama berdirektori), bukan saat server start. Pancing
+    // instance direktori chat sekarang supaya plugin guard termuat dan penandanya bisa diverifikasi.
+    let warmup = {
+        let info = engine.info();
+        let path = format!(
+            "/session?directory={}",
+            percent_encode(&paths.chats.to_string_lossy())
+        );
+        match http(
+            &info.host_port,
+            "GET",
+            &path,
+            Some(&info.basic_auth_header()),
+            Duration::from_secs(10),
+        ) {
+            Ok((code, _)) => format!("HTTP {code}"),
+            Err(e) => format!("galat: {e}"),
+        }
+    };
+
     // Plugin guard wajib termuat: tanpa itu proses anak engine mewarisi secret & token server (ADR-022).
     let deadline = Instant::now() + GUARD_WAIT;
     while !paths.marker.exists() {
         if Instant::now() > deadline {
+            let tail = engine
+                .logs()
+                .iter()
+                .rev()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" | ");
             engine.stop();
-            return Err(
-                "plugin guard env tidak termuat; engine dihentikan demi keamanan (ADR-022)".into(),
-            );
+            return Err(format!(
+                "plugin guard env tidak termuat; engine dihentikan demi keamanan (ADR-022). Penanda: {:?}; pancingan: {warmup}; log: {tail}",
+                paths.marker
+            ));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -298,6 +346,20 @@ fn launch(paths: &EnginePaths, tx: Sender<Msg>) -> Result<Engine, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_url_drops_windows_verbatim_prefix() {
+        assert_eq!(
+            file_url(Path::new(r"\\?\C:\Program Files\Zandor\p.js")),
+            "file:///C:/Program%20Files/Zandor/p.js"
+        );
+    }
+
+    #[test]
+    fn percent_encode_handles_windows_paths_and_spaces() {
+        assert_eq!(percent_encode(r"C:\a b\ü"), "C%3A%5Ca%20b%5C%C3%BC");
+        assert_eq!(percent_encode("abc-_.~09"), "abc-_.~09");
+    }
 
     #[test]
     fn pinned_version_matches_engine_json() {

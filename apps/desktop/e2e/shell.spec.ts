@@ -22,8 +22,8 @@ test("beranda: lima panel + rel, empty state jujur, tanpa galat konsol", async (
     await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
   }
   await expect(page.getByRole("navigation", { name: "Rel alat" })).toBeVisible();
-  await expect(page.getByText("Segera hadir")).toHaveCount(4); // sidebar, chat, dokumen, tab aktif di Tools
-  await expect(page.getByText("Daftar project, sesi, pencarian, dan pohon file hadir di Fase 4.")).toBeVisible();
+  await expect(page.getByText("Segera hadir")).toHaveCount(3); // chat, dokumen, tab aktif di Tools
+  await expect(page.getByRole("button", { name: "Tambah project (pilih folder)" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

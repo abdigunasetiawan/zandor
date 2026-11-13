@@ -31,6 +31,11 @@ jobs:
       - name: Install dependensi JS
         run: bun install --frozen-lockfile
 
+      # Engine opencode (di-pin + diverifikasi sha256 di engine.json) dan bundel plugin Zandor. Dibutuhkan tes
+      # supervisor, build Tauri (sidecar), dan smoke native.
+      - name: Siapkan engine & plugin
+        run: bun run prepare:engine
+
       - name: Lint & format (Biome)
         run: bun x biome ci .
 
@@ -58,6 +63,8 @@ jobs:
 
       - name: Rust test
         run: cargo test --workspace
+        env:
+          ZANDOR_REQUIRE_ENGINE: "1" # tes integrasi engine wajib jalan, bukan dilewati
 
       # cargo-deny-action berbasis Docker dan tidak jalan di runner Windows → pasang binary prebuilt.
       - uses: taiki-e/install-action@v2

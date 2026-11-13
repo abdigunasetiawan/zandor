@@ -11,6 +11,7 @@ if (!exe) {
   console.error("pemakaian: bun e2e-native/smoke.ts <path zandor-desktop.exe>");
   process.exit(2);
 }
+const exePath: string = exe;
 const PORT = 9333;
 
 /** Status jendela Windows asli milik proses (IsZoomed/IsIconic/IsWindowVisible + ada title bar sistem?). */
@@ -47,12 +48,15 @@ const check = (name: string, pass: boolean, detail = "") => {
 };
 
 let app: ChildProcess | undefined;
-try {
-  app = spawn(exe, [], {
+
+/** Jalankan aplikasi, sambungkan Playwright ke WebView2, kembalikan halaman utamanya. */
+async function launch() {
+  const child = spawn(exePath, [], {
     stdio: "ignore",
     env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${PORT}` },
   });
-  const pid = app.pid as number;
+  app = child;
+  const pid = child.pid as number;
 
   const browser = await waitFor(
     "CDP WebView2",
@@ -77,6 +81,15 @@ try {
   );
   if (!page) throw new Error("halaman tidak ditemukan");
   await page.waitForSelector(".titlebar", { timeout: 15000 });
+  // Bahasa deterministik (WebView CI biasanya en-US): paksa Indonesia, lalu muat ulang.
+  await page.evaluate(() => localStorage.setItem("zandor.settings", JSON.stringify({ language: "id" })));
+  await page.reload();
+  await page.waitForSelector(".titlebar", { timeout: 15000 });
+  return { browser, page, pid };
+}
+
+try {
+  const { browser, page, pid } = await launch();
 
   // 1) IPC Tauri tersedia dan kontrol jendela tampil (di browser biasa tidak).
   const hasIpc = await page.evaluate(() => "__TAURI_INTERNALS__" in window);
@@ -84,6 +97,19 @@ try {
   const maximize = page.getByRole("button", { name: /^(Maksimalkan|Maximize)$/ });
   await maximize.waitFor({ timeout: 10000 });
   check("kontrol jendela kustom tampil", true);
+
+  // 1b) Engine sungguhan: supervisor menyalakan opencode, UI tersambung, sesi bisa dibuat (Fase 4).
+  const status = page.locator(".sidebar__status");
+  await waitFor(
+    "engine siap",
+    async () => `${await status.textContent().catch(() => "")} | ${await status.getAttribute("title").catch(() => "")}`,
+    (t) => /Engine siap/.test(t),
+    40000,
+  );
+  check("engine opencode siap (supervisor + plugin guard)", true, (await status.textContent())?.trim());
+  await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).click();
+  await page.getByText("Sesi tanpa judul").first().waitFor({ timeout: 15000 });
+  check("buat sesi tanpa project lewat engine asli", true);
 
   // 2) Jendela asli tanpa title bar sistem (frameless) — bit WS_CAPTION bisa tetap menyala pada jendela
   //    tanpa dekorasi bergaya bayangan, jadi hanya dilaporkan, bukan syarat lulus.
@@ -143,6 +169,31 @@ try {
   );
   check("klik Tutup → aplikasi keluar", exited);
   await browser?.close().catch(() => {});
+
+  // 6) Persistensi: jalankan ulang aplikasi → sesi yang dibuat tadi masih ada; lalu bersihkan.
+  const second = await launch();
+  await second.page.getByText("Sesi tanpa judul").first().waitFor({ timeout: 40000 });
+  check("restart aplikasi → sesi tetap ada (persisten di engine)", true);
+  await second.page
+    .getByRole("button", { name: /^Menu untuk Sesi tanpa judul$/ })
+    .first()
+    .click({ force: true });
+  await second.page.getByRole("menuitem", { name: "Hapus sesi" }).click();
+  await second.page.getByRole("alertdialog").getByRole("button", { name: "Hapus sesi" }).click();
+  await waitFor(
+    "sesi uji dibersihkan",
+    () => second.page.getByText("Sesi tanpa judul").count(),
+    (n) => n === 0,
+  );
+  check("sesi uji dihapus (tidak meninggalkan sampah)", true);
+  await second.page.getByRole("button", { name: /^(Tutup jendela|Close window)$/ }).click();
+  await waitFor(
+    "proses keluar (kedua)",
+    () => app?.exitCode !== null || app?.killed,
+    (v) => !!v,
+    8000,
+  );
+  await second.browser?.close().catch(() => {});
 } catch (e) {
   check("smoke test selesai tanpa galat", false, String(e));
 } finally {
