@@ -1,0 +1,21 @@
+[package]
+name = "zandor-engine-supervisor"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Spike S1: supervisor proses `opencode serve` (start, health, monitor, stop tanpa proses yatim)"
+
+[dependencies]
+getrandom = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

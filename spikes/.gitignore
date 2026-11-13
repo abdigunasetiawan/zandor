@@ -1,0 +1,5 @@
+target/
+**/binaries/opencode-*
+**/gen/
+.downloads/
+node_modules/

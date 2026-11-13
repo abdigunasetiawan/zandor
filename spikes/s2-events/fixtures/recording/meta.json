@@ -1,0 +1,84 @@
+{
+  "opencode": "1.19.5",
+  "model": "opencode/big-pickle",
+  "recordedAt": "2026-11-13T08:46:09.280Z",
+  "workspacePlaceholder": "<WS>",
+  "sessionID": "ses_e2beaa782ffeyTHoZLWV6kgwyf",
+  "scenarios": [
+    {
+      "scenario": "baca+lampiran+reasoning",
+      "ms": 9859,
+      "events": 138
+    },
+    {
+      "scenario": "todo+edit+bash (izin once)",
+      "ms": 21643,
+      "events": 124
+    },
+    {
+      "scenario": "bash ditolak (izin reject)",
+      "ms": 5744,
+      "events": 51
+    }
+  ],
+  "permissionLog": [
+    {
+      "permission": "edit",
+      "patterns": [
+        "add.js"
+      ],
+      "reply": "once"
+    },
+    {
+      "permission": "bash",
+      "patterns": [
+        "node add.js"
+      ],
+      "reply": "once"
+    },
+    {
+      "permission": "bash",
+      "patterns": [
+        "rm sampah.txt"
+      ],
+      "reply": "reject"
+    }
+  ],
+  "typeCounts": {
+    "server.connected": 1,
+    "session.created": 1,
+    "session.updated": 17,
+    "message.updated": 46,
+    "message.part.updated": 65,
+    "session.status": 26,
+    "session.diff": 13,
+    "plugin.added": 46,
+    "catalog.updated": 2,
+    "reference.updated": 1,
+    "integration.updated": 1,
+    "message.part.delta": 79,
+    "session.idle": 3,
+    "server.heartbeat": 3,
+    "todo.updated": 3,
+    "permission.asked": 3,
+    "permission.replied": 3,
+    "file.edited": 1,
+    "file.watcher.updated": 1
+  },
+  "partTypes": {
+    "text": 8,
+    "file": 1,
+    "step-start": 10,
+    "reasoning": 4,
+    "tool": 7,
+    "step-finish": 10,
+    "patch": 1
+  },
+  "toolNames": [
+    "read:completed",
+    "todowrite:completed",
+    "edit:completed",
+    "bash:completed",
+    "bash:error"
+  ]
+}

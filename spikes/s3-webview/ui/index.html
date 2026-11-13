@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<title>Zandor Spike S3</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #121212; color: #e6e6e6; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #top { height: 48px; display: flex; gap: 6px; align-items: center; padding: 0 10px; background: #141414; border-bottom: 1px solid #262626; }
+  #top input { flex: 1; background: #1f1f1f; color: #e6e6e6; border: 1px solid #333; border-radius: 6px; padding: 6px 10px; }
+  button { background: #1f1f1f; color: #e6e6e6; border: 1px solid #333; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
+  #main { display: flex; height: calc(100% - 48px); }
+  #left { width: var(--left, 50%); min-width: 200px; padding: 12px; overflow: auto; }
+  #split { width: 6px; cursor: col-resize; background: #1f1f1f; }
+  #split:hover { background: #333; }
+  #right { flex: 1; display: flex; flex-direction: column; min-width: 240px; }
+  #right header { height: 32px; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #262626; color: #9a9a9a; }
+  #host { flex: 1; position: relative; }
+  #host .fallback { padding: 16px; color: #9a9a9a; }
+  pre { white-space: pre-wrap; background: #1f1f1f; padding: 8px; border-radius: 6px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="top">
+  <button id="back" title="Kembali">←</button>
+  <button id="fwd" title="Maju">→</button>
+  <button id="reload" title="Muat ulang">⟳</button>
+  <input id="url" value="https://www.google.com/" spellcheck="false" />
+  <button id="go">Buka</button>
+  <button id="toggle">Sembunyikan</button>
+</div>
+<div id="main">
+  <div id="left">
+    <h3>Spike S3 — halaman uji (bukan UI produk)</h3>
+    <p>Geser pemisah di tengah atau ubah ukuran jendela: webview browser harus mengikuti area panel kanan.</p>
+    <pre id="log"></pre>
+  </div>
+  <div id="split"></div>
+  <div id="right">
+    <header>Browser — <span id="mode"></span></header>
+    <div id="host"></div>
+  </div>
+</div>
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const log = (m) => { $("log").textContent += m + "\n"; };
+let visible = true, mode = "child-webview";
+
+// --- sinkronisasi bounds panel → child webview ---
+let raf = 0;
+function syncBounds() {
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(() => {
+    if (mode !== "child-webview") return;
+    const r = $("host").getBoundingClientRect();
+    invoke("browser_set_bounds", { x: r.left, y: r.top, w: r.width, h: r.height }).catch((e) => log("set_bounds gagal: " + e));
+  });
+}
+new ResizeObserver(syncBounds).observe($("host"));
+window.addEventListener("resize", syncBounds);
+
+// --- pemisah yang bisa digeser ---
+let dragging = false;
+$("split").addEventListener("pointerdown", (e) => { dragging = true; $("split").setPointerCapture(e.pointerId); });
+$("split").addEventListener("pointerup", () => (dragging = false));
+$("split").addEventListener("pointermove", (e) => { if (dragging) setLeft(e.clientX); });
+function setLeft(px) { document.documentElement.style.setProperty("--left", px + "px"); }
+
+// --- navigasi ---
+$("go").onclick = () => invoke("browser_navigate", { url: $("url").value }).catch(log);
+$("url").addEventListener("keydown", (e) => e.key === "Enter" && $("go").click());
+$("back").onclick = () => invoke("browser_history", { action: "back" });
+$("fwd").onclick = () => invoke("browser_history", { action: "forward" });
+$("reload").onclick = () => invoke("browser_history", { action: "reload" });
+$("toggle").onclick = async () => { visible = !visible; await invoke("browser_set_visible", { visible }); $("toggle").textContent = visible ? "Sembunyikan" : "Tampilkan"; };
+
+const loadWaiters = [];
+listen("browser-load", ({ payload }) => {
+  // Mitigasi race cold-start: webview browser bisa belum ada saat sync pertama.
+  if (!payload.finished) syncBounds();
+  if (payload.finished) { $("url").value = payload.url; log("load selesai: " + payload.url); }
+  for (const w of [...loadWaiters]) if (payload.finished && w.pred(payload.url)) { loadWaiters.splice(loadWaiters.indexOf(w), 1); w.resolve(payload.url); }
+});
+const waitLoad = (pred, ms = 20000) => new Promise((resolve, reject) => {
+  loadWaiters.push({ pred, resolve }); setTimeout(() => reject(new Error("timeout menunggu load")), ms);
+});
+let probeResolve = null;
+listen("browser-probe", ({ payload }) => probeResolve && probeResolve(payload));
+const probe = (expr) => new Promise((resolve, reject) => {
+  probeResolve = resolve; invoke("browser_probe", { expr }); setTimeout(() => reject(new Error("timeout probe")), 8000);
+});
+
+// --- self-test ---
+async function check(name, fn, r) {
+  try { const v = await fn(); r[name] = { ok: true, ...v }; log("OK    " + name + " " + JSON.stringify(v)); }
+  catch (e) { r[name] = { ok: false, error: String(e) }; log("GAGAL " + name + " " + e); }
+}
+async function boundsMatch(label) {
+  await sleep(350);
+  const r = $("host").getBoundingClientRect();
+  const b = await invoke("browser_get_bounds");
+  const d = Math.max(Math.abs(r.left - b.x), Math.abs(r.top - b.y), Math.abs(r.width - b.w), Math.abs(r.height - b.h));
+  const res = { panel: [r.left, r.top, r.width, r.height].map(Math.round), webview: [b.x, b.y, b.w, b.h].map(Math.round), scale: b.scale, maxDiffPx: +d.toFixed(2) };
+  if (d > 2) throw new Error(label + " bounds tidak cocok " + JSON.stringify(res));
+  return res;
+}
+async function selftest() {
+  const r = { startedAt: new Date().toISOString(), mode, userAgent: navigator.userAgent };
+  const t0 = performance.now();
+  await check("google_loaded", async () => { const u = await waitLoad((u) => u.includes("google."), 30000); return { url: u, ms: Math.round(performance.now() - t0) }; }, r);
+  await check("google_title", async () => ({ title: await probe("document.title") }), r);
+  // Informasional: apakah sesi Google dari run sebelumnya masih ada? (hanya boolean, tanpa data akun)
+  await check("google_session_state", async () => {
+    await sleep(1500);
+    const v = await probe("JSON.stringify({signedIn: !!document.querySelector('a[href*=\"SignOutOptions\"],a[aria-label*=\"Google Account\"],a[aria-label*=\"Akun Google\"]'), signInLink: !!document.querySelector('a[href*=\"ServiceLogin\"],a[href*=\"accounts.google.com/v3/signin\"]')})");
+    return JSON.parse(v);
+  }, r);
+  await check("bounds_initial", () => boundsMatch("awal"), r);
+  await check("bounds_after_splitter_300", async () => { setLeft(300); return boundsMatch("splitter 300"); }, r);
+  await check("bounds_after_splitter_800", async () => { setLeft(800); return boundsMatch("splitter 800"); }, r);
+  await check("bounds_after_window_resize", async () => { setLeft(400); await invoke("window_set_size", { w: 1000, h: 650 }); await sleep(300); return boundsMatch("window 1000x650"); }, r);
+  await check("remote_page_ipc_globals", async () => ({
+    probe: await probe("typeof window.__TAURI_INTERNALS__ + '/' + typeof window.__TAURI__ + '/' + typeof window.ipc"),
+  }), r);
+  for (const [cmd, args] of [["get_browser_mode", {}], ["browser_set_visible", { visible: true }], ["plugin:event|emit", { event: "x", payload: null }], ["plugin:webview|get_all_webviews", {}]]) {
+    await check("remote_invoke_rejected:" + cmd, async () => {
+      const v = await probe(`window.__TAURI_INTERNALS__ ? window.__TAURI_INTERNALS__.invoke(${JSON.stringify(cmd)}, ${JSON.stringify(args)}).then(function(x){return 'ALLOWED:'+JSON.stringify(x)}) : 'NO_IPC'`);
+      if (v.startsWith("ALLOWED")) throw new Error("perintah bisa dipanggil dari halaman remote: " + v);
+      return { result: v };
+    }, r);
+  }
+  await check("navigate_and_back", async () => {
+    invoke("browser_navigate", { url: "https://example.com/" });
+    const a = await waitLoad((u) => u.includes("example.com"));
+    invoke("browser_history", { action: "back" });
+    const b = await waitLoad((u) => u.includes("google."));
+    return { forward: a, back: b };
+  }, r);
+  await check("hide_show", async () => { await invoke("browser_set_visible", { visible: false }); await sleep(200); await invoke("browser_set_visible", { visible: true }); return {}; }, r);
+  await check("google_signin_page", async () => {
+    invoke("browser_navigate", { url: "https://accounts.google.com/" });
+    // Sudah login → Google me-redirect ke myaccount.google.com.
+    const u = await waitLoad((u) => /(accounts|myaccount)\.google\.com/.test(u), 30000);
+    const host = new URL(u).host;
+    if (host === "myaccount.google.com") return { host, alreadySignedIn: true };
+    await sleep(2500);
+    // Hanya boolean yang dilaporkan, tanpa teks halaman (bisa berisi data akun).
+    const blocked = await probe("/not be secure|tidak aman|browser or app may not|Couldn.t sign you in|Tidak dapat memproses login/i.test(document.body.innerText)");
+    if (blocked === "true") throw new Error("Google memblokir login di webview ini");
+    return { host, alreadySignedIn: false, blocked: false };
+  }, r);
+  r.finishedAt = new Date().toISOString();
+  r.log = $("log").textContent;
+  await invoke("selftest_done", { report: r });
+}
+
+(async () => {
+  mode = await invoke("get_browser_mode");
+  $("mode").textContent = mode;
+  if (mode !== "child-webview") {
+    $("host").innerHTML = '<div class="fallback">Child webview tidak didukung di sesi ini (Wayland). Tautan dibuka di browser sistem.</div>';
+  }
+  syncBounds();
+  if (await invoke("selftest_enabled")) selftest();
+})();
+</script>
+</body>
+</html>

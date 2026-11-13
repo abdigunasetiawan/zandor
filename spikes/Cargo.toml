@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+  "s1-sidecar/supervisor",
+  "s1-sidecar/src-tauri",
+  "s3-webview/src-tauri",
+]
+
+[profile.dev]
+debug = 1

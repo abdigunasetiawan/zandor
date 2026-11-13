@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<title>Zandor Spike S1</title>
+<style>
+  body { background:#121212; color:#e6e6e6; font:14px/1.5 system-ui, sans-serif; margin:24px; }
+  pre { background:#1f1f1f; padding:12px; border-radius:6px; white-space:pre-wrap; }
+  button { background:#1f1f1f; color:#e6e6e6; border:1px solid #333; padding:6px 12px; border-radius:6px; cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>Spike S1 — sidecar <code>opencode serve</code></h1>
+<p>Halaman uji spike, bukan UI produk.</p>
+<p><button id="crash">Simulasikan crash engine</button> <button id="refresh">Refresh</button></p>
+<pre id="state">menunggu engine…</pre>
+<pre id="log"></pre>
+<script>
+const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
+const $ = (id) => document.getElementById(id);
+const log = (m) => { $("log").textContent += m + "\n"; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const auth = (i) => ({ Authorization: "Basic " + btoa(`${i.username}:${i.password}`) });
+
+async function show() {
+  const i = await invoke("engine_info");
+  $("state").textContent = JSON.stringify({ ...i, password: i.password ? "•••" : "" }, null, 2);
+  return i;
+}
+async function waitRunning(pred = () => true, timeout = 20000) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < timeout) {
+    const i = await show();
+    if (i.running && pred(i)) return { info: i, ms: Math.round(performance.now() - t0) };
+    await sleep(100);
+  }
+  throw new Error("engine tidak running dalam " + timeout + " ms");
+}
+async function check(name, fn, report) {
+  try { const v = await fn(); report[name] = { ok: true, ...v }; log(`OK   ${name} ${JSON.stringify(v)}`); }
+  catch (e) { report[name] = { ok: false, error: String(e) }; log(`GAGAL ${name} ${e}`); }
+}
+
+async function selftest() {
+  const r = { startedAt: new Date().toISOString(), origin: location.origin };
+  let info;
+  await check("engine_ready", async () => { const w = await waitRunning(); info = w.info; return { waitedMs: w.ms, startupMs: info.startup_ms, url: info.url, version: info.version, pid: info.pid }; }, r);
+  await check("webview_fetch_health_with_token", async () => {
+    const res = await fetch(info.url + "/global/health", { headers: auth(info) });
+    const j = await res.json();
+    if (!res.ok || j.version !== info.version) throw new Error(res.status + " " + JSON.stringify(j));
+    return { status: res.status, body: j };
+  }, r);
+  await check("webview_fetch_without_token_rejected", async () => {
+    try { const res = await fetch(info.url + "/global/health"); if (res.status !== 401) throw new Error("status " + res.status); return { status: 401 }; }
+    catch (e) { if (String(e).includes("status")) throw e; return { rejectedAs: "network/CORS error: " + e }; }
+  }, r);
+  await check("webview_fetch_session_list", async () => {
+    const res = await fetch(info.url + "/session", { headers: auth(info) });
+    if (!res.ok) throw new Error("status " + res.status);
+    const j = await res.json();
+    return { status: res.status, count: Array.isArray(j) ? j.length : null };
+  }, r);
+  await check("webview_sse_via_fetch_stream", async () => {
+    // EventSource tidak bisa mengirim header Authorization → pakai fetch stream.
+    const ctl = new AbortController();
+    const res = await fetch(info.url + "/global/event", { headers: auth(info), signal: ctl.signal });
+    const reader = res.body.getReader();
+    const { value } = await Promise.race([reader.read(), sleep(5000).then(() => { throw new Error("timeout SSE"); })]);
+    ctl.abort();
+    const first = new TextDecoder().decode(value).split("\n").find((l) => l.startsWith("data:"));
+    return { status: res.status, firstEvent: first };
+  }, r);
+  await check("crash_detected_and_restarted", async () => {
+    const before = info.pid;
+    await invoke("engine_crash_for_test");
+    const w = await waitRunning((i) => i.pid !== before && i.restarts >= 1);
+    const res = await fetch(w.info.url + "/global/health", { headers: auth(w.info) });
+    if (!res.ok) throw new Error("health setelah restart: " + res.status);
+    return { oldPid: before, newPid: w.info.pid, restarts: w.info.restarts, recoverMs: w.ms };
+  }, r);
+  r.finishedAt = new Date().toISOString();
+  await invoke("selftest_done", { report: r });
+}
+
+listen("engine-state", show);
+listen("engine-exit", (e) => log("engine-exit code=" + e.payload));
+$("crash").onclick = () => invoke("engine_crash_for_test");
+$("refresh").onclick = show;
+invoke("selftest_enabled").then((on) => (on ? selftest() : waitRunning().catch((e) => log(String(e)))));
+</script>
+</body>
+</html>

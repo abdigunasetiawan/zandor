@@ -1,0 +1,25 @@
+# Repo referensi (clone pihak ketiga, termasuk yang lisensinya dilarang — ADR-009). Jangan pernah di-commit.
+reference/*
+!reference/README.md
+
+# Build & dependensi
+target/
+node_modules/
+dist/
+
+# Binary sidecar hasil unduhan (diunduh ulang lewat spikes/tools/fetch-opencode.mjs)
+**/binaries/opencode-*
+**/.downloads/
+**/gen/schemas/
+
+# Secret & lokal
+.env
+.env.*
+*.pem
+*.key
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,15 @@
+{
+  "name": "zandor-spike-s2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "record": "node tools/record.mjs --model opencode/big-pickle"
+  },
+  "devDependencies": {
+    "@opencode-ai/sdk": "1.19.5",
+    "@types/bun": "latest",
+    "typescript": "5.9.3"
+  }
+}

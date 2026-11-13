@@ -1,0 +1,31 @@
+# Spikes Fase 0
+
+Kode sekali pakai untuk membuktikan risiko. **Bukan kode produk** — jangan diimpor ke `apps/` atau
+`packages/`. Hasil setiap spike ada di `docs/decisions/ADR-*.md`.
+
+| Spike | Folder | ADR | Status |
+|---|---|---|---|
+| S1 sidecar `opencode serve` | `s1-sidecar/` | ADR-019 | Windows lulus · mac/Linux ditunda (tidak ada perangkat) |
+| S2 pemetaan event SSE | `s2-events/` | ADR-021 | Lulus (rekaman nyata, 12/12 test) · beberapa jenis part belum terekam |
+| S3 child webview browser | `s3-webview/` | ADR-020 | Windows lulus (termasuk login Google manual) · persistensi sesi belum konsisten · mac/Linux ditunda |
+
+## Prasyarat
+Rust (stable), Node ≥ 20, npm. Windows butuh WebView2 runtime.
+
+## Menjalankan
+```
+node tools/fetch-opencode.mjs          # unduh opencode versi pin → s1-sidecar/src-tauri/binaries/
+cargo test -p zandor-engine-supervisor -- --test-threads=1
+cargo build -p zandor-spike-s1 -p zandor-spike-s3
+ZANDOR_SELFTEST=/tmp/s1.json ./target/debug/zandor-spike-s1
+ZANDOR_SELFTEST=/tmp/s3.json ./target/debug/zandor-spike-s3
+```
+Tanpa `ZANDOR_SELFTEST`, app terbuka untuk uji manual.
+
+S2 (butuh Bun):
+```
+cd s2-events && bun install && bun test && bun x tsc --noEmit
+node tools/record.mjs --model opencode/big-pickle   # rekam ulang fixture (memakai provider user)
+```
+
+`tools/make-icon.mjs` hanya membuat ikon placeholder untuk build spike.
