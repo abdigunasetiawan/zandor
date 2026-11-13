@@ -24,6 +24,8 @@ export type MockOptions = {
   fail?: boolean;
   /** Daftar model; default satu model. Kosong = tidak ada provider. */
   models?: Array<{ id: string; name: string; variants?: string[] }>;
+  /** Jumlah pasangan pesan (pengguna+asisten) yang sudah ada di setiap sesi baru; untuk uji sesi panjang. */
+  preload?: number;
 };
 
 export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<MockEngine> {
@@ -263,6 +265,37 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         time: { created: t, updated: t },
       };
       state.sessions.push(s);
+      if (opts.preload) {
+        const list: Msg[] = [];
+        for (let i = 0; i < opts.preload; i++) {
+          const k = String(i).padStart(5, "0");
+          const u: Msg = {
+            info: { id: `m_${k}_u`, sessionID: s.id, role: "user", time: { created: i * 2 + 1 } },
+            parts: [],
+          };
+          u.parts.push({
+            id: `p_${k}_u`,
+            messageID: u.info.id,
+            sessionID: s.id,
+            type: "text",
+            text: `pertanyaan ${i}`,
+          });
+          const a: Msg = {
+            info: {
+              id: `m_${k}_a`,
+              sessionID: s.id,
+              role: "assistant",
+              modelID: "m-satu",
+              providerID: "mock",
+              time: { created: i * 2 + 2, completed: i * 2 + 3 },
+            },
+            parts: [],
+          };
+          a.parts.push({ id: `p_${k}_a`, messageID: a.info.id, sessionID: s.id, type: "text", text: `jawaban ${i}` });
+          list.push(u, a);
+        }
+        messages.set(s.id, list);
+      }
       return json(s);
     }
     const m = p.match(/^\/session\/([^/]+)(?:\/([a-z_]+))?$/);

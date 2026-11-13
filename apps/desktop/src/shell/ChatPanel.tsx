@@ -1,5 +1,7 @@
 // Panel 2: percakapan. Tab sesi, transcript dari ChatStore (SSE engine), aksi pesan (salin/cabang/revert/ulang),
 // composer (lampiran, mode izin, reasoning, model), kartu izin, stop.
+
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   type ChatMessage,
   type FileAttachment,
@@ -158,6 +160,9 @@ function ModelPicker() {
 }
 
 /** Auto-scroll ke bawah hanya bila pengguna sudah di dekat dasar (tidak merebut scroll saat membaca ke atas). */
+/** Di bawah ambang ini semua pesan dirender langsung; di atasnya transcript divirtualisasi (hanya yang terlihat). */
+export const VIRTUALIZE_FROM = 40;
+
 function useStickToBottom(dep: unknown) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -177,15 +182,29 @@ function Transcript({ session }: { session: SessionChat }) {
   const { t } = useI18n();
   const { chat } = useServices();
   const fail = useErrorToast();
-  const { ref, onScroll } = useStickToBottom(session.messages);
   const busy = session.status.type !== "idle" || session.sending;
   const messages = visibleMessages(session);
   const lastAssistant = [...messages].reverse().find((m) => m.info.role === "assistant");
+  const virtual = messages.length >= VIRTUALIZE_FROM;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rows = useVirtualizer({
+    count: virtual ? messages.length : 0,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 140,
+    overscan: 6,
+    getItemKey: (i) => messages[i]?.info.id ?? i,
+  });
+  const total = virtual ? rows.getTotalSize() : 0;
+  const { ref, onScroll } = useStickToBottom([session.messages, total, session.permissions.length, busy]);
+  const setRefs = (el: HTMLDivElement | null) => {
+    ref.current = el;
+    scrollRef.current = el;
+  };
 
   return (
     <div
       className="chat__scroll"
-      ref={ref}
+      ref={setRefs}
       onScroll={onScroll}
       role="log"
       aria-label={t("panel.chat")}
@@ -195,14 +214,34 @@ function Transcript({ session }: { session: SessionChat }) {
       {session.loaded && messages.length === 0 && !session.loading && (
         <p className="chat__note z-small">{t("chat.empty")}</p>
       )}
-      {messages.map((m) => (
-        <Message
-          key={m.info.id}
-          message={m}
-          sessionId={session.sessionID}
-          isLastAssistant={m === lastAssistant && !busy}
-        />
-      ))}
+      {virtual ? (
+        <div className="vlist" style={{ height: total }}>
+          {rows.getVirtualItems().map((item) => {
+            const m = messages[item.index];
+            if (!m) return null;
+            return (
+              <div
+                key={item.key}
+                className="vrow"
+                data-index={item.index}
+                ref={rows.measureElement}
+                style={{ transform: `translateY(${item.start}px)` }}
+              >
+                <Message message={m} sessionId={session.sessionID} isLastAssistant={m === lastAssistant && !busy} />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        messages.map((m) => (
+          <Message
+            key={m.info.id}
+            message={m}
+            sessionId={session.sessionID}
+            isLastAssistant={m === lastAssistant && !busy}
+          />
+        ))
+      )}
       {session.revert !== null && (
         <div className="chat__note chat__note--warn z-small" role="status">
           <span>{t("chat.reverted")}</span>
