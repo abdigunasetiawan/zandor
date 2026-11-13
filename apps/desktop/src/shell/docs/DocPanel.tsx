@@ -7,12 +7,15 @@ import {
   CodeIcon,
   CopyIcon,
   DownloadIcon,
+  EditIcon,
   ExternalLinkIcon,
   EyeIcon,
   IconButton,
   RefreshIcon,
+  SaveIcon,
   SearchIcon,
   Spinner,
+  useConfirm,
   useToast,
   WrapIcon,
 } from "@zandor/ui";
@@ -24,12 +27,29 @@ import type { ViewerHandle, ViewerProps } from "./types";
 const CodeViewer = lazy(() => import("./CodeViewer"));
 const MarkdownViewer = lazy(() => import("./MarkdownViewer"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
+const DocxViewer = lazy(() => import("./office-viewers").then((m) => ({ default: m.DocxViewer })));
+const XlsxViewer = lazy(() => import("./office-viewers").then((m) => ({ default: m.XlsxViewer })));
+const PptxViewer = lazy(() => import("./office-viewers").then((m) => ({ default: m.PptxViewer })));
+const NotebookViewer = lazy(() => import("./office-viewers").then((m) => ({ default: m.NotebookViewer })));
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 function viewerFor(
   tab: DocTab,
-): "code" | "markdown" | "image" | "pdf" | "table" | "json" | "html" | "media" | "binary" {
+):
+  | "code"
+  | "markdown"
+  | "image"
+  | "pdf"
+  | "table"
+  | "json"
+  | "html"
+  | "media"
+  | "docx"
+  | "xlsx"
+  | "pptx"
+  | "notebook"
+  | "binary" {
   const raw = tab.mode === "raw" && hasRawMode(tab.kind);
   if (tab.kind === "code" || raw) return "code";
   switch (tab.kind) {
@@ -50,6 +70,11 @@ function viewerFor(
     case "audio":
     case "video":
       return "media";
+    case "docx":
+    case "xlsx":
+    case "pptx":
+    case "notebook":
+      return tab.kind;
     default:
       return "binary";
   }
@@ -60,6 +85,7 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   const { docs, docHost } = useServices();
   const state = useDocs();
   const toast = useToast();
+  const confirm = useConfirm();
   const [handle, setHandle] = useState<ViewerHandle | null>(null);
   const onHandle = useCallback((h: ViewerHandle | null) => setHandle(h), []);
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
@@ -106,6 +132,40 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   };
 
   const textual = isTextKind(tab.kind) && viewerFor(tab) === "code";
+  const block = docs.editBlock(tab.id);
+
+  const confirmDiscard = async (name: string): Promise<boolean> =>
+    confirm({
+      title: t("doc.discardTitle", { name }),
+      description: t("doc.discardBody"),
+      confirmLabel: t("doc.discard"),
+      tone: "danger",
+    });
+  const guarded = async (id: string, name: string, fn: () => void) => {
+    if (docs.state().tabs.find((x) => x.id === id)?.dirty && !(await confirmDiscard(name))) return;
+    fn();
+  };
+  const save = async () => {
+    const text = handle?.text?.();
+    if (text == null) return;
+    let r = await docs.save(tab.id, text);
+    if (r === "conflict") {
+      const ok = await confirm({
+        title: t("doc.conflictTitle", { name: tab.name }),
+        description: t("doc.conflictBody"),
+        confirmLabel: t("doc.overwrite"),
+        tone: "danger",
+      });
+      if (!ok) return;
+      r = await docs.save(tab.id, text, true);
+    }
+    if (r === "saved") ok(t("doc.savedEdit"));
+    else if (typeof r === "object") fail(r.error);
+  };
+  const startEdit = () => {
+    const why = docs.beginEdit(tab.id);
+    if (why) toast.show({ title: t(`doc.noEdit.${why}` as never), tone: "danger" });
+  };
 
   return (
     <div className="docs">
@@ -121,13 +181,18 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
                 title={x.path}
                 onClick={() => docs.activate(x.id)}
               >
+                {x.dirty && (
+                  <span role="img" aria-label={t("doc.unsaved")} title={t("doc.unsaved")}>
+                    ●{" "}
+                  </span>
+                )}
                 {x.name}
               </button>
               <button
                 type="button"
                 className="stabs__close"
                 aria-label={t("doc.closeTab", { name: x.name })}
-                onClick={() => docs.close(x.id)}
+                onClick={() => void guarded(x.id, x.name, () => docs.close(x.id))}
               >
                 <CloseIcon size="sm" />
               </button>
@@ -196,14 +261,52 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
           disabled={!docHost.native}
           onClick={() => void openExternal()}
         />
-        <IconButton label={t("doc.reload")} size="sm" icon={<RefreshIcon />} onClick={() => docs.reload(tab.id)} />
-        <IconButton label={t("doc.close")} size="sm" icon={<CloseIcon />} onClick={() => docs.close(tab.id)} />
+        {textual && !tab.editing && (
+          <IconButton
+            label={block ? t(`doc.noEdit.${block}` as never) : t("doc.edit")}
+            size="sm"
+            icon={<EditIcon />}
+            disabled={block !== null}
+            onClick={startEdit}
+          />
+        )}
+        {tab.editing && (
+          <>
+            <IconButton
+              label={t("doc.save")}
+              size="sm"
+              icon={<SaveIcon />}
+              disabled={!tab.dirty}
+              onClick={() => void save()}
+            />
+            <Button
+              size="sm"
+              onClick={() => void guarded(tab.id, tab.name, () => docs.endEdit(tab.id))}
+              aria-label={t("doc.doneEdit")}
+            >
+              {t("doc.doneEdit")}
+            </Button>
+          </>
+        )}
+        <IconButton
+          label={t("doc.reload")}
+          size="sm"
+          icon={<RefreshIcon />}
+          onClick={() => void guarded(tab.id, tab.name, () => docs.reload(tab.id))}
+        />
+        <IconButton
+          label={t("doc.close")}
+          size="sm"
+          icon={<CloseIcon />}
+          onClick={() => void guarded(tab.id, tab.name, () => docs.close(tab.id))}
+        />
       </div>
       <div className="docs__body">
         <DocBody
           tab={tab}
           bytes={bytes}
           onHandle={onHandle}
+          onSaveRequest={tab.editing ? () => void save() : undefined}
           openExternal={docHost.native ? () => void openExternal() : null}
         />
       </div>
@@ -215,11 +318,13 @@ function DocBody({
   tab,
   bytes,
   onHandle,
+  onSaveRequest,
   openExternal,
 }: {
   tab: DocTab;
   bytes: Uint8Array | null;
   onHandle: ViewerProps["onHandle"];
+  onSaveRequest?: () => void;
   openExternal: (() => void) | null;
 }) {
   const { t } = useI18n();
@@ -239,7 +344,7 @@ function DocBody({
       </p>
     );
   }
-  const props: ViewerProps = { tab, bytes, onHandle };
+  const props: ViewerProps = { tab, bytes, onHandle, onSaveRequest };
   const which = viewerFor(tab);
   const fallback = (
     <p className="docview__note z-small" role="status">
@@ -251,6 +356,30 @@ function DocBody({
       return (
         <Suspense fallback={fallback}>
           <CodeViewer key={tab.id} {...props} />
+        </Suspense>
+      );
+    case "docx":
+      return (
+        <Suspense fallback={fallback}>
+          <DocxViewer {...props} />
+        </Suspense>
+      );
+    case "xlsx":
+      return (
+        <Suspense fallback={fallback}>
+          <XlsxViewer {...props} />
+        </Suspense>
+      );
+    case "pptx":
+      return (
+        <Suspense fallback={fallback}>
+          <PptxViewer {...props} />
+        </Suspense>
+      );
+    case "notebook":
+      return (
+        <Suspense fallback={fallback}>
+          <NotebookViewer {...props} />
         </Suspense>
       );
     case "markdown":

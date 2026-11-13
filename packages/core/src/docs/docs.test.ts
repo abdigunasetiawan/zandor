@@ -29,7 +29,11 @@ describe("jenis dokumen", () => {
     ["v.mp4", "video"],
     ["main.rs", "code"],
     ["Dockerfile", "code"],
-    ["x.docx", "binary"],
+    ["x.docx", "docx"],
+    ["x.xlsx", "xlsx"],
+    ["x.pptx", "pptx"],
+    ["x.ipynb", "notebook"],
+    ["x.doc", "binary"],
     ["arsip.zip", "binary"],
   ])("%s → %s", (name, kind) => {
     expect(kindFromName(name)).toBe(kind);

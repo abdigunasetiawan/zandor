@@ -1,15 +1,31 @@
 // Akar aplikasi: layanan, penyedia, top bar, dan halaman (beranda = lima panel, Pengaturan, design system).
-import { createEngineApi, fromSnapshot, type RawEngineSnapshot } from "@zandor/core";
+import { computeVars, createEngineApi, fromSnapshot, type RawEngineSnapshot } from "@zandor/core";
 import { I18nProvider } from "@zandor/i18n/react";
-import { applyScale, applyTheme, ConfirmProvider, ErrorBoundary, ShortcutProvider, ToastProvider } from "@zandor/ui";
+import {
+  applyScale,
+  applyTheme,
+  applyVars,
+  ConfirmProvider,
+  ErrorBoundary,
+  ShortcutProvider,
+  ToastProvider,
+} from "@zandor/ui";
 import { useEffect } from "react";
 import { DesignSystemPage } from "./design-system/DesignSystemPage";
+import { AppearancePage } from "./shell/AppearancePage";
 import { CommandCenter } from "./shell/CommandCenter";
 import { MemoryPage } from "./shell/MemoryPage";
 import { ProvidersPage } from "./shell/ProvidersPage";
 import { SettingsPage } from "./shell/SettingsPage";
 import { ShellLayout } from "./shell/ShellLayout";
-import { type Services, ServicesProvider, useNavState, useServices, useSettings } from "./shell/services";
+import {
+  type Services,
+  ServicesProvider,
+  useAppearance,
+  useNavState,
+  useServices,
+  useSettings,
+} from "./shell/services";
 import { TitleBar } from "./shell/TitleBar";
 
 export type Route =
@@ -17,6 +33,7 @@ export type Route =
   | { page: "settings" }
   | { page: "providers" }
   | { page: "memory" }
+  | { page: "appearance" }
   | { page: "design-system"; section: string | null };
 
 /** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
@@ -24,6 +41,7 @@ export function parseRoute(path: string): Route {
   if (/^\/settings\/?$/.test(path)) return { page: "settings" };
   if (/^\/providers\/?$/.test(path)) return { page: "providers" };
   if (/^\/memory\/?$/.test(path)) return { page: "memory" };
+  if (/^\/appearance\/?$/.test(path)) return { page: "appearance" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -41,6 +59,22 @@ function Effects() {
 
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
   useEffect(() => applyScale(settings.uiScale), [settings.uiScale]);
+  // Tema kustom/tipografi/panel chat (Fase 10): dihitung untuk mode efektif; mode "system" mengikuti OS.
+  const appearance = useAppearance();
+  useEffect(() => {
+    const mq = window.matchMedia?.("(prefers-color-scheme: light)");
+    let applied: string[] = [];
+    const run = () => {
+      const mode = settings.theme === "system" ? (mq?.matches ? "light" : "dark") : settings.theme;
+      applied = applyVars(computeVars(appearance, mode), applied);
+    };
+    run();
+    mq?.addEventListener("change", run);
+    return () => {
+      mq?.removeEventListener("change", run);
+      applyVars({}, applied);
+    };
+  }, [appearance, settings.theme]);
   useEffect(() => {
     document.documentElement.lang = settings.language;
   }, [settings.language]);
@@ -113,6 +147,7 @@ function Page() {
   if (page === "settings") return <SettingsPage />;
   if (page === "providers") return <ProvidersPage />;
   if (page === "memory") return <MemoryPage />;
+  if (page === "appearance") return <AppearancePage />;
   if (page === "design-system") return <DesignSystemPage />;
   return <ShellLayout />;
 }

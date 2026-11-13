@@ -29,4 +29,4 @@ export {
   useShortcutRegistry,
 } from "./shortcuts/react";
 export type { Theme, UiScale } from "./theme";
-export { applyScale, applyTheme, stepScale, THEMES, UI_SCALES } from "./theme";
+export { applyScale, applyTheme, applyVars, stepScale, THEMES, UI_SCALES } from "./theme";

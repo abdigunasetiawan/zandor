@@ -4,6 +4,9 @@ import type { GitHost, ProviderHost } from "@zandor/core";
 import {
   type ActivityEntry,
   type ActivityLog,
+  type Appearance,
+  type AppearanceStorage,
+  AppearanceStore,
   ChatStore,
   type ChatStoreState,
   type CommandDef,
@@ -21,6 +24,7 @@ import {
   type MemoryState,
   MemoryStore,
   NavigationHistory,
+  type OpenVsxHost,
   ProjectStore,
   type ProjectsState,
   ProviderStore,
@@ -113,6 +117,8 @@ export type Services = {
   chat: ChatStore;
   providers: ProviderStore;
   memory: MemoryStore;
+  appearance: AppearanceStore;
+  openVsx: OpenVsxHost;
   docs: DocStore;
   docHost: DocHost;
   terminals: TerminalStore;
@@ -129,6 +135,8 @@ export function createServices(options: {
   docHost: DocHost;
   gitHost: GitHost;
   memoryHost: MemoryHost;
+  appearanceStorage: AppearanceStorage;
+  openVsxHost: OpenVsxHost;
   /** Log aktivitas bersama; dibuat di main.tsx supaya sink logger sudah terpasang sejak awal. */
   activity: ActivityLog;
 }): Services {
@@ -172,6 +180,8 @@ export function createServices(options: {
     terminals: new TerminalStore(),
     git: new GitStore(options.gitHost),
     memory: new MemoryStore(options.memoryHost),
+    appearance: new AppearanceStore(options.appearanceStorage),
+    openVsx: options.openVsxHost,
     activity: options.activity,
     docs: new DocStore({
       source: options.docHost.source,
@@ -371,5 +381,14 @@ export function useMemory(): MemoryState {
     (cb) => memory.subscribe(cb),
     () => memory.state(),
     () => memory.state(),
+  );
+}
+
+export function useAppearance(): Appearance {
+  const { appearance } = useServices();
+  return useSyncExternalStore(
+    (cb) => appearance.subscribe(cb),
+    () => appearance.state(),
+    () => appearance.state(),
   );
 }

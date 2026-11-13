@@ -77,6 +77,13 @@
   --z-type-code-lh: 1.5;
   --z-type-code-tracking: 0;
 
+  /* Panel chat (Fase 10): bisa diubah dari halaman Tampilan. */
+  --z-chat-opacity: 1;
+  --z-chat-weight: var(--z-type-p-weight);
+  --z-chat-size: var(--z-type-p-size);
+  --z-chat-gap: var(--z-space-3);
+  --z-chat-font: var(--z-font-ui);
+
   /* ---------- Ruang, bentuk, bayangan ---------- */
   --z-space-1: 0.25rem;
   --z-space-2: 0.5rem;

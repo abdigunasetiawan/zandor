@@ -13,4 +13,5 @@ export * from "./providers";
 export * from "./settings";
 export * from "./shortcuts";
 export * from "./terminal";
+export * from "./theme";
 export * from "./tools";

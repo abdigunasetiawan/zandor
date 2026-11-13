@@ -1,6 +1,7 @@
 // Monaco (MIT) untuk penampil dokumen, hanya fitur yang dibutuhkan viewer read-only: editor inti, cari (Ctrl+F), lipat,
 // salin, menu konteks, dan pewarnaan sintaks per bahasa (tokenizer dimuat malas per bahasa). Tanpa layanan bahasa
 // (TS/JSON/CSS worker) karena itu fitur editor penuh, bukan penampil. Worker editor sekelas (CSP: worker-src 'self').
+import { BUILTIN_EDITOR_THEMES, type EditorTheme } from "@zandor/core";
 import * as monaco from "monaco-editor/editor/editor.api";
 import "monaco-editor/editor/contrib/find/browser/findController";
 import "monaco-editor/editor/contrib/folding/browser/folding";
@@ -67,6 +68,24 @@ export function applyZandorTheme(dark: boolean): string {
       "editor.lineHighlightBackground": cssVar("--z-color-hover"),
       "editorWidget.background": cssVar("--z-color-raised"),
     },
+  });
+  return name;
+}
+
+/**
+ * Tema editor sesuai pilihan pengguna: "auto" = mengikuti token desain; bawaan Monaco; atau tema terpasang
+ * (diimpor dari berkas/Open VSX, sudah divalidasi).
+ */
+export function applyEditorTheme(selected: string, installed: readonly EditorTheme[], dark: boolean): string {
+  if ((BUILTIN_EDITOR_THEMES as readonly string[]).includes(selected)) return selected;
+  const t = installed.find((x) => x.id === selected);
+  if (!t) return applyZandorTheme(dark);
+  const name = `zandor-ed-${t.id}`;
+  monaco.editor.defineTheme(name, {
+    base: t.base,
+    inherit: true,
+    rules: t.rules.map((r) => ({ ...r })),
+    colors: t.colors,
   });
   return name;
 }

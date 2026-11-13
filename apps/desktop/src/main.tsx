@@ -7,12 +7,14 @@ import { loadDocHost } from "./shell/doc-host";
 import { loadEngineHost } from "./shell/engine-host";
 import { loadGitHost } from "./shell/git-host";
 import { loadMemoryHost } from "./shell/memory-host";
+import { loadOpenVsxHost } from "./shell/openvsx-host";
 import { loadProviderHost } from "./shell/provider-host";
 import { createServices } from "./shell/services";
 import "@zandor/ui";
 import "./styles.css";
 
 const SETTINGS_KEY = "zandor.settings";
+const APPEARANCE_KEY = "zandor.appearance";
 
 const activity = new ActivityLog();
 const logger = createLogger("app", {
@@ -31,6 +33,17 @@ const services = createServices({
   docHost,
   gitHost: await loadGitHost(),
   memoryHost: await loadMemoryHost(),
+  openVsxHost: await loadOpenVsxHost(),
+  appearanceStorage: {
+    get: () => {
+      try {
+        return localStorage.getItem(APPEARANCE_KEY);
+      } catch {
+        return null;
+      }
+    },
+    set: (v) => localStorage.setItem(APPEARANCE_KEY, v),
+  },
   activity,
   initialPath: hashToPath(window.location.hash),
   storage: {

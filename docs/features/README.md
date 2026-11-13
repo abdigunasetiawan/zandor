@@ -14,4 +14,5 @@ Manual pengguna ada di `docs/manual/`.
 | Penampil dokumen (Panel 3)                    | [documents.md](documents.md)         | selesai (batasan di dokumen) |
 | Tools (Panel 4)                               | [tools.md](tools.md)                 | selesai (batasan di dokumen) |
 | Memori & skill creator (Fase 9)               | [memory.md](memory.md)               | selesai (batasan di dokumen) |
+| Tampilan & kustomisasi (Fase 10)              | [appearance.md](appearance.md)       | selesai (batasan di dokumen) |
 | **Audit kriteria sukses MVP (PRD §13)**       | [mvp.md](mvp.md)                     | terpenuhi                    |

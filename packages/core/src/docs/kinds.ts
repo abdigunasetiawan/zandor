@@ -13,6 +13,10 @@ export type DocKind =
   | "html"
   | "audio"
   | "video"
+  | "docx"
+  | "xlsx"
+  | "pptx"
+  | "notebook"
   | "binary";
 
 export type DocMode = "render" | "raw";
@@ -49,10 +53,14 @@ const EXT_KIND: Record<string, DocKind> = {
   mov: "video",
   m4v: "video",
   ogv: "video",
-  // dikenali tetapi belum ada penampil (Fase 11) → biner, dengan pesan "buka di aplikasi lain"
-  docx: "binary",
-  xlsx: "binary",
-  pptx: "binary",
+  // Office/Notebook (Fase 11): penampil best-effort; format lama (doc/xls/ppt) tetap biner → "buka di aplikasi lain"
+  docx: "docx",
+  xlsx: "xlsx",
+  pptx: "pptx",
+  ipynb: "notebook",
+  doc: "binary",
+  xls: "binary",
+  ppt: "binary",
   zip: "binary",
   gz: "binary",
   tar: "binary",
@@ -195,7 +203,13 @@ export const mimeFor = (path: string): string => MIME[extOf(path)] ?? "applicati
 /** Kind yang punya dua tampilan (render + mentah). */
 export function hasRawMode(kind: DocKind): boolean {
   return (
-    kind === "markdown" || kind === "svg" || kind === "csv" || kind === "tsv" || kind === "json" || kind === "html"
+    kind === "markdown" ||
+    kind === "svg" ||
+    kind === "csv" ||
+    kind === "tsv" ||
+    kind === "json" ||
+    kind === "html" ||
+    kind === "notebook"
   );
 }
 

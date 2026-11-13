@@ -151,6 +151,8 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Kustomisasi section project di sidebar (border, logo, background).
 - Tema editor + paket ikon dari Open VSX; editor shortcut.
 
+**Status: fitur Fase 10 selesai di lokal (14-11-2026)** — engine tema + 7 preset, impor/ekspor, tipografi, panel chat, section project, tema editor (berkas + Open VSX), editor shortcut. Belum: paket ikon file Open VSX. Lihat ADR-038 dan `docs/features/appearance.md`.
+
 ## Fase 11 — Panel 3 Lanjutan & Fitur Ekstra
 
 - DOCX, XLSX, ipynb, PPTX (best-effort); edit file di Monaco.

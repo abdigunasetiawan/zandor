@@ -24,3 +24,19 @@ export function stepScale(current: number, direction: 1 | -1): UiScale {
   const from = i === -1 ? UI_SCALES.indexOf(1) : i;
   return UI_SCALES[Math.min(UI_SCALES.length - 1, Math.max(0, from + direction))] as UiScale;
 }
+
+/**
+ * Terapkan variabel CSS kustom (tema/tipografi/chat) sebagai gaya inline di root, sehingga mengalahkan token bawaan
+ * untuk kedua mode. Variabel dari panggilan sebelumnya yang tidak ada lagi dihapus. Mengembalikan daftar nama terpasang.
+ */
+export function applyVars(
+  vars: Record<string, string>,
+  previous: readonly string[] = [],
+  root: HTMLElement = document.documentElement,
+): string[] {
+  for (const name of previous) if (!(name in vars)) root.style.removeProperty(name);
+  for (const [name, value] of Object.entries(vars)) {
+    if (name.startsWith("--z-")) root.style.setProperty(name, value);
+  }
+  return Object.keys(vars).filter((n) => n.startsWith("--z-"));
+}

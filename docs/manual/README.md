@@ -10,6 +10,7 @@ Manual pengguna dan referensi skema pengaturan (JSON Schema) yang juga bisa diba
 | Dokumen (Panel 3)                            | [dokumen.md](dokumen.md)                                                  |
 | Alat: terminal, Git, browser, info sesi, log | [alat.md](alat.md)                                                        |
 | Memori dan skill                             | [memori-dan-skill.md](memori-dan-skill.md)                                |
+| Tampilan dan tema                            | [tampilan.md](tampilan.md)                                                |
 | Pengaturan (dihasilkan dari skema)           | [settings.md](settings.md) · [settings.schema.json](settings.schema.json) |
 
 Dokumen teknis fitur ada di `docs/features/`; keputusan arsitektur di `docs/decisions/`.

@@ -29,7 +29,6 @@ function SessionMemory({ sessionId, projectPath }: { sessionId: string; projectP
   const { memory } = useServices();
   const state = useMemory();
   const [key, setKey] = useState<string | null>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: sekali per sesi/project
   useEffect(() => {
     void memory.loadSettings();
     let live = true;

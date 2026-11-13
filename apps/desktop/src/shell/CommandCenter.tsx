@@ -2,10 +2,18 @@
 import { type CommandDef, formatCombo, type Logger, searchCommands } from "@zandor/core";
 import type { MessageKey } from "@zandor/i18n";
 import { useI18n } from "@zandor/i18n/react";
-import { Dialog, Palette, type PaletteItem, stepScale, useShortcut, useShortcutRegistry } from "@zandor/ui";
+import {
+  Dialog,
+  Palette,
+  type PaletteItem,
+  stepScale,
+  useShortcut,
+  useShortcutList,
+  useShortcutRegistry,
+} from "@zandor/ui";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { build } from "../build";
-import { useCommandList, useServices, useWindowApi } from "./services";
+import { useAppearance, useCommandList, useServices, useWindowApi } from "./services";
 
 type CommandCenterValue = { openPalette: () => void };
 const CommandCenterContext = createContext<CommandCenterValue | null>(null);
@@ -54,6 +62,13 @@ export function CommandCenter({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
+  const registry = useShortcutRegistry();
+  const bindings = useShortcutList(); // render ulang saat pintasan diubah (palet menampilkan combo efektif)
+  const appearance = useAppearance();
+  // Override pintasan dari halaman Tampilan (bentrok ditolak registry dan jatuh ke combo bawaan).
+  useEffect(() => {
+    registry.applyOverrides(appearance.shortcuts);
+  }, [registry, appearance.shortcuts]);
 
   const openPalette = useCallback(() => {
     setQuery("");
@@ -72,6 +87,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
       },
       { id: "app.providers", titleKey: "cmd.providers", group: "app", run: () => nav.push("/providers") },
       { id: "app.memory", titleKey: "cmd.memory", group: "app", run: () => nav.push("/memory") },
+      { id: "app.appearance", titleKey: "cmd.appearance", group: "app", run: () => nav.push("/appearance") },
       { id: "app.goHome", titleKey: "cmd.goHome", group: "app", run: () => nav.push("/") },
       {
         id: "nav.back",
@@ -169,11 +185,14 @@ export function CommandCenter({ children }: { children: ReactNode }) {
       id: h.command.id,
       label: h.title,
       group: t(`group.${h.command.group}` as MessageKey),
-      shortcut: h.command.shortcut ? formatCombo(h.command.shortcut) : undefined,
+      shortcut: h.command.shortcut
+        ? ((bindings.some((x) => x.id === `cmd:${h.command.id}`) ? registry.comboOf(`cmd:${h.command.id}`) : null) ??
+          formatCombo(h.command.shortcut))
+        : undefined,
       disabled: !h.enabled,
       matchIndices: h.match.indices,
     }));
-  }, [paletteOpen, list, query, translate, t]);
+  }, [paletteOpen, list, query, translate, t, bindings, registry.comboOf]);
 
   return (
     <CommandCenterContext.Provider value={{ openPalette }}>

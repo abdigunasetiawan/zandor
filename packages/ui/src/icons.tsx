@@ -28,9 +28,11 @@ import {
   PanelLeft,
   PanelRight,
   Paperclip,
+  Pencil,
   Pin,
   Plus,
   RotateCw,
+  Save,
   Search,
   Settings,
   Square,
@@ -84,6 +86,8 @@ export const InfoIcon = icon(Info, "InfoIcon");
 export const ListIcon = icon(List, "ListIcon");
 export const SettingsIcon = icon(Settings, "SettingsIcon");
 export const BrainIcon = icon(Brain, "BrainIcon");
+export const EditIcon = icon(Pencil, "EditIcon");
+export const SaveIcon = icon(Save, "SaveIcon");
 export const FolderIcon = icon(Folder, "FolderIcon");
 export const FolderOpenIcon = icon(FolderOpen, "FolderOpenIcon");
 export const FileIcon = icon(File, "FileIcon");

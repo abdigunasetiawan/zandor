@@ -131,6 +131,8 @@ export type DispatchContext = { scopes: string[]; inInput: boolean };
 
 export class ShortcutRegistry {
   private bindings = new Map<string, { binding: ShortcutBinding; combo: Combo }>();
+  /** id binding → combo pilihan pengguna (menggantikan combo bawaan). */
+  private overrides = new Map<string, string>();
   private listeners = new Set<() => void>();
   private snapshot: ShortcutBinding[] = [];
 
@@ -150,7 +152,19 @@ export class ShortcutRegistry {
   /** Daftarkan binding. Melempar bila id ganda atau combo yang sama sudah dipakai di scope yang sama. */
   register(binding: ShortcutBinding): () => void {
     if (this.bindings.has(binding.id)) throw new Error(`id shortcut ganda: ${binding.id}`);
-    const combo = parseCombo(binding.combo);
+    const own = this.overrides.get(binding.id);
+    let combo = parseCombo(binding.combo);
+    if (own) {
+      try {
+        const o = parseCombo(own);
+        const taken = [...this.bindings.values()].some(
+          (b) => b.binding.scope === binding.scope && comboId(b.combo) === comboId(o),
+        );
+        if (!taken) combo = o;
+      } catch {
+        // override rusak: pakai combo bawaan
+      }
+    }
     const clash = [...this.bindings.values()].find(
       (b) => b.binding.scope === binding.scope && comboId(b.combo) === comboId(combo),
     );
@@ -185,6 +199,60 @@ export class ShortcutRegistry {
       }
     }
     return null;
+  }
+
+  /** Combo yang berlaku untuk id (override pengguna bila ada), atau null. */
+  comboOf(id: string): string | null {
+    const b = this.bindings.get(id);
+    return b ? formatCombo(b.combo) : null;
+  }
+
+  /** Combo bawaan dari kode untuk id, atau null. */
+  defaultComboOf(id: string): string | null {
+    const b = this.bindings.get(id);
+    return b ? formatCombo(b.binding.combo) : null;
+  }
+
+  /**
+   * Ubah combo satu binding (`null` = kembali ke bawaan). Mengembalikan pesan galat (format salah / bentrok dengan
+   * binding lain di scope yang sama) atau null bila berhasil.
+   */
+  setOverride(id: string, combo: string | null): string | null {
+    const target = this.bindings.get(id);
+    if (!target) return `shortcut tidak dikenal: ${id}`;
+    let next: Combo;
+    try {
+      next = parseCombo(combo ?? target.binding.combo);
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+    const clash = [...this.bindings.entries()].find(
+      ([otherId, o]) =>
+        otherId !== id && o.binding.scope === target.binding.scope && comboId(o.combo) === comboId(next),
+    );
+    if (clash) return `bentrok: ${formatCombo(next)} sudah dipakai ${clash[0]} di scope "${target.binding.scope}"`;
+    if (combo === null) this.overrides.delete(id);
+    else this.overrides.set(id, combo);
+    target.combo = next;
+    this.changed();
+    return null;
+  }
+
+  /** Terapkan seluruh override tersimpan (mengganti yang lama). Mengembalikan galat per id yang ditolak. */
+  applyOverrides(map: Record<string, string>): Record<string, string> {
+    const errors: Record<string, string> = {};
+    for (const id of [...this.overrides.keys()]) {
+      if (id in map) continue;
+      if (this.bindings.has(id)) this.setOverride(id, null);
+      else this.overrides.delete(id);
+    }
+    for (const [id, combo] of Object.entries(map)) {
+      if (this.bindings.has(id)) {
+        const err = this.setOverride(id, combo);
+        if (err) errors[id] = err;
+      } else this.overrides.set(id, combo); // dipasang saat binding terdaftar
+    }
+    return errors;
   }
 
   /** Jalankan binding yang cocok. true bila ada yang ditangani (pemanggil sebaiknya preventDefault). */

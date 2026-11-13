@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import { makePdf, makePng, SAMPLE_MD } from "../e2e/fixtures";
 
 const exe = process.argv[2];
@@ -55,6 +55,29 @@ const check = (name: string, pass: boolean, detail = "") => {
   console.log(`${pass ? "OK   " : "GAGAL"} ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
+/**
+ * Model nyata kadang meminta beberapa izin berurutan (mis. external_directory lalu edit). Setujui kartu izin satu per
+ * satu sampai tool bertanda `completed` muncul (filter opsional). Gagal bila lewat batas waktu.
+ */
+async function approveUntilCompleted(page: Page, filter?: string | RegExp, timeoutMs = 180000) {
+  const done = filter
+    ? page.locator(".fold--tool[data-status='completed']").filter({ hasText: filter })
+    : page.locator(".fold--tool[data-status='completed']");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await done.count()) > 0) return;
+    const card = page.getByRole("alertdialog", { name: /Izin diperlukan/ }).first();
+    if ((await card.count()) > 0) {
+      await card
+        .getByRole("button", { name: "Izinkan sekali" })
+        .click({ timeout: 5000 })
+        .catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("tool call tidak selesai setelah semua izin disetujui");
+}
+
 let app: ChildProcess | undefined;
 
 // Project uji untuk Panel 3: folder sementara didaftarkan ke registry aplikasi, lalu registry asli dipulihkan di akhir.
@@ -79,6 +102,8 @@ for (const f of MEMORY_FILES) {
   }
 }
 let originalRegistry: string | null = null;
+// Fase 10: kustomisasi tampilan tersimpan di localStorage WebView aplikasi asli; dipulihkan di akhir.
+let originalAppearance: string | null = null;
 try {
   originalRegistry = readFileSync(registryFile, "utf8");
 } catch {
@@ -208,6 +233,40 @@ try {
     .getByText("export const nilai")
     .waitFor({ timeout: 30000 });
   check("Panel 3: kode tampil di Monaco (worker lokal, CSP)", true);
+  // Fase 11: edit berkas di Monaco → Ctrl+S menulis ke disk (atomik); perubahan dari luar terdeteksi sebagai konflik.
+  const kodePath = join(docDir, "kode.ts");
+  await docsPanel.getByRole("button", { name: "Edit berkas" }).click();
+  const editor = docsPanel.getByTestId("monaco");
+  await editor.locator(".view-lines").click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.type("// diedit dari Zandor");
+  await docsPanel.getByRole("button", { name: "Simpan (Ctrl+S)" }).waitFor({ timeout: 5000 });
+  await page.keyboard.press("Control+s");
+  await waitFor(
+    "kode.ts tersimpan di disk",
+    () => readFileSync(kodePath, "utf8"),
+    (v) => v.includes("// diedit dari Zandor"),
+    8000,
+  );
+  check(
+    "Panel 3: edit di Monaco + Ctrl+S menulis ke berkas asli di disk",
+    readFileSync(kodePath, "utf8").startsWith("export const nilai"),
+  );
+  await page.keyboard.type(" lagi");
+  writeFileSync(kodePath, "export const nilai: number = 99; // diubah program lain\n");
+  await page.keyboard.press("Control+s");
+  await page
+    .getByRole("alertdialog")
+    .getByText(/berubah di disk/)
+    .waitFor({ timeout: 8000 });
+  check("Panel 3: berkas yang diubah program lain terdeteksi (konflik) sebelum menimpa", true);
+  await page.getByRole("alertdialog").getByRole("button", { name: "Batal" }).click();
+  check(
+    "Panel 3: konflik dibatalkan → isi dari program lain tidak tertimpa",
+    readFileSync(kodePath, "utf8").includes("99"),
+  );
+  await docsPanel.getByRole("button", { name: "Selesai edit" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Buang perubahan" }).click();
   await page.locator('.tree__file[title="data.csv"]').click();
   await docsPanel.getByTestId("table").getByText("satu").waitFor({ timeout: 15000 });
   check("Panel 3: CSV menjadi tabel", true);
@@ -496,6 +555,76 @@ try {
   await page.getByRole("button", { name: "Kembali ke chat" }).click();
   await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).first().waitFor({ timeout: 10000 });
 
+  // 1b1e) Fase 10: kustomisasi tampilan di WebView asli (token CSS), editor shortcut, dan Open VSX lewat jaringan nyata.
+  originalAppearance = await page.evaluate(() => localStorage.getItem("zandor.appearance"));
+  await page.evaluate(() => {
+    window.location.hash = "#/appearance";
+  });
+  await page.getByRole("heading", { name: "Tampilan & Tema" }).waitFor({ timeout: 10000 });
+  await page.getByRole("button", { name: "Kembalikan semua ke default" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Kembalikan semua ke default" }).click();
+  await page.getByRole("listitem", { name: "Claude" }).getByRole("button", { name: "Pakai" }).click();
+  const bgVar = await waitFor(
+    "token --z-color-bg berubah",
+    () => page.evaluate(() => document.documentElement.style.getPropertyValue("--z-color-bg")),
+    (v) => v !== "",
+    5000,
+  );
+  const paintedBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  check(
+    "preset tema mengubah token dan warna latar yang benar-benar dilukis WebView asli",
+    paintedBg !== "" && bgVar !== "",
+    `${bgVar} → ${paintedBg}`,
+  );
+  await page.getByRole("tab", { name: "Pintasan" }).click();
+  await page.getByRole("button", { name: "Ubah cmd:app.openSettings" }).click();
+  await page.keyboard.press("Control+Alt+9");
+  await page.getByTestId("key-cmd:app.openSettings").getByText("Ctrl+Alt+9").waitFor({ timeout: 5000 });
+  check("editor shortcut: combo baru tampil dan tersimpan di WebView asli", true);
+  await page.getByRole("tab", { name: "Editor" }).click();
+  await page.getByText(/hanya tersedia di aplikasi desktop/).waitFor({ state: "detached", timeout: 3000 });
+  await page.getByRole("textbox", { name: "Cari tema di Open VSX" }).fill("dracula");
+  await page.getByRole("button", { name: "Cari", exact: true }).click();
+  const hit = page.getByRole("list", { name: "Hasil pencarian" }).getByRole("listitem").first();
+  const vsx = await Promise.race([
+    hit.waitFor({ timeout: 40000 }).then(() => "hasil" as const),
+    page
+      .getByRole("alert")
+      .first()
+      .waitFor({ timeout: 40000 })
+      .then(() => "galat" as const),
+  ]).catch(() => "timeout" as const);
+  if (vsx !== "hasil") {
+    console.log(
+      `      (info) Open VSX tidak terjangkau dari mesin ini (${vsx}): ${await page
+        .getByRole("alert")
+        .first()
+        .textContent()
+        .catch(() => "")}`,
+    );
+  } else {
+    check(
+      "Open VSX (jaringan nyata lewat Rust): pencarian tema mengembalikan hasil",
+      true,
+      (await hit.getAttribute("aria-label")) ?? "",
+    );
+    await hit.getByRole("button", { name: /^Pasang / }).click();
+    const installed = await waitFor(
+      "tema editor terpasang",
+      () =>
+        page.evaluate(() => JSON.parse(localStorage.getItem("zandor.appearance") ?? "{}").editorThemes?.length ?? 0),
+      (n) => n > 0,
+      60000,
+    ).catch(() => 0);
+    check(
+      "Open VSX: paket .vsix diunduh dan temanya terpasang (hanya JSON dibaca)",
+      installed > 0,
+      `${installed} tema`,
+    );
+  }
+  await page.getByRole("button", { name: "Kembali ke chat" }).click();
+  await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).first().waitFor({ timeout: 10000 });
+
   let providerHealthy = false;
   // 1b2) Provider (Fase 6): kunci di keychain, ping nyata lewat Rust. Hanya bila mesin ini punya koneksi terkonfigurasi.
   await page.evaluate(() => {
@@ -592,7 +721,7 @@ try {
     await card.waitFor({ timeout: 180000 });
     check("tool call tulis file meminta izin (kartu izin tampil)", true, (await card.textContent())?.slice(0, 60));
     await card.getByRole("button", { name: "Izinkan sekali" }).click();
-    await page.locator(".fold--tool[data-status='completed']").first().waitFor({ timeout: 180000 });
+    await approveUntilCompleted(page);
     check("setelah Izinkan sekali, tool call selesai dijalankan engine", true);
     await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
 
@@ -603,11 +732,7 @@ try {
     await bashCard.waitFor({ timeout: 180000 });
     check("tool shell (bash) meminta izin", true);
     await bashCard.getByRole("button", { name: "Izinkan sekali" }).click();
-    await page
-      .locator(".fold--tool[data-status='completed']")
-      .filter({ hasText: "bash" })
-      .first()
-      .waitFor({ timeout: 180000 });
+    await approveUntilCompleted(page, "bash");
     check("tool shell (bash) dijalankan setelah izin", true);
     await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
 
@@ -624,11 +749,7 @@ try {
       await webCard.waitFor({ timeout: 180000 });
       check("tool web (webfetch) meminta izin", true);
       await webCard.getByRole("button", { name: "Izinkan sekali" }).click();
-      await page
-        .locator(".fold--tool[data-status='completed']")
-        .filter({ hasText: /Pencarian web/ })
-        .first()
-        .waitFor({ timeout: 180000 });
+      await approveUntilCompleted(page, /Pencarian web/);
       check("tool web (webfetch) dijalankan setelah izin", true);
       await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
     } finally {
@@ -740,6 +861,10 @@ try {
   } catch {
     // diabaikan
   }
+  await second.page.evaluate((prev) => {
+    if (prev === null) localStorage.removeItem("zandor.appearance");
+    else localStorage.setItem("zandor.appearance", prev);
+  }, originalAppearance);
   await second.page.getByRole("button", { name: /^(Tutup jendela|Close window)$/ }).click();
   await waitFor(
     "proses keluar (kedua)",

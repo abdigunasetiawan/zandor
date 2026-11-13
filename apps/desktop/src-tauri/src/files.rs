@@ -127,6 +127,74 @@ pub fn read_limited(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("gagal membaca berkas: {e}"))
 }
 
+/// Batas teks yang boleh disimpan dari editor (UTF-8).
+pub const MAX_WRITE_BYTES: usize = 5 * 1024 * 1024;
+
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct FileStat {
+    pub size: u64,
+    /// ms sejak epoch
+    pub modified: u64,
+}
+
+pub fn stat(path: &Path) -> Result<FileStat, String> {
+    let m = std::fs::metadata(path).map_err(|e| format!("tidak bisa membaca berkas: {e}"))?;
+    if !m.is_file() {
+        return Err("bukan berkas".into());
+    }
+    let modified = m
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    Ok(FileStat {
+        size: m.len(),
+        modified,
+    })
+}
+
+/// Tulis ulang berkas teks yang SUDAH ada (tidak membuat berkas baru) secara atomik: tulis ke berkas sementara di folder
+/// yang sama lalu ganti. Bila `expected_modified` diberikan dan berkas di disk sudah berubah sejak dibaca, ditolak dengan
+/// awalan `KONFLIK:` supaya UI bisa menanyakan pengguna (tidak menimpa diam-diam). Berkas yang bisa dieksekusi dan
+/// berkas read-only ditolak. Mengembalikan waktu modifikasi baru.
+pub fn write_text(path: &Path, text: &str, expected_modified: Option<u64>) -> Result<u64, String> {
+    if text.len() > MAX_WRITE_BYTES {
+        return Err(format!(
+            "teks terlalu besar (maks {} MB)",
+            MAX_WRITE_BYTES / 1024 / 1024
+        ));
+    }
+    if is_executable_ext(path) {
+        return Err("berkas yang dapat dieksekusi tidak diedit dari Zandor".into());
+    }
+    let meta = std::fs::metadata(path).map_err(|e| format!("tidak bisa membaca berkas: {e}"))?;
+    if !meta.is_file() {
+        return Err("bukan berkas".into());
+    }
+    if meta.permissions().readonly() {
+        return Err("berkas bersifat read-only".into());
+    }
+    let current = stat(path)?;
+    if let Some(exp) = expected_modified {
+        if exp != current.modified {
+            return Err("KONFLIK: berkas berubah di disk sejak dibuka".into());
+        }
+    }
+    let dir = path.parent().ok_or("path tidak valid")?;
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("nama berkas tidak valid")?;
+    let tmp = dir.join(format!(".{name}.zandor-{}.tmp", std::process::id()));
+    std::fs::write(&tmp, text.as_bytes()).map_err(|e| format!("gagal menulis: {e}"))?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("gagal mengganti berkas: {e}"));
+    }
+    Ok(stat(path)?.modified)
+}
+
 pub fn is_executable_ext(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -201,6 +269,60 @@ mod tests {
         let (_b, root) = setup("size");
         assert!(read_limited(&root.join("a.txt"), 2).is_err());
         assert!(read_limited(&root.join("sub"), 1024).is_err());
+    }
+
+    #[test]
+    fn write_text_replaces_atomically_and_detects_conflicts() {
+        let (root, _) = setup("write");
+        let f = root.join("a.txt");
+        std::fs::write(&f, "lama").unwrap();
+        let before = stat(&f).unwrap();
+        // tanpa pemeriksaan
+        let m1 = write_text(&f, "baru\n", None).unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "baru\n");
+        assert!(m1 > 0);
+        // modifikasi sama → berhasil
+        let m2 = write_text(&f, "lagi", Some(m1)).unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "lagi");
+        // modifikasi usang → konflik, isi tidak berubah
+        let err = write_text(&f, "timpa", Some(before.modified.wrapping_add(12345))).unwrap_err();
+        assert!(err.starts_with("KONFLIK"), "{err}");
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "lagi");
+        let _ = m2;
+        // tidak ada sisa berkas sementara
+        let leftovers: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+    }
+
+    // Windows-first (ADR-027): set_readonly(false) hanya dipakai agar berkas uji bisa dihapus. TODO(port): unix → PermissionsExt.
+    #[allow(clippy::permissions_set_readonly_false)]
+    #[test]
+    fn write_text_refuses_missing_executable_readonly_and_huge() {
+        let (root, _) = setup("write2");
+        assert!(write_text(&root.join("tidak-ada.txt"), "x", None).is_err());
+        let exe = root.join("a.bat");
+        std::fs::write(&exe, "echo").unwrap();
+        assert!(write_text(&exe, "x", None)
+            .unwrap_err()
+            .contains("dieksekusi"));
+        let ro = root.join("ro.txt");
+        std::fs::write(&ro, "x").unwrap();
+        let mut perm = std::fs::metadata(&ro).unwrap().permissions();
+        perm.set_readonly(true);
+        std::fs::set_permissions(&ro, perm.clone()).unwrap();
+        assert!(write_text(&ro, "y", None)
+            .unwrap_err()
+            .contains("read-only"));
+        perm.set_readonly(false);
+        std::fs::set_permissions(&ro, perm).unwrap();
+        let big = root.join("big.txt");
+        std::fs::write(&big, "x").unwrap();
+        assert!(write_text(&big, &"x".repeat(MAX_WRITE_BYTES + 1), None).is_err());
+        assert!(write_text(&root, "x", None).is_err()); // direktori
     }
 
     #[test]

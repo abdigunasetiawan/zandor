@@ -1,11 +1,31 @@
 // Tab dokumen Panel 3 (Fase 7). State tab (metadata) bersifat reaktif; isi berkas (byte) disimpan di luar state dan
 // diambil lewat `content(id)`. Hanya beberapa tab terakhir menyimpan isi di memori; sisanya dimuat ulang saat dibuka.
-import { classify, type DocKind, type DocMode, defaultMode, fileName, hasRawMode } from "./kinds";
+import {
+  classify,
+  type DocKind,
+  type DocMode,
+  decodeText,
+  defaultMode,
+  fileName,
+  hasRawMode,
+  isTextKind,
+} from "./kinds";
 
 export type FileSource = {
   /** Byte persis berkas `path` (relatif) di dalam `root`. Menolak dengan pesan jelas bila gagal. */
   read(root: string, path: string): Promise<Uint8Array>;
+  /** Ukuran + waktu modifikasi (ms). Opsional: dipakai mendeteksi perubahan di disk sebelum menyimpan. */
+  stat?(root: string, path: string): Promise<{ size: number; modified: number }>;
+  /**
+   * Simpan teks UTF-8 ke berkas yang sudah ada. `expectedModified` ≠ waktu di disk → menolak dengan pesan berawalan
+   * `KONFLIK:`. Mengembalikan waktu modifikasi baru. Opsional: tanpa ini editor tidak tersedia (mis. build web).
+   */
+  write?(root: string, path: string, text: string, expectedModified: number | null): Promise<number>;
 };
+
+/** Alasan berkas tidak bisa diedit (kunci i18n `doc.noEdit.*` di UI), atau null bila bisa. */
+export type EditBlock = "noWrite" | "kind" | "notLoaded" | "encoding" | "truncated" | "binary";
+export type SaveResult = "saved" | "conflict" | { error: string };
 
 export type DocTab = {
   id: string;
@@ -21,6 +41,10 @@ export type DocTab = {
   version: number;
   mode: DocMode;
   wrap: boolean;
+  /** Waktu modifikasi di disk saat terakhir dibaca/disimpan (ms), bila host mendukung. */
+  modified: number | null;
+  editing: boolean;
+  dirty: boolean;
 };
 
 export type DocsState = { tabs: DocTab[]; activeId: string | null };
@@ -114,6 +138,9 @@ export class DocStore {
         version: 0,
         mode: t.mode === "render" || t.mode === "raw" ? t.mode : defaultMode(kind),
         wrap: t.wrap === true,
+        modified: null,
+        editing: false,
+        dirty: false,
       });
     }
     const activeId = tabs.some((t) => t.id === data.active) ? data.active : (tabs.at(-1)?.id ?? null);
@@ -143,6 +170,9 @@ export class DocStore {
       version: 0,
       mode: defaultMode(kind),
       wrap: false,
+      modified: null,
+      editing: false,
+      dirty: false,
     };
     let tabs = [...this.snap.tabs, tab];
     if (tabs.length > this.maxTabs) {
@@ -194,6 +224,66 @@ export class DocStore {
     this.patchTab(id, (x) => ({ ...x, wrap: !x.wrap }));
   }
 
+  /** Apakah tab ini bisa diedit sekarang? null = bisa. */
+  editBlock(id: string): EditBlock | null {
+    const tab = this.snap.tabs.find((t) => t.id === id);
+    const bytes = this.cache.get(id);
+    if (!this.options.source.write) return "noWrite";
+    if (tab?.status !== "ready" || !bytes) return "notLoaded";
+    if (!isTextKind(tab.kind)) return "kind";
+    const d = decodeText(bytes);
+    if (d.truncated) return "truncated";
+    if (d.encoding !== "utf-8") return "encoding";
+    if (bytes.includes(0)) return "binary";
+    if (d.text.includes("\uFFFD")) return "encoding";
+    return null;
+  }
+
+  /** Mulai mengedit (beralih ke tampilan mentah bila perlu). Mengembalikan alasan penolakan atau null. */
+  beginEdit(id: string): EditBlock | null {
+    const block = this.editBlock(id);
+    if (block) return block;
+    const tab = this.snap.tabs.find((t) => t.id === id);
+    if (!tab) return "notLoaded";
+    this.patchTab(id, (t) => ({ ...t, editing: true, mode: hasRawMode(t.kind) ? "raw" : t.mode }));
+    return null;
+  }
+
+  markDirty(id: string, dirty: boolean) {
+    const t = this.snap.tabs.find((x) => x.id === id);
+    if (t && t.dirty !== dirty) this.patchTab(id, (x) => ({ ...x, dirty }));
+  }
+
+  /** Selesai mengedit tanpa menyimpan (pemanggil sudah mengonfirmasi). Isi di editor dimuat ulang dari cache. */
+  endEdit(id: string) {
+    this.patchTab(id, (x) => ({ ...x, editing: false, dirty: false, version: x.version + 1 }));
+  }
+
+  anyDirty(): boolean {
+    return this.snap.tabs.some((t) => t.dirty);
+  }
+
+  /** Simpan teks hasil edit. `force` menimpa walau berkas berubah di disk. */
+  async save(id: string, text: string, force = false): Promise<SaveResult> {
+    const tab = this.snap.tabs.find((t) => t.id === id);
+    const write = this.options.source.write;
+    if (!tab || !write) return { error: "penyimpanan tidak tersedia" };
+    const old = this.cache.get(id);
+    const bom = old ? decodeText(old).bom : false;
+    try {
+      // BOM UTF-8 asli dipertahankan: host menulis string apa adanya, jadi BOM ikut sebagai karakter U+FEFF.
+      const out = bom ? `﻿${text}` : text;
+      const modified = await write.call(this.options.source, tab.root, tab.path, out, force ? null : tab.modified);
+      const bytes = new TextEncoder().encode(out);
+      this.remember(id, bytes);
+      this.patchTab(id, (t) => ({ ...t, size: bytes.length, modified, dirty: false, error: null }));
+      return "saved";
+    } catch (e) {
+      const msg = errMsg(e);
+      return msg.startsWith("KONFLIK") ? "conflict" : { error: msg };
+    }
+  }
+
   /** Byte isi tab (null bila belum dimuat/sudah dibuang dari cache). */
   content(id: string): Uint8Array | null {
     return this.cache.get(id) ?? null;
@@ -227,6 +317,8 @@ export class DocStore {
     try {
       const bytes = await this.options.source.read(tab.root, tab.path);
       if (this.seq.get(id) !== n || !this.snap.tabs.some((t) => t.id === id)) return;
+      const stat = await this.options.source.stat?.(tab.root, tab.path).catch(() => null);
+      if (this.seq.get(id) !== n || !this.snap.tabs.some((t) => t.id === id)) return;
       this.remember(id, bytes);
       this.patchTab(id, (t) => ({
         ...t,
@@ -235,6 +327,8 @@ export class DocStore {
         size: bytes.length,
         kind: classify(t.path, bytes),
         version: t.version + 1,
+        modified: stat?.modified ?? null,
+        dirty: false,
       }));
     } catch (e) {
       if (this.seq.get(id) !== n || !this.snap.tabs.some((t) => t.id === id)) return;

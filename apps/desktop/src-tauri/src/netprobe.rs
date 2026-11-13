@@ -29,9 +29,16 @@ pub struct LocalFound {
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
+    // Hanya fitur `native-tls` yang aktif: penyedia TLS dipilih eksplisit. Tanpa ini ureq memakai Rustls dan panik pada
+    // endpoint https (provider cloud); endpoint http lokal tidak terpengaruh.
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
+        .tls_config(
+            ureq::tls::TlsConfig::builder()
+                .provider(ureq::tls::TlsProvider::NativeTls)
+                .build(),
+        )
         .build()
         .into()
 }
@@ -224,6 +231,14 @@ pub fn detect_local() -> Vec<LocalFound> {
 
 #[cfg(test)]
 mod tests {
+    /// Jaringan nyata: `cargo test --lib netprobe -- --ignored`. Endpoint https tidak boleh panik.
+    #[test]
+    #[ignore = "butuh internet"]
+    fn https_endpoint_is_probed_without_panicking() {
+        let r = probe("https://open-vsx.org/api", None, Duration::from_secs(20));
+        assert!(r.status.is_some(), "tidak ada status HTTP: {:?}", r.error);
+    }
+
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;

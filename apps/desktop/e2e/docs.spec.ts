@@ -194,10 +194,10 @@ test("audio dan video: elemen media memuat metadata", async ({ page }) => {
   await expect.poll(() => video.evaluate((el) => (el as HTMLVideoElement).videoWidth), { timeout: 15_000 }).toBe(64);
 });
 
-test("format tanpa penampil (DOCX) dan biner: pesan jelas, bukan layar kosong", async ({ page }) => {
-  await openFiles(page, { "laporan.docx": "PK\u0003\u0004isi", "x.dat": new Uint8Array([1, 0, 2, 0, 3]) });
-  await openDoc(page, "laporan.docx");
-  await expect(docs(page).getByText(/laporan\.docx tidak punya penampil/)).toBeVisible({ timeout: 15_000 });
+test("format tanpa penampil (DOC lama) dan biner: pesan jelas, bukan layar kosong", async ({ page }) => {
+  await openFiles(page, { "laporan.doc": "isi lama", "x.dat": new Uint8Array([1, 0, 2, 0, 3]) });
+  await openDoc(page, "laporan.doc");
+  await expect(docs(page).getByText(/laporan\.doc tidak punya penampil/)).toBeVisible({ timeout: 15_000 });
   await openDoc(page, "x.dat");
   await expect(docs(page).getByText(/x\.dat tidak punya penampil/)).toBeVisible();
 });

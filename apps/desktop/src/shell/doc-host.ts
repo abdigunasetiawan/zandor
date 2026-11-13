@@ -53,6 +53,14 @@ export async function loadDocHost(getApi: () => EngineApi | null): Promise<DocHo
         const buf = await invoke<ArrayBuffer>("fs_read", { root, path });
         return new Uint8Array(buf);
       },
+      stat: (root, path) => invoke<{ size: number; modified: number }>("fs_stat", { root, path }),
+      async write(root, path, text, expectedModified) {
+        try {
+          return await invoke<number>("fs_write", { root, path, text, expectedModified });
+        } catch (e) {
+          throw new Error(String(e)); // invoke menolak dengan string; jadikan Error agar awalan KONFLIK terbaca
+        }
+      },
     },
     async saveCopy(root, path, name) {
       const { save } = await import("@tauri-apps/plugin-dialog");

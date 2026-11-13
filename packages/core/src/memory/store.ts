@@ -327,7 +327,7 @@ export class MemoryStore {
   /** Setujui draf: validasi ulang → tulis SKILL.md → tandai approved. Mengembalikan galat atau null. */
   async approve(id: string, scope: MemoryScope, projectPath: string | null): Promise<string | null> {
     const entry = parseQueue(await this.host.read(FILE_QUEUE)).find((e) => e.id === id);
-    if (!entry || entry.status !== "pending") return "Draf tidak ditemukan atau belum siap disetujui.";
+    if (entry?.status !== "pending") return "Draf tidak ditemukan atau belum siap disetujui.";
     const draft = { name: entry.name ?? "", description: entry.description ?? "", body: entry.body ?? "" };
     const err = validateSkillDraft(draft);
     if (err) return err;

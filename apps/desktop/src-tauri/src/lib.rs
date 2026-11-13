@@ -6,6 +6,7 @@ mod files;
 mod git;
 mod memory;
 mod netprobe;
+mod openvsx;
 mod providers;
 mod registry;
 mod secrets;
@@ -172,6 +173,23 @@ fn open_external(url: String) -> Result<(), String> {
     }
 }
 
+// ---------- Tema editor dari Open VSX (Fase 10) ----------
+
+#[tauri::command]
+async fn openvsx_search(query: String) -> Result<Vec<openvsx::OvsxItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || openvsx::search_themes(&query))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn openvsx_download(url: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || openvsx::download_vsix(&url))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
 // ---------- Memori dan skill (Fase 9) ----------
 
 fn memory_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -277,6 +295,24 @@ fn fs_read(
         &file,
         files::MAX_READ_BYTES,
     )?))
+}
+
+/// Ukuran dan waktu modifikasi berkas (untuk mendeteksi perubahan di luar Zandor sebelum menyimpan).
+#[tauri::command]
+fn fs_stat(app: tauri::AppHandle, root: String, path: String) -> Result<files::FileStat, String> {
+    files::stat(&resolve_file(&app, &root, &path)?)
+}
+
+/// Simpan teks ke berkas project yang sudah ada (atomik). `expected_modified` mendeteksi perubahan di disk.
+#[tauri::command]
+fn fs_write(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text: String,
+    expected_modified: Option<u64>,
+) -> Result<u64, String> {
+    files::write_text(&resolve_file(&app, &root, &path)?, &text, expected_modified)
 }
 
 /// Salin berkas project ke lokasi yang dipilih pengguna lewat dialog "Simpan sebagai".
@@ -463,6 +499,8 @@ pub fn run() {
             provider_ping,
             providers_detect_local,
             open_external,
+            openvsx_search,
+            openvsx_download,
             memory_list,
             memory_read,
             memory_write,
@@ -472,6 +510,8 @@ pub fn run() {
             skill_write,
             skill_delete,
             fs_read,
+            fs_stat,
+            fs_write,
             fs_copy_to,
             fs_open_external,
             git_status,

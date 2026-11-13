@@ -35,7 +35,7 @@ import {
 import { type FormEvent, useMemo, useState } from "react";
 import { build } from "../build";
 import { FilesTree } from "./FilesTree";
-import { useEngineState, useProjects, useServices } from "./services";
+import { useAppearance, useEngineState, useProjects, useServices } from "./services";
 
 type RenameTarget =
   | { kind: "project"; id: string; value: string }
@@ -152,6 +152,7 @@ function SessionsList({ query }: { query: string }) {
   const { t } = useI18n();
   const { projects: store } = useServices();
   const state = useProjects();
+  const appearance = useAppearance();
   const confirm = useConfirm();
   const fail = useErrorToast();
   const [collapsed, setCollapsed] = useState<Set<ProjectKey>>(new Set());
@@ -216,6 +217,7 @@ function SessionsList({ query }: { query: string }) {
           if (q && items.length === 0) return null;
           const open = q ? true : !collapsed.has(key);
           const label = project ? project.name : t("sb.chatGroup");
+          const pstyle = project ? appearance.projects[project.id] : undefined;
           const refresh: MenuEntry = {
             type: "item",
             id: "refresh",
@@ -242,7 +244,19 @@ function SessionsList({ query }: { query: string }) {
               ]
             : [refresh];
           return (
-            <li key={key} className="tree__group">
+            <li
+              key={key}
+              className="tree__group"
+              data-styled={pstyle ? "" : undefined}
+              style={
+                pstyle
+                  ? ({
+                      "--z-project-border": pstyle.border,
+                      "--z-project-bg": pstyle.background,
+                    } as React.CSSProperties)
+                  : undefined
+              }
+            >
               <ContextMenu entries={entries} className="tree__row">
                 <button
                   type="button"
@@ -256,7 +270,15 @@ function SessionsList({ query }: { query: string }) {
                   }}
                 >
                   {open ? <ChevronDownIcon size="sm" /> : <ChevronRightIcon size="sm" />}
-                  {project ? <FolderIcon size="sm" /> : <ChatIcon size="sm" />}
+                  {pstyle?.logo ? (
+                    <span className="tree__logo" aria-hidden="true">
+                      {pstyle.logo}
+                    </span>
+                  ) : project ? (
+                    <FolderIcon size="sm" />
+                  ) : (
+                    <ChatIcon size="sm" />
+                  )}
                   <span className="tree__label">{label}</span>
                 </button>
                 <IconButton

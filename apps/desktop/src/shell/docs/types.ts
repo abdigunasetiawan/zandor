@@ -12,4 +12,6 @@ export type ViewerProps = {
   tab: DocTab;
   bytes: Uint8Array;
   onHandle: (h: ViewerHandle | null) => void;
+  /** Pengguna menekan Ctrl+S di dalam editor. */
+  onSaveRequest?: () => void;
 };
