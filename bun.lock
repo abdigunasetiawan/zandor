@@ -40,6 +40,9 @@
     "packages/core": {
       "name": "@zandor/core",
       "version": "0.0.0",
+      "dependencies": {
+        "@opencode-ai/sdk": "1.19.5",
+      },
     },
     "packages/i18n": {
       "name": "@zandor/i18n",
