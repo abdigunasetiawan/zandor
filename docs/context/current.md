@@ -11,7 +11,8 @@
 - **Fase 4 — Engine & Project:** lulus (CI hijau).
 - **Fase 5 — Chat Inti:** lulus (CI hijau), pelengkap selesai.
 - **Fase 6 — Provider & Model:** selesai dengan batasan (CI hijau).
-- **Fase aktif: Fase 7 — Panel 3 Viewer Dokumen** (selesai di lokal; belum di-push).
+- **Fase 7 — Panel 3 Viewer Dokumen:** selesai (CI hijau).
+- **Fase aktif: Fase 8 — Panel 4 Tools** (selesai di lokal; belum di-push).
 
 ## Checklist Fase 1
 
@@ -95,3 +96,14 @@
 - [x] Tes: 439 unit, 75 e2e (15 dokumen + snapshot ARIA), 36 Rust, smoke native 22/22
 - [ ] Belum: edit berkas, teks/seleksi PDF, DOCX/XLSX/PPTX/ipynb (Fase 11), pewarnaan kode di Markdown
 - Catatan: `elkjs` (EPL/GPL) di-stub; Mermaid memakai dagre. `dist` ±17 MB.
+
+## Fase 8 — Panel 4 Tools: selesai di lokal (belum di-push)
+
+- [x] Terminal xterm + PTY engine, multi-tab per project, dipulihkan setelah muat ulang, sambung ulang
+- [x] Git (status, diff, stage, commit, cabang, log) via git CLI aman di Rust
+- [x] Browser child webview (http/https, bounds mengikuti panel, sembunyi saat overlay, tanpa IPC untuk konten remote)
+- [x] Info sesi (token, konteks, biaya bila dilaporkan, tool call) dan Log aktivitas (ring buffer, filter)
+- [x] Tes: 466 unit, 95 e2e, 45 Rust, smoke native 30/30 (terminal & git nyata, browser, isolasi IPC)
+- [ ] Belum: airspace diuji otomatis, tab browser, Git lanjutan (push/pull/stash/discard), Git Bash di terminal
+- [ ] **MVP belum dinyatakan selesai**: periksa PRD §13 butir demi butir sebelum versi 0.1.0
+- Temuan: perintah Tauri yang membuat webview wajib `async` (jika tidak, child webview macet di about:blank).

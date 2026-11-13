@@ -287,3 +287,25 @@ describe("ActivityLog", () => {
     expect(log.list()[0]?.message).toHaveLength(500);
   });
 });
+
+describe("normalizeBrowserUrl", () => {
+  test("tanpa skema → https; skema selain http/https dan URL rusak ditolak", async () => {
+    const { normalizeBrowserUrl } = await import("./browser");
+    expect(normalizeBrowserUrl("example.com")).toEqual({ ok: true, url: "https://example.com/" });
+    expect(normalizeBrowserUrl(" http://localhost:3000/x ")).toEqual({ ok: true, url: "http://localhost:3000/x" });
+    for (const bad of [
+      "",
+      "   ",
+      "javascript:alert(1)",
+      "file:///C:/x",
+      "data:text/html,x",
+      "ftp://x.y",
+      "tauri://localhost",
+      "https://",
+      "http://:80/",
+    ]) {
+      expect(normalizeBrowserUrl(bad).ok, bad).toBe(false);
+    }
+    expect(normalizeBrowserUrl("a".repeat(5000)).ok).toBe(false);
+  });
+});

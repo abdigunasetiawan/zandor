@@ -129,9 +129,15 @@ export function createPtyClient(
       const dataCbs: Array<(c: string | Uint8Array) => void> = [];
       const cursorCbs: Array<(n: number) => void> = [];
       const closeCbs: Array<() => void> = [];
+      // Engine memutar ulang riwayat segera setelah tersambung: tampung sampai ada penerima, agar tidak hilang.
+      const pendingData: Array<string | Uint8Array> = [];
+      const emitData = (c: string | Uint8Array) => {
+        if (dataCbs.length === 0) pendingData.push(c);
+        else for (const cb of dataCbs) cb(c);
+      };
       ws.onmessage = (m) => {
         if (typeof m.data === "string") {
-          for (const cb of dataCbs) cb(m.data);
+          emitData(m.data);
           return;
         }
         const u = new Uint8Array(m.data as ArrayBuffer);
@@ -144,7 +150,7 @@ export function createPtyClient(
           }
           return;
         }
-        for (const cb of dataCbs) cb(u);
+        emitData(u);
       };
       ws.onclose = () => {
         for (const cb of closeCbs) cb();
@@ -157,7 +163,10 @@ export function createPtyClient(
         send: (d) => {
           if (ws.readyState === 1) ws.send(d);
         },
-        onData: (cb) => void dataCbs.push(cb),
+        onData: (cb) => {
+          dataCbs.push(cb);
+          for (const c of pendingData.splice(0)) cb(c);
+        },
         onCursor: (cb) => void cursorCbs.push(cb),
         onClose: (cb) => void closeCbs.push(cb),
         close: () => ws.close(),

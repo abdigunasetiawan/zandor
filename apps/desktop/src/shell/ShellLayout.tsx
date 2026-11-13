@@ -20,6 +20,11 @@ import { ChatPanel } from "./ChatPanel";
 import { DocPanel } from "./docs/DocPanel";
 import { Sidebar } from "./Sidebar";
 import { PANEL_IDS, type PanelId, TOOL_IDS, type ToolId, usePanelState, useServices, useSetting } from "./services";
+import { ActivityPanel } from "./tools/ActivityPanel";
+import { BrowserPanel } from "./tools/BrowserPanel";
+import { GitPanel } from "./tools/GitPanel";
+import { InfoPanel } from "./tools/InfoPanel";
+import { TerminalPanel } from "./tools/TerminalPanel";
 
 type PanelDef = { id: PanelId; minRem: number; collapsible: boolean; priority: number; defaultSize: string };
 
@@ -272,6 +277,20 @@ export function ShellLayout() {
   );
 
   const toolLabel = (tool: ToolId) => t(`tools.${tool}` as never);
+  const toolContent = (tool: ToolId): ReactNode => {
+    switch (tool) {
+      case "terminal":
+        return <TerminalPanel />;
+      case "git":
+        return <GitPanel />;
+      case "browser":
+        return <BrowserPanel />;
+      case "info":
+        return <InfoPanel />;
+      case "log":
+        return <ActivityPanel />;
+    }
+  };
 
   return (
     <div className="shell-body">
@@ -348,7 +367,7 @@ export function ShellLayout() {
                 items={TOOL_IDS.map((tool) => ({
                   value: tool,
                   label: toolLabel(tool),
-                  content: <PanelEmpty title={toolLabel(tool)} body={t("empty.p4.body", { tool: toolLabel(tool) })} />,
+                  content: toolContent(tool),
                 }))}
               />,
             )}

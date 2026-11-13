@@ -32,7 +32,7 @@ export function hashToPath(hash: string): string {
 
 /** Terapkan pengaturan ke DOM (tema, skala, bahasa) dan sinkronkan riwayat navigasi dengan hash URL. */
 function Effects() {
-  const { nav, host, connection, projects, chat, providers, docs, logger } = useServices();
+  const { nav, host, connection, projects, chat, providers, docs, terminals, activity, logger } = useServices();
   const settings = useSettings();
   const { current } = useNavState();
 
@@ -54,11 +54,19 @@ function Effects() {
     const apply = (raw: RawEngineSnapshot) => {
       if (!alive) return;
       const state = fromSnapshot(raw);
+      if (connection.state().status !== state.status) {
+        activity.add(
+          "engine",
+          state.status === "error" ? "error" : "info",
+          `engine ${state.status}${state.version ? ` ${state.version}` : ""}${state.error ? `: ${state.error}` : ""}`,
+        );
+      }
       connection.set(state);
       const api = state.info ? createEngineApi(state.info) : null;
       projects.setApi(api);
       chat.setApi(api);
       providers.setApi(api);
+      terminals.setClient(api ? api.pty : null);
       // tab dokumen dipulihkan setelah engine siap; di Tauri membaca lewat Rust sehingga tidak butuh engine
       if (api || host.native) docs.restore();
     };
@@ -80,7 +88,7 @@ function Effects() {
       alive = false;
       stop?.();
     };
-  }, [host, connection, projects, chat, providers, docs, logger]);
+  }, [host, connection, projects, chat, providers, docs, terminals, activity, logger]);
 
   useEffect(() => {
     const onHash = () => nav.push(hashToPath(window.location.hash));

@@ -1,5 +1,6 @@
 //! Zandor desktop — titik masuk Tauri: engine opencode (sidecar), registry project, pemilih folder.
 
+mod browser;
 mod engine;
 mod files;
 mod git;
@@ -386,7 +387,15 @@ pub fn run() {
             git_branches,
             git_switch,
             git_create_branch,
-            git_log
+            git_log,
+            browser::browser_mode,
+            browser::browser_home,
+            browser::browser_open,
+            browser::browser_set_bounds,
+            browser::browser_visible,
+            browser::browser_navigate,
+            browser::browser_history,
+            browser::browser_close
         ])
         .build(tauri::generate_context!())
         .expect("gagal membangun Zandor");

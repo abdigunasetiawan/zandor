@@ -129,6 +129,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Log aktivitas: event agent dan event aplikasi.
 
 **Kriteria keluar: MVP selesai.** Kriteria sukses MVP di PRD §13 terpenuhi → versi `0.1.0` (alpha pribadi).
+**Status: fitur Fase 8 selesai di lokal (14-11-2026)** — terminal, Git, browser, info sesi, log aktivitas terbukti di aplikasi asli (smoke 30/30). Kriteria keluar "MVP selesai" **belum dinyatakan**: PRD §13 belum diperiksa butir demi butir. Lihat ADR-036 dan `docs/features/tools.md`.
 
 ---
 

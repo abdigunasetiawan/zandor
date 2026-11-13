@@ -19,6 +19,16 @@ export type MockEngine = {
   variants: Array<string | undefined>;
   /** Isi berkas project untuk /file dan /file/content (kunci = path relatif). */
   project: Map<string, { text?: string; base64?: string }>;
+  /** Terminal tiruan: PTY yang dibuat, input yang diterima, dan perubahan ukuran. */
+  pty: {
+    list: Array<{ id: string; title: string; command: string; cwd: string; status: "running" | "exited"; pid: number }>;
+    inputs: string[];
+    resizes: Array<{ id: string; cols: number; rows: number }>;
+    deleted: string[];
+    connects: number;
+    /** Akhiri shell: tandai exited dan tutup soket. */
+    exit(id: string): void;
+  };
   oauth: {
     authorizes: Array<{ id: string; method: number; inputs?: unknown }>;
     callbacks: Array<{ id: string; method: number; code?: string }>;
@@ -48,9 +58,23 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     files: [],
     variants: [],
     oauth: { authorizes: [], callbacks: [] },
+    pty: {
+      list: [],
+      inputs: [],
+      resizes: [],
+      deleted: [],
+      connects: 0,
+      exit: (id: string) => {
+        const p = state.pty.list.find((x) => x.id === id);
+        if (p) p.status = "exited";
+        sockets.get(id)?.close();
+      },
+    },
     project: new Map(),
   };
   const revertOf = new Map<string, string>();
+  const sockets = new Map<string, { close(): void }>();
+  const history = new Map<string, string>();
   const messages = new Map<string, Msg[]>();
   const queue: unknown[] = [];
   const permissions: Array<Record<string, unknown>> = [];
@@ -109,6 +133,8 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     const finish = () => {
       asst.info.time = { ...(asst.info.time as object), completed: ++clock } as never;
       asst.info.finish = "stop";
+      asst.info.tokens = { input: 1200, output: 80, reasoning: 0, total: 1280 };
+      asst.info.cost = 0.0042;
       emit("message.updated", { sessionID, info: asst.info });
       emit("session.status", { sessionID, status: { type: "idle" } });
     };
@@ -283,6 +309,49 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         headers: { ...cors, "content-type": "text/event-stream", "cache-control": "no-cache" },
         body: events.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""),
       });
+    }
+    if (p === "/pty/shells") {
+      return json([
+        {
+          path: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+          name: "powershell",
+          acceptable: true,
+        },
+        { path: "C:\\Windows\\System32\\cmd.exe", name: "cmd", acceptable: true },
+      ]);
+    }
+    if (p === "/pty" && req.method() === "GET") return json(state.pty.list.filter((x) => x.cwd === dir));
+    if (p === "/pty" && req.method() === "POST") {
+      const body = req.postDataJSON() ?? {};
+      const info = {
+        id: `pty_${++n}`,
+        title: body.title ?? "terminal",
+        command: body.command ?? "",
+        cwd: body.cwd ?? dir,
+        status: "running" as const,
+        pid: 1000 + n,
+      };
+      state.pty.list.push(info);
+      return json(info);
+    }
+    const ptyM = p.match(/^\/pty\/([^/]+)(?:\/(connect-token))?$/);
+    if (ptyM?.[1]) {
+      const pid = decodeURIComponent(ptyM[1]);
+      if (ptyM[2] === "connect-token" && req.method() === "POST") {
+        if (req.headers()["x-opencode-ticket"] !== "1") return json({ message: "tiket butuh header" }, 400);
+        return json({ ticket: `tk_${pid}` });
+      }
+      if (req.method() === "PUT") {
+        const sz = req.postDataJSON()?.size ?? {};
+        state.pty.resizes.push({ id: pid, cols: sz.cols, rows: sz.rows });
+        return json(true);
+      }
+      if (req.method() === "DELETE") {
+        state.pty.deleted.push(pid);
+        state.pty.list = state.pty.list.filter((x) => x.id !== pid);
+        sockets.get(pid)?.close();
+        return json(true);
+      }
     }
     if (p === "/permission" && req.method() === "GET") return json(permissions);
     const perm = p.match(/^\/permission\/([^/]+)\/reply$/);
@@ -476,6 +545,34 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
       return json(tree[path] ?? []);
     }
     return json({ message: `tidak ditangani: ${req.method()} ${p}` }, 404);
+  });
+  // WebSocket PTY tiruan: prompt, gema ketikan, "perintah" dijawab, riwayat diputar ulang saat tersambung lagi.
+  await page.routeWebSocket(/\/pty\/[^/?]+\/connect/, (ws) => {
+    const id = decodeURIComponent(new URL(ws.url()).pathname.split("/")[2] ?? "");
+    state.pty.connects++;
+    sockets.set(id, ws);
+    const prompt = "PS C:\\Work> ";
+    const hist = history.get(id) ?? prompt;
+    history.set(id, hist);
+    ws.send(hist);
+    let line = "";
+    ws.onMessage((m) => {
+      const data = String(m);
+      state.pty.inputs.push(data);
+      for (const ch of data) {
+        if (ch === "\r") {
+          const out = `\r\nhasil:${line}\r\n${prompt}`;
+          line = "";
+          history.set(id, (history.get(id) ?? "") + out);
+          ws.send(out);
+        } else {
+          line += ch;
+          history.set(id, (history.get(id) ?? "") + ch);
+          ws.send(ch);
+        }
+      }
+    });
+    ws.onClose(() => sockets.delete(id));
   });
   return state;
 }

@@ -189,3 +189,46 @@ describe("TerminalStore", () => {
     store.markExited("tidak-ada");
   });
 });
+
+describe("klien /pty: data sebelum penerima terpasang", () => {
+  test("output yang tiba segera setelah tersambung (replay riwayat) ditampung dan dikirim ke penerima pertama", async () => {
+    const fetchImpl = (async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ticket: "t" }),
+    })) as unknown as typeof fetch;
+    let ws: { onmessage: ((m: { data: unknown }) => void) | null; onopen: (() => void) | null } | null = null;
+    class W {
+      binaryType = "";
+      readyState = 1;
+      onmessage: ((m: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(public url: string) {
+        ws = this;
+        queueMicrotask(() => {
+          this.onopen?.();
+          this.onmessage?.({ data: "riwayat-1 " });
+          this.onmessage?.({ data: "riwayat-2" });
+        });
+      }
+      send() {}
+      close() {}
+    }
+    const c = createPtyClient(
+      { url: "http://x", username: "u", password: "p" },
+      fetchImpl,
+      W as unknown as new (
+        u: string,
+      ) => WebSocket,
+    );
+    const sock = await c.connect("C:p", "p1");
+    await new Promise((r) => setTimeout(r, 0)); // pesan tiba sebelum penerima ada
+    const got: string[] = [];
+    sock.onData((d) => got.push(String(d)));
+    expect(got).toEqual(["riwayat-1 ", "riwayat-2"]);
+    (ws as unknown as W).onmessage?.({ data: "baru" });
+    expect(got.at(-1)).toBe("baru");
+  });
+});

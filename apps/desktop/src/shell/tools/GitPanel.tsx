@@ -1,0 +1,267 @@
+// Panel 4 — Git: status, stage/unstage, diff, commit, cabang. Menjalankan `git` CLI lewat Rust di project terdaftar.
+import { CHAT_KEY, type FileChange, groupChanges, isUntracked } from "@zandor/core";
+import { useI18n } from "@zandor/i18n/react";
+import { Button, IconButton, Input, PlusIcon, RefreshIcon, Select, Spinner, useToast } from "@zandor/ui";
+import { type FormEvent, useEffect, useState } from "react";
+import { useGit, useProjects, useServices } from "../services";
+
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+function statusLabel(t: ReturnType<typeof useI18n>["t"], f: FileChange, staged: boolean): string {
+  if (isUntracked(f)) return t("git.s.?");
+  const c = staged ? f.index : f.worktree;
+  const known = ["M", "A", "D", "R", "C", "T", "U"];
+  return known.includes(c) ? t(`git.s.${c}` as never) : c;
+}
+
+function DiffText({ text }: { text: string }) {
+  return (
+    <pre className="fold__pre diff" data-testid="git-diff">
+      {text.split("\n").map((l, i) => {
+        const kind =
+          l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : "ctx";
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: baris diff statis, urutan tetap
+          <span key={i} className={`diff__line diff__line--${kind}`}>
+            {l}
+            {"\n"}
+          </span>
+        );
+      })}
+    </pre>
+  );
+}
+
+export function GitPanel() {
+  const { t } = useI18n();
+  const { git, activity } = useServices();
+  const proj = useProjects();
+  const g = useGit();
+  const toast = useToast();
+  const [message, setMessage] = useState("");
+  const [newBranch, setNewBranch] = useState<string | null>(null);
+
+  const project = proj.projects.find((p) => p.id === (proj.selection.key ?? CHAT_KEY));
+  const root = project?.path ?? null;
+
+  // muat saat project aktif berubah atau engine siap
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `git` stabil; hanya root yang relevan
+  useEffect(() => {
+    void git.setRoot(root);
+  }, [root]);
+
+  const fail = (e: unknown) => {
+    activity.add("git", "error", errText(e));
+    toast.show({ title: t("sb.error", { error: errText(e) }), tone: "danger" });
+  };
+  const run = async (p: Promise<unknown>) => {
+    try {
+      await p;
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  if (!git.available) return <p className="sidebar__note z-small">{t("git.unavailable")}</p>;
+  if (!root) return <p className="sidebar__note z-small">{t("git.noProject")}</p>;
+  if (g.loading && !g.status) {
+    return (
+      <p className="sidebar__note z-small" role="status">
+        <Spinner size="sm" /> {t("git.loading")}
+      </p>
+    );
+  }
+  if (g.error && !g.status) {
+    return (
+      <div className="gitp">
+        <p className="chat__note chat__note--error z-small" role="alert">
+          {g.error}
+        </p>
+        <Button onClick={() => void git.refresh()}>{t("git.refresh")}</Button>
+      </div>
+    );
+  }
+  if (!g.status?.isRepo) {
+    return (
+      <div className="gitp">
+        <p className="z-p">{t("git.notRepo")}</p>
+        <Button onClick={() => void git.refresh()}>{t("git.refresh")}</Button>
+      </div>
+    );
+  }
+
+  const st = g.status;
+  const groups = groupChanges(st.files);
+  const commit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (groups.staged.length === 0) {
+      toast.show({ title: t("git.commitNeedStaged"), tone: "warning" });
+      return;
+    }
+    try {
+      const hash = await git.commit(message);
+      setMessage("");
+      activity.add("git", "info", `commit ${hash}`);
+      toast.show({ title: t("git.commitDone", { hash }), tone: "success" });
+    } catch (err) {
+      fail(err);
+    }
+  };
+
+  const row = (f: FileChange, staged: boolean) => (
+    <li key={`${staged ? "s" : "u"}:${f.path}`} className="gitp__file">
+      <button
+        type="button"
+        className="gitp__name"
+        title={f.path}
+        aria-label={t("git.diff", { name: f.path })}
+        onClick={() => void git.showDiff(f, staged)}
+      >
+        <span className="gitp__badge" data-kind={staged ? f.index : isUntracked(f) ? "?" : f.worktree}>
+          {statusLabel(t, f, staged)}
+        </span>
+        <span className="tree__label">{f.origPath ? `${f.origPath} → ${f.path}` : f.path}</span>
+      </button>
+      <Button
+        size="sm"
+        disabled={g.busy}
+        aria-label={staged ? t("git.unstage", { name: f.path }) : t("git.stage", { name: f.path })}
+        onClick={() => void run(staged ? git.unstage([f.path]) : git.stage([f.path]))}
+      >
+        {staged ? "−" : "+"}
+      </Button>
+    </li>
+  );
+
+  return (
+    <div className="gitp">
+      <div className="gitp__head">
+        <span className="gitp__branch" data-testid="git-branch">
+          {st.detached ? t("git.detached") : (st.branch ?? "?")}
+        </span>
+        {st.upstream && (
+          <span className="z-small gitp__tracking">
+            {st.ahead > 0 && `↑${st.ahead} `}
+            {st.behind > 0 && `↓${st.behind}`}
+          </span>
+        )}
+        {g.branches.length > 0 && (
+          <Select
+            aria-label={t("git.switchTo")}
+            size="sm"
+            className="gitp__select"
+            items={g.branches.map((b) => ({ value: b.name, label: b.name }))}
+            value={g.branches.find((b) => b.current)?.name ?? null}
+            onValueChange={(name) => void run(git.switchBranch(name))}
+          />
+        )}
+        <IconButton label={t("git.refresh")} size="sm" icon={<RefreshIcon />} onClick={() => void git.refresh()} />
+        <IconButton
+          label={t("git.newBranch")}
+          size="sm"
+          icon={<PlusIcon />}
+          onClick={() => setNewBranch(newBranch === null ? "" : null)}
+        />
+      </div>
+      {newBranch !== null && (
+        <form
+          className="pform__row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void run(git.createBranch(newBranch).then(() => setNewBranch(null)));
+          }}
+        >
+          <Input
+            aria-label={t("git.branchName")}
+            placeholder={t("git.branchName")}
+            value={newBranch}
+            onChange={(e) => setNewBranch(e.target.value)}
+          />
+          <Button type="submit" variant="solid" disabled={!newBranch.trim() || g.busy}>
+            {t("git.create")}
+          </Button>
+        </form>
+      )}
+      {g.error && (
+        <p className="chat__note chat__note--error z-small" role="alert">
+          {g.error}
+        </p>
+      )}
+
+      {st.files.length === 0 && <p className="z-small gitp__clean">{t("git.clean")}</p>}
+      {groups.conflicts.length > 0 && (
+        <section aria-label={t("git.conflicts")}>
+          <h3 className="z-label">{t("git.conflicts")}</h3>
+          <ul className="gitp__list">{groups.conflicts.map((f) => row(f, false))}</ul>
+        </section>
+      )}
+      {groups.staged.length > 0 && (
+        <section aria-label={t("git.staged")}>
+          <h3 className="z-label gitp__h">
+            {t("git.staged")} ({groups.staged.length})
+            <Button size="sm" disabled={g.busy} onClick={() => void run(git.unstage(groups.staged.map((f) => f.path)))}>
+              {t("git.unstageAll")}
+            </Button>
+          </h3>
+          <ul className="gitp__list">{groups.staged.map((f) => row(f, true))}</ul>
+        </section>
+      )}
+      {groups.unstaged.length > 0 && (
+        <section aria-label={t("git.changes")}>
+          <h3 className="z-label gitp__h">
+            {t("git.changes")} ({groups.unstaged.length})
+            <Button size="sm" disabled={g.busy} onClick={() => void run(git.stage(groups.unstaged.map((f) => f.path)))}>
+              {t("git.stageAll")}
+            </Button>
+          </h3>
+          <ul className="gitp__list">{groups.unstaged.map((f) => row(f, false))}</ul>
+        </section>
+      )}
+
+      {g.diff && (
+        <section aria-label={t("git.diffTitle", { path: g.diff.path })} className="gitp__diff">
+          <h3 className="z-label gitp__h">
+            {t("git.diffTitle", { path: g.diff.path })}
+            <Button size="sm" onClick={() => git.closeDiff()}>
+              {t("git.closeDiff")}
+            </Button>
+          </h3>
+          {g.diff.error && <p className="chat__note chat__note--error z-small">{g.diff.error}</p>}
+          {g.diff.text === null && !g.diff.error && <Spinner size="sm" />}
+          {g.diff.text !== null &&
+            (g.diff.text ? <DiffText text={g.diff.text} /> : <p className="z-small">{t("git.diffEmpty")}</p>)}
+        </section>
+      )}
+
+      <form className="gitp__commit" onSubmit={(e) => void commit(e)}>
+        <textarea
+          className="z-input composer__input"
+          rows={2}
+          aria-label={t("git.commitMsg")}
+          placeholder={t("git.commitMsg")}
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+        />
+        <Button type="submit" variant="solid" disabled={g.busy || !message.trim() || groups.staged.length === 0}>
+          {t("git.commit")}
+        </Button>
+      </form>
+
+      {g.log.length > 0 && (
+        <section aria-label={t("git.recent")}>
+          <h3 className="z-label">{t("git.recent")}</h3>
+          <ul className="gitp__log">
+            {g.log.map((c) => (
+              <li key={c.hash} className="z-small">
+                <code>{c.hash}</code> {c.subject}{" "}
+                <span className="gitp__meta">
+                  — {c.author}, {c.date}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}

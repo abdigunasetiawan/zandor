@@ -5,6 +5,8 @@
 // Build dengan UI tertanam: `bun run tauri build --debug --no-bundle` (cargo build biasa memuat devUrl).
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { chromium } from "@playwright/test";
@@ -65,12 +67,32 @@ try {
 } catch {
   originalRegistry = null;
 }
+// Sisa dari run yang dihentikan paksa (finally tak sempat jalan) dibuang agar tidak ikut "dipulihkan".
+if (originalRegistry) {
+  try {
+    const reg = JSON.parse(originalRegistry) as { projects?: Array<{ name?: string }> };
+    reg.projects = (reg.projects ?? []).filter((p) => !String(p.name).startsWith("zandor-smoke-docs-"));
+    originalRegistry = JSON.stringify(reg);
+  } catch {
+    // registry rusak: dipulihkan apa adanya
+  }
+}
 writeFileSync(join(docDir, "README.md"), SAMPLE_MD);
 writeFileSync(join(docDir, "kode.ts"), "export const nilai: number = 42;\n");
 writeFileSync(join(docDir, "data.csv"), "id,nama\n1,satu\n2,dua\n");
 writeFileSync(join(docDir, "laporan.pdf"), makePdf(["HALO PDF", "HALAMAN DUA"]));
 writeFileSync(join(docDir, "gambar.png"), makePng(8, 8));
 mkdirSync(join(docDir, "sub"));
+// Repo git uji: satu commit awal, lalu README diubah (unstaged) dan satu berkas baru (untracked).
+const git = (...args: string[]) => spawnSync("git", ["-C", docDir, ...args], { encoding: "utf8" });
+git("init", "-q", "-b", "main");
+git("config", "user.email", "smoke@zandor.test");
+git("config", "user.name", "Smoke Zandor");
+git("config", "commit.gpgsign", "false");
+git("add", "README.md", "kode.ts");
+git("commit", "-q", "-m", "awal");
+writeFileSync(join(docDir, "README.md"), `${SAMPLE_MD}\nbaris tambahan dari smoke\n`);
+writeFileSync(join(docDir, "baru.txt"), "berkas baru\n");
 {
   let reg: { projects?: unknown[]; [k: string]: unknown } = {
     version: 1,
@@ -209,6 +231,131 @@ try {
   await page.evaluate(() => {
     window.location.hash = "";
   });
+
+  // 1b1b) Panel 4 (Fase 8): terminal PTY nyata, Git nyata, browser child webview, dan isolasi IPC.
+  const toolsPanel = page.getByRole("region", { name: "Tools", exact: true });
+  await toolsPanel.getByRole("button", { name: "Terminal baru" }).first().click();
+  const screen = toolsPanel.locator(".xterm-rows");
+  await waitFor(
+    "prompt terminal",
+    async () => (await screen.textContent().catch(() => "")) ?? "",
+    (t) => /PS .*>/.test(t),
+    40000,
+  );
+  check("Panel 4: terminal PowerShell nyata (PTY engine) menampilkan prompt", true);
+  await toolsPanel.getByTestId("terminal").click();
+  await page.keyboard.type("echo zandor-uji-123; (Get-Location).Path");
+  await page.keyboard.press("Enter");
+  await waitFor(
+    "keluaran terminal",
+    async () => (await screen.textContent().catch(() => "")) ?? "",
+    (t) => t.includes("zandor-uji-123") && t.includes(docProject),
+    30000,
+  );
+  check("Panel 4: perintah dijalankan di folder project (cwd mengikuti project)", true);
+  await toolsPanel.getByRole("button", { name: /^Tutup terminal/ }).click();
+
+  await toolsPanel.getByRole("tab", { name: "Git", exact: true }).click();
+  await toolsPanel.getByTestId("git-branch").getByText("main").waitFor({ timeout: 20000 });
+  await toolsPanel.getByRole("button", { name: "Lihat perubahan README.md" }).waitFor({ timeout: 10000 });
+  await toolsPanel.getByRole("button", { name: "Lihat perubahan baru.txt" }).waitFor({ timeout: 10000 });
+  check("Panel 4: Git nyata menampilkan cabang, berkas diubah, dan berkas baru", true);
+  await toolsPanel.getByRole("button", { name: "Lihat perubahan README.md" }).click();
+  await toolsPanel.getByTestId("git-diff").getByText("baris tambahan dari smoke").waitFor({ timeout: 10000 });
+  check("Panel 4: diff berkas dari git asli tampil", true);
+  await toolsPanel.getByRole("button", { name: "Stage baru.txt" }).click();
+  await toolsPanel
+    .getByRole("region", { name: /^Staged/ })
+    .getByText("baru.txt")
+    .waitFor({ timeout: 10000 });
+  await toolsPanel.getByRole("textbox", { name: "Pesan commit" }).fill("commit dari smoke");
+  await toolsPanel.getByRole("button", { name: "Commit", exact: true }).click();
+  await toolsPanel
+    .getByText(/Commit [0-9a-f]{7,} dibuat/)
+    .first()
+    .waitFor({ timeout: 20000 })
+    .catch(async () => {
+      console.log("      (diag) alert:", await toolsPanel.getByRole("alert").allTextContents());
+    });
+  const log = spawnSync("git", ["-C", docDir, "log", "--format=%s", "-n", "1"], { encoding: "utf8" }).stdout.trim();
+  check("Panel 4: stage + commit lewat UI tercatat di repo git asli", log === "commit dari smoke", log);
+
+  // Browser: child webview memuat server lokal (tanpa internet); IPC aplikasi tidak boleh bisa dipanggil dari halaman remote.
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html" });
+    res.end("<title>zandor-browser-uji</title><h1>halo browser</h1>");
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const serverPort = (server.address() as AddressInfo).port;
+  try {
+    await toolsPanel.getByRole("tab", { name: "Browser", exact: true }).click();
+    const addr = toolsPanel.getByRole("textbox", { name: "Alamat (URL)" });
+    await addr.waitFor({ timeout: 10000 });
+    await waitFor(
+      "browser siap",
+      async () => (await toolsPanel.getByTestId("browser-host").getAttribute("data-mode")) ?? "",
+      (m) => m === "native",
+      15000,
+    );
+    // webview anak dibuat saat panel tampil: tunggu sampai muncul sebagai target (selain UI) sebelum menavigasi
+    await waitFor(
+      "webview browser dibuat",
+      async () =>
+        browser
+          ?.contexts()
+          .flatMap((c) => c.pages())
+          .filter((p) => !p.url().startsWith("http://tauri.localhost")).length ?? 0,
+      (n) => n >= 1,
+      20000,
+    );
+    await addr.fill(`http://127.0.0.1:${serverPort}/`);
+    await addr.press("Enter");
+    const remote = await waitFor(
+      "halaman browser",
+      async () =>
+        browser
+          ?.contexts()
+          .flatMap((c) => c.pages())
+          .find((p) => p.url().startsWith(`http://127.0.0.1:${serverPort}`)) ?? null,
+      (p) => p !== null,
+      30000,
+    );
+    check("Panel 4: browser child webview memuat halaman", (await remote?.title()) === "zandor-browser-uji");
+    const geo = await page.getByTestId("browser-host").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    const view = await remote?.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+    check(
+      "Panel 4: ukuran webview mengikuti panel",
+      !!view && Math.abs(view.w - geo.w) <= 3 && Math.abs(view.h - geo.h) <= 3,
+      `${JSON.stringify(view)} vs ${JSON.stringify(geo)}`,
+    );
+    const ipc = await remote?.evaluate(async () => {
+      const t = (window as unknown as { __TAURI_INTERNALS__?: { invoke: (c: string, a: unknown) => Promise<unknown> } })
+        .__TAURI_INTERNALS__;
+      if (!t) return "tidak-ada-ipc";
+      const tries = ["git_status", "fs_read", "browser_close", "providers_list"];
+      const res: string[] = [];
+      for (const c of tries) {
+        try {
+          await t.invoke(c, { root: "C:\\", path: "x" });
+          res.push(`${c}:DIPANGGIL`);
+        } catch {
+          res.push(`${c}:ditolak`);
+        }
+      }
+      return res.join(",");
+    });
+    check(
+      "keamanan: halaman remote di browser tidak bisa memanggil perintah aplikasi",
+      !String(ipc).includes("DIPANGGIL"),
+      String(ipc),
+    );
+  } finally {
+    server.close();
+  }
+  await toolsPanel.getByRole("tab", { name: "Terminal", exact: true }).click();
 
   let providerHealthy = false;
   // 1b2) Provider (Fase 6): kunci di keychain, ping nyata lewat Rust. Hanya bila mesin ini punya koneksi terkonfigurasi.
