@@ -1,6 +1,7 @@
 // Engine palsu di memori untuk test (core dan UI). Meniru perilaku yang terbukti pada engine asli:
 // sesi terikat direktori, judul bawaan "New session - <ISO>", daftar berkas menurut path relatif.
-import type { EngineApi, FileNode, SessionInfo } from "./api";
+import type { ChatMessage, EngineEvent, PermissionReply, PermissionRequest } from "../chat/types";
+import type { EngineApi, FileNode, ModelOption, ModelRef, SessionInfo, SubscriptionHandlers } from "./api";
 
 export type FakeEngine = EngineApi & {
   sessions: Map<string, SessionInfo[]>;
@@ -9,6 +10,19 @@ export type FakeEngine = EngineApi & {
   /** Jika diisi, semua panggilan berikutnya menolak dengan pesan ini. */
   failWith: string | null;
   tick: number;
+  models: ModelOption[];
+  messages: Map<string, ChatMessage[]>;
+  permissions: PermissionRequest[];
+  prompts: Array<{ directory: string; sessionId: string; text: string; model?: ModelRef }>;
+  replies: Array<{ requestId: string; reply: PermissionReply }>;
+  aborted: string[];
+  /** Dipanggil saat prompt diterima; test memakainya untuk menjalankan skenario respons lewat `emit`. */
+  onPrompt: ((directory: string, sessionId: string, text: string) => void) | null;
+  subscribers: Map<string, Set<SubscriptionHandlers>>;
+  /** Kirim event ke semua pelanggan direktori. */
+  emit(directory: string, event: EngineEvent): void;
+  /** Simulasikan koneksi SSE putus lalu tersambung lagi. */
+  reconnect(directory: string): void;
 };
 
 export function createFakeEngine(): FakeEngine {
@@ -19,6 +33,58 @@ export function createFakeEngine(): FakeEngine {
     calls: [],
     failWith: null,
     tick: 1_000,
+    models: [],
+    messages: new Map(),
+    permissions: [],
+    prompts: [],
+    replies: [],
+    aborted: [],
+    onPrompt: null,
+    subscribers: new Map(),
+    emit(directory, event) {
+      for (const h of e.subscribers.get(directory) ?? []) h.onEvent(event);
+    },
+    reconnect(directory) {
+      for (const h of e.subscribers.get(directory) ?? []) {
+        h.onState("reconnecting");
+        h.onState("connected");
+      }
+    },
+    async listModels() {
+      if (e.failWith) throw new Error(e.failWith);
+      return [...e.models];
+    },
+    async listMessages(_dir, sessionId) {
+      e.calls.push(`messages:${sessionId}`);
+      if (e.failWith) throw new Error(e.failWith);
+      return [...(e.messages.get(sessionId) ?? [])];
+    },
+    async listPermissions() {
+      if (e.failWith) throw new Error(e.failWith);
+      return [...e.permissions];
+    },
+    async sendPrompt(directory, sessionId, input) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.prompts.push({ directory, sessionId, text: input.text, ...(input.model ? { model: input.model } : {}) });
+      e.onPrompt?.(directory, sessionId, input.text);
+    },
+    async abort(_dir, sessionId) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.aborted.push(sessionId);
+    },
+    async replyPermission(_dir, requestId, reply) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.replies.push({ requestId, reply });
+    },
+    subscribe(directory, handlers) {
+      const set = e.subscribers.get(directory) ?? new Set();
+      set.add(handlers);
+      e.subscribers.set(directory, set);
+      queueMicrotask(() => handlers.onState("connected"));
+      return () => {
+        set.delete(handlers);
+      };
+    },
     async health() {
       e.calls.push("health");
       if (e.failWith) throw new Error(e.failWith);

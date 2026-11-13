@@ -1,6 +1,15 @@
 // Antarmuka engine yang dibutuhkan UI (Fase 4). Implementasi nyata membungkus SDK resmi @opencode-ai/sdk
 // (tipe sama persis dengan engine yang di-pin, ADR-021); test memakai implementasi palsu.
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import {
+  type ChatMessage,
+  type EngineEvent,
+  type PermissionReply,
+  type PermissionRequest,
+  toEngineEvent,
+  toMessage,
+  toPermission,
+} from "../chat/types";
 
 export type EngineConnectionInfo = { url: string; username: string; password: string };
 
@@ -20,6 +29,15 @@ export type FileNode = {
   ignored: boolean;
 };
 
+export type ModelOption = { providerID: string; providerName: string; modelID: string; name: string };
+export type ModelRef = { providerID: string; modelID: string };
+export type SubscriptionState = "connected" | "reconnecting";
+export type SubscriptionHandlers = {
+  onEvent(event: EngineEvent): void;
+  /** `connected` dipanggil setiap (re)koneksi berhasil: pemanggil wajib menyinkronkan ulang state-nya. */
+  onState(state: SubscriptionState): void;
+};
+
 export interface EngineApi {
   health(): Promise<{ version: string }>;
   listSessions(directory: string): Promise<SessionInfo[]>;
@@ -27,6 +45,15 @@ export interface EngineApi {
   renameSession(directory: string, sessionId: string, title: string): Promise<SessionInfo>;
   deleteSession(directory: string, sessionId: string): Promise<void>;
   listFiles(directory: string, path: string): Promise<FileNode[]>;
+  listModels(): Promise<ModelOption[]>;
+  listMessages(directory: string, sessionId: string): Promise<ChatMessage[]>;
+  listPermissions(directory: string): Promise<PermissionRequest[]>;
+  /** Kirim prompt tanpa menunggu jawaban; hasilnya mengalir lewat `subscribe`. */
+  sendPrompt(directory: string, sessionId: string, input: { text: string; model?: ModelRef }): Promise<void>;
+  abort(directory: string, sessionId: string): Promise<void>;
+  replyPermission(directory: string, requestId: string, reply: PermissionReply): Promise<void>;
+  /** Berlangganan event SSE satu direktori dengan reconnect otomatis. Mengembalikan fungsi berhenti. */
+  subscribe(directory: string, handlers: SubscriptionHandlers): () => void;
 }
 
 /** Judul bawaan engine untuk sesi baru ("New session - 2026-…") berarti "belum diberi nama". */
@@ -83,6 +110,66 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
     },
     async deleteSession(directory, sessionId) {
       await client.session.delete({ sessionID: sessionId, directory });
+    },
+    async listModels() {
+      const r = await client.config.providers();
+      const out: ModelOption[] = [];
+      for (const p of body(r, "config.providers").providers) {
+        for (const m of Object.values(p.models)) {
+          out.push({ providerID: p.id, providerName: p.name, modelID: m.id, name: m.name });
+        }
+      }
+      return out;
+    },
+    async listMessages(directory, sessionId) {
+      const r = await client.session.messages({ sessionID: sessionId, directory });
+      return body(r, "session.messages")
+        .map(toMessage)
+        .filter((m): m is ChatMessage => m !== null);
+    },
+    async listPermissions(directory) {
+      const r = await client.permission.list({ directory });
+      return body(r, "permission.list")
+        .map(toPermission)
+        .filter((p): p is PermissionRequest => p !== null);
+    },
+    async sendPrompt(directory, sessionId, input) {
+      await client.session.promptAsync({
+        sessionID: sessionId,
+        directory,
+        ...(input.model ? { model: input.model } : {}),
+        parts: [{ type: "text", text: input.text }],
+      });
+    },
+    async abort(directory, sessionId) {
+      await client.session.abort({ sessionID: sessionId, directory });
+    },
+    async replyPermission(directory, requestId, reply) {
+      await client.permission.reply({ requestID: requestId, directory, reply });
+    },
+    subscribe(directory, handlers) {
+      const ctl = new AbortController();
+      void (async () => {
+        let delay = 500;
+        while (!ctl.signal.aborted) {
+          try {
+            const sub = await client.event.subscribe({ directory }, { signal: ctl.signal, sseMaxRetryAttempts: 1 });
+            delay = 500;
+            handlers.onState("connected");
+            for await (const raw of sub.stream) {
+              const ev = toEngineEvent(raw);
+              if (ev) handlers.onEvent(ev);
+            }
+          } catch {
+            // jatuh ke reconnect di bawah
+          }
+          if (ctl.signal.aborted) return;
+          handlers.onState("reconnecting");
+          await new Promise((r) => setTimeout(r, delay));
+          delay = Math.min(delay * 2, 5000);
+        }
+      })();
+      return () => ctl.abort();
     },
     async listFiles(directory, path) {
       const r = await client.file.list({ directory, path });
