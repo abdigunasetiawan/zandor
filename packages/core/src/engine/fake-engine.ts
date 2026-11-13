@@ -2,11 +2,14 @@
 // sesi terikat direktori, judul bawaan "New session - <ISO>", daftar berkas menurut path relatif.
 import type { ChatMessage, EngineEvent, PermissionReply, PermissionRequest } from "../chat/types";
 import type {
+  AuthMethod,
+  CatalogProvider,
   EngineApi,
   FileAttachment,
   FileNode,
   ModelOption,
   ModelRef,
+  OAuthStart,
   SessionInfo,
   SubscriptionHandlers,
 } from "./api";
@@ -35,6 +38,13 @@ export type FakeEngine = EngineApi & {
   aborted: string[];
   /** Dipanggil saat prompt diterima; test memakainya untuk menjalankan skenario respons lewat `emit`. */
   onPrompt: ((directory: string, sessionId: string, text: string) => void) | null;
+  catalog: CatalogProvider[];
+  authMethods: Record<string, AuthMethod[]>;
+  oauth: {
+    starts: Array<{ providerId: string; method: number; inputs?: Record<string, string> }>;
+    callbacks: Array<{ providerId: string; method: number; code?: string }>;
+    next: OAuthStart;
+  };
   subscribers: Map<string, Set<SubscriptionHandlers>>;
   /** Kirim event ke semua pelanggan direktori. */
   emit(directory: string, event: EngineEvent): void;
@@ -59,6 +69,30 @@ export function createFakeEngine(): FakeEngine {
     replies: [],
     aborted: [],
     onPrompt: null,
+    catalog: [],
+    authMethods: {},
+    oauth: {
+      starts: [],
+      callbacks: [],
+      next: { url: "https://auth.example.test/authorize", method: "auto", instructions: "Selesaikan di browser." },
+    },
+    async listCatalog() {
+      if (e.failWith) throw new Error(e.failWith);
+      return [...e.catalog];
+    },
+    async listAuthMethods() {
+      if (e.failWith) throw new Error(e.failWith);
+      return { ...e.authMethods };
+    },
+    async oauthAuthorize(providerId, method, inputs) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.oauth.starts.push({ providerId, method, ...(inputs ? { inputs } : {}) });
+      return e.oauth.next;
+    },
+    async oauthCallback(providerId, method, code) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.oauth.callbacks.push({ providerId, method, ...(code ? { code } : {}) });
+    },
     subscribers: new Map(),
     emit(directory, event) {
       for (const h of e.subscribers.get(directory) ?? []) h.onEvent(event);

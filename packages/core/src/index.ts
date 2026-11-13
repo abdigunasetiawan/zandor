@@ -7,5 +7,6 @@ export * from "./file-icons";
 export * from "./layout-plan";
 export * from "./logger";
 export * from "./navigation";
+export * from "./providers";
 export * from "./settings";
 export * from "./shortcuts";

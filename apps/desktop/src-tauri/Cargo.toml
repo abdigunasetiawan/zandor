@@ -18,6 +18,9 @@ tauri = { version = "=2.12.5", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "=2.8.4"
+keyring = "=4.2.0"
+# HTTP untuk probe/ping provider (Fase 6). native-tls = schannel di Windows (trust store OS, tanpa crypto tambahan).
+ureq = { version = "3", default-features = false, features = ["native-tls"] }
 zandor-engine-supervisor = { path = "../../../crates/engine-supervisor" }
 
 [target.'cfg(windows)'.dependencies]

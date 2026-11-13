@@ -46,6 +46,26 @@ export type SubscriptionHandlers = {
   onState(state: SubscriptionState): void;
 };
 
+/** Provider di katalog engine (models.dev + kustom). */
+export type CatalogProvider = {
+  id: string;
+  name: string;
+  /** Nama env var yang dikenali engine untuk kunci provider ini. */
+  env: string[];
+  /** Engine menganggap provider ini siap dipakai (ada kunci/token atau tanpa kunci). */
+  connected: boolean;
+  modelCount: number;
+};
+export type AuthPrompt = {
+  type: "text" | "select";
+  key: string;
+  message: string;
+  placeholder?: string;
+  options?: Array<{ label: string; value: string; hint?: string }>;
+};
+export type AuthMethod = { type: "oauth" | "api"; label: string; prompts: AuthPrompt[] };
+export type OAuthStart = { url: string; method: "auto" | "code"; instructions: string };
+
 export interface EngineApi {
   health(): Promise<{ version: string }>;
   listSessions(directory: string): Promise<SessionInfo[]>;
@@ -69,6 +89,12 @@ export interface EngineApi {
   fork(directory: string, sessionId: string, messageId: string): Promise<SessionInfo>;
   abort(directory: string, sessionId: string): Promise<void>;
   replyPermission(directory: string, requestId: string, reply: PermissionReply): Promise<void>;
+  listCatalog(): Promise<CatalogProvider[]>;
+  /** Metode autentikasi per id provider (OAuth/API) menurut engine. */
+  listAuthMethods(): Promise<Record<string, AuthMethod[]>>;
+  oauthAuthorize(providerId: string, method: number, inputs?: Record<string, string>): Promise<OAuthStart>;
+  /** Selesaikan OAuth. Metode "auto": menunggu sampai browser selesai; "code": `code` dari pengguna. */
+  oauthCallback(providerId: string, method: number, code?: string): Promise<void>;
   /** Berlangganan event SSE satu direktori dengan reconnect otomatis. Mengembalikan fungsi berhenti. */
   subscribe(directory: string, handlers: SubscriptionHandlers): () => void;
 }
@@ -216,6 +242,42 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
         }
       })();
       return () => ctl.abort();
+    },
+    async listCatalog() {
+      const r = await client.provider.list();
+      const data = body(r, "provider.list");
+      const connected = new Set(data.connected);
+      return data.all.map((p) => ({
+        id: p.id,
+        name: p.name,
+        env: p.env,
+        connected: connected.has(p.id),
+        modelCount: Object.keys(p.models).length,
+      }));
+    },
+    async listAuthMethods() {
+      const r = await client.provider.auth();
+      const out: Record<string, AuthMethod[]> = {};
+      for (const [id, methods] of Object.entries(body(r, "provider.auth"))) {
+        out[id] = (methods as Array<Record<string, unknown>>).map((m) => ({
+          type: m.type === "oauth" ? "oauth" : "api",
+          label: typeof m.label === "string" ? m.label : id,
+          prompts: Array.isArray(m.prompts) ? (m.prompts as AuthPrompt[]) : [],
+        }));
+      }
+      return out;
+    },
+    async oauthAuthorize(providerId, method, inputs) {
+      const r = await client.provider.oauth.authorize({
+        providerID: providerId,
+        method,
+        ...(inputs ? { inputs } : {}),
+      });
+      const d = body(r, "oauth.authorize") as { url: string; method: string; instructions: string };
+      return { url: d.url, method: d.method === "code" ? "code" : "auto", instructions: d.instructions ?? "" };
+    },
+    async oauthCallback(providerId, method, code) {
+      await client.provider.oauth.callback({ providerID: providerId, method, ...(code ? { code } : {}) });
     },
     async listFiles(directory, path) {
       const r = await client.file.list({ directory, path });

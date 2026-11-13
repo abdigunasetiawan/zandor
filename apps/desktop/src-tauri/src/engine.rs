@@ -2,7 +2,8 @@
 //! (ADR-022) dan memverifikasinya, memantau, me-restart bila mati, dan mengabarkan status ke UI (event
 //! `engine-state`). Semua start/restart lewat SATU thread supervisor yang hidup sepanjang aplikasi.
 
-use crate::providers::{self, Provider};
+use crate::providers::{self, Provider, ProviderStore};
+use crate::secrets::{Keychain, SERVICE};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender};
@@ -113,14 +114,19 @@ pub fn percent_encode(s: &str) -> String {
 
 /// Isi `OPENCODE_CONFIG_CONTENT`: plugin guard + provider kustom. Tidak pernah memuat nilai secret: kunci API
 /// hanya berupa rujukan `{env:...}` yang nilainya dikirim lewat environment proses engine.
-pub fn config_content(plugin: &Path, marker: &Path, providers: &[Provider]) -> String {
+pub fn config_content(
+    plugin: &Path,
+    marker: &Path,
+    providers: &[Provider],
+    with_key: &dyn Fn(&str) -> bool,
+) -> String {
     serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
         "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy() }]],
         // Bawaan aman: opencode mengizinkan edit/shell tanpa bertanya. Zandor meminta persetujuan (kartu izin di chat).
         "permission": { "edit": "ask", "bash": "ask", "webfetch": "ask", "external_directory": "ask" },
-        "provider": providers::config_section(providers),
+        "provider": providers::config_section(providers, with_key),
     })
     .to_string()
 }
@@ -141,17 +147,21 @@ fn engine_config(paths: &EnginePaths) -> EngineConfig {
             paths.engine_root.join(dir).to_string_lossy().into_owned(),
         ));
     }
-    let (providers, warnings) = providers::load(&paths.providers);
+    let store = ProviderStore::new(&paths.providers, Box::new(Keychain::new(SERVICE)));
+    let (providers, secret_env, warnings) = store.for_engine();
     for w in warnings {
         eprintln!("[zandor] {w}");
     }
-    for p in &providers {
-        cfg.env.push((p.env_name(), p.api_key.clone()));
-    }
-    cfg.env.push((
-        "OPENCODE_CONFIG_CONTENT".into(),
-        config_content(&paths.plugin, &paths.marker, &providers),
-    ));
+    let has_key = |id: &str| {
+        let name = providers
+            .iter()
+            .find(|p| p.id == id)
+            .map(Provider::env_name);
+        name.is_some_and(|n| secret_env.iter().any(|(k, _)| *k == n))
+    };
+    let content = config_content(&paths.plugin, &paths.marker, &providers, &has_key);
+    cfg.env.extend(secret_env.iter().cloned());
+    cfg.env.push(("OPENCODE_CONFIG_CONTENT".into(), content));
     cfg
 }
 
@@ -404,6 +414,7 @@ mod tests {
             Path::new(r"C:\app\zandor-plugin.js"),
             Path::new(r"C:\data\guard-loaded"),
             &[],
+            &|_| false,
         );
         let v: serde_json::Value = serde_json::from_str(&c).unwrap();
         assert_eq!(v["plugin"][0][0], "file:///C:/app/zandor-plugin.js");
