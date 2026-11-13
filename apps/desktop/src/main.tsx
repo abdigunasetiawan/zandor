@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, hashToPath } from "./App";
 import { loadEngineHost } from "./shell/engine-host";
+import { loadProviderHost } from "./shell/provider-host";
 import { createServices } from "./shell/services";
 import "@zandor/ui";
 import "./styles.css";
@@ -13,9 +14,11 @@ const SETTINGS_KEY = "zandor.settings";
 const logger = createLogger("app", { level: import.meta.env.DEV ? "debug" : "info", sinks: [consoleSink] });
 
 const host = await loadEngineHost();
+const providerHost = await loadProviderHost();
 const services = createServices({
   logger,
   host,
+  providerHost,
   initialPath: hashToPath(window.location.hash),
   storage: {
     get: () => {

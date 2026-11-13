@@ -70,6 +70,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         shortcut: "Ctrl+,",
         run: () => nav.push("/settings"),
       },
+      { id: "app.providers", titleKey: "cmd.providers", group: "app", run: () => nav.push("/providers") },
       { id: "app.goHome", titleKey: "cmd.goHome", group: "app", run: () => nav.push("/") },
       {
         id: "nav.back",

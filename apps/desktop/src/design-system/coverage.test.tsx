@@ -8,6 +8,7 @@ import { ATOMS, INFRASTRUCTURE, MOLECULES } from "@zandor/ui";
 import { afterEach, describe, expect, test } from "vitest";
 import { App, hashToPath, parseRoute } from "../App";
 import { createBrowserHost } from "../shell/engine-host";
+import { createBrowserProviderHost } from "../shell/provider-host";
 import { createServices } from "../shell/services";
 import { SECTIONS } from "./DesignSystemPage";
 import { ATOM_DEMOS, MOLECULE_DEMOS } from "./demos";
@@ -56,6 +57,7 @@ describe("halaman design system", () => {
       logger: createLogger("test", { sinks: [] }),
       initialPath: "/design-system",
       host: createBrowserHost(),
+      providerHost: createBrowserProviderHost(),
       storage: { get: () => null, set: () => {} },
     });
     return render(<App services={services} />);

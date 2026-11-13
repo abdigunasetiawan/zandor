@@ -99,7 +99,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Tab sesi di atas Panel 2.
 
 **Kriteria keluar:** tool call nyata (baca/tulis file, terminal) berjalan dari chat dengan persetujuan izin, dan ada test e2e-nya.
-**Status: inti selesai di lokal (13-11-2026)** — kriteria keluar terbukti (smoke native dengan provider nyata + e2e); revert, regenerate, cabang sesi, lampiran, mode izin/reasoning, tab sesi, web search belum. Lihat ADR-033 dan `docs/features/chat.md`.
+**Status: selesai (13-11-2026)** — inti (ADR-033) dan pelengkapnya (revert, regenerate, cabang sesi, lampiran, mode izin/reasoning, tab sesi, web search, salin, virtualisasi; ADR-034). CI Fase 5 hijau.
 
 ## Fase 6 — Provider & Model
 
@@ -109,6 +109,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Status provider yang jujur (rate limit, error, kuota), tidak ada spinner tanpa akhir.
 
 **Kriteria keluar:** bisa chat dengan model lokal, model custom endpoint, dan model hasil sign-in.
+**Status: selesai di lokal dengan batasan (13-11-2026)** — koneksi, keychain, katalog, OAuth, pemilih model, dan status jujur selesai. Chat dengan custom endpoint terbukti (Fase 5); model lokal dan sign-in akun sungguhan belum diuji di mesin pengembang. Lihat ADR-034 dan `docs/features/providers.md`.
 
 ## Fase 7 — Panel 3: Viewer Dokumen
 

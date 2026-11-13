@@ -23,14 +23,17 @@ import {
   PanelLeft,
   PanelRight,
   Paperclip,
+  Pin,
   Plus,
   RotateCw,
   Search,
   Settings,
   Square,
   Terminal,
+  Trash2,
   Undo2,
   X,
+  Zap,
 } from "lucide-react";
 import type { SVGProps } from "react";
 import { cx } from "./cx";
@@ -83,3 +86,6 @@ export const ChatIcon = icon(MessageSquare, "ChatIcon");
 export const CopyIcon = icon(Copy, "CopyIcon");
 export const UndoIcon = icon(Undo2, "UndoIcon");
 export const PaperclipIcon = icon(Paperclip, "PaperclipIcon");
+export const PinIcon = icon(Pin, "PinIcon");
+export const TrashIcon = icon(Trash2, "TrashIcon");
+export const PingIcon = icon(Zap, "PingIcon");

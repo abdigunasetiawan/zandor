@@ -4,7 +4,7 @@
 // Pemakaian (Windows): bun e2e-native/smoke.ts <path zandor-desktop.exe>
 // Build dengan UI tertanam: `bun run tauri build --debug --no-bundle` (cargo build biasa memuat devUrl).
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "@playwright/test";
 
@@ -109,18 +109,61 @@ try {
     40000,
   );
   check("engine opencode siap (supervisor + plugin guard)", true, (await status.textContent())?.trim());
+  let providerHealthy = false;
+  // 1b2) Provider (Fase 6): kunci di keychain, ping nyata lewat Rust. Hanya bila mesin ini punya koneksi terkonfigurasi.
+  await page.evaluate(() => {
+    window.location.hash = "#/providers";
+  });
+  await page.getByRole("heading", { name: "Provider & model" }).waitFor({ timeout: 10000 });
+  const cards = page.locator(".pcard");
+  const hasCards = await cards
+    .first()
+    .waitFor({ timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!hasCards) {
+    console.log("      (info) tidak ada koneksi provider; pengujian keychain/ping dilewati");
+  } else {
+    const first = cards.first();
+    await first.getByText("Kunci tersimpan").waitFor({ timeout: 5000 });
+    check("koneksi provider tampil dengan kunci tersimpan (keychain)", true);
+    await first.getByText("Tersambung ke engine").waitFor({ timeout: 30000 });
+    check("engine mengenali provider (tersambung)", true);
+    const ping = first.getByRole("button", { name: /^Uji / }).first();
+    await ping.click();
+    // Hasil ping bisa OK atau gagal (mis. upstream provider sedang mati); yang diuji: selalu berakhir dan jujur.
+    const status = first.locator(".pmodel__status [data-tone]").first();
+    await status.waitFor({ timeout: 40000 });
+    const text = (await status.textContent())?.trim() ?? "";
+    providerHealthy = (await status.getAttribute("data-tone")) === "ok";
+    check("ping model nyata lewat Rust (kunci dari keychain) berakhir dengan status jujur", true, text.slice(0, 90));
+    // berkas provider tidak boleh memuat kunci (migrasi v1 → v2)
+    const file = join(process.env.APPDATA ?? "", "id.web.zandor.app", "providers.json");
+    try {
+      const text = readFileSync(file, "utf8");
+      check("providers.json tidak memuat kunci API", !/"apiKey"/.test(text) && /"version": 2/.test(text));
+    } catch {
+      check("providers.json terbaca", false);
+    }
+  }
+  await page.evaluate(() => {
+    window.location.hash = "";
+  });
+  await page.locator(".sidebar__status").waitFor({ timeout: 10000 });
   await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).click();
   await page.getByText("Sesi tanpa judul").first().waitFor({ timeout: 15000 });
   check("buat sesi tanpa project lewat engine asli", true);
 
   // 1c) Chat nyata (Fase 5). Hanya bila mesin ini punya provider di providers.json; di CI tidak ada → dilewati.
-  const modelPicker = page.getByRole("combobox", { name: "Model" });
+  const modelPicker = page.getByRole("button", { name: /^Model: / });
   const hasProvider = await modelPicker
     .waitFor({ timeout: 15000 })
     .then(() => true)
     .catch(() => false);
-  if (!hasProvider) {
-    console.log("      (info) tidak ada provider terkonfigurasi; pengujian chat nyata dilewati");
+  if (!hasProvider || !providerHealthy) {
+    console.log(
+      `      (info) chat nyata dilewati: ${hasProvider ? "ping provider tidak OK (upstream bermasalah)" : "tidak ada provider terkonfigurasi"}`,
+    );
   } else {
     const box = page.getByRole("textbox", { name: /^Tulis pesan/ });
     await box.fill("Balas hanya dengan satu kata: pong");

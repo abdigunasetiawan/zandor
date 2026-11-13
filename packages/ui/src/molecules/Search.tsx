@@ -59,16 +59,18 @@ export type SearchFieldProps = {
   /** Wajib: nama kontrol untuk pembaca layar. */
   "aria-label": string;
   className?: string;
+  autoFocus?: boolean;
 };
 
 /** Kolom pencarian dengan ikon, tombol bersihkan, dan Esc untuk mengosongkan. */
-export function SearchField({ value, onValueChange, placeholder, className, ...aria }: SearchFieldProps) {
+export function SearchField({ value, onValueChange, placeholder, className, autoFocus, ...aria }: SearchFieldProps) {
   const { t } = useI18n();
   return (
     <search className={cx("z-search", className)}>
       <SearchIcon size="sm" className="z-search__icon" />
       <Input
         type="search"
+        autoFocus={autoFocus}
         className="z-search__input"
         value={value}
         placeholder={placeholder ?? t("ui.search")}

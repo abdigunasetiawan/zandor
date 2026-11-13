@@ -1,4 +1,6 @@
 // Layanan bersama aplikasi (satu instance per aplikasi, dibuat di main.tsx). Komponen mengaksesnya lewat hook.
+
+import type { ProviderHost } from "@zandor/core";
 import {
   ChatStore,
   type ChatStoreState,
@@ -10,6 +12,8 @@ import {
   NavigationHistory,
   ProjectStore,
   type ProjectsState,
+  ProviderStore,
+  type ProvidersState,
   type SettingKey,
   type Settings,
   SettingsStore,
@@ -91,6 +95,7 @@ export type Services = {
   connection: ConnectionStore;
   projects: ProjectStore;
   chat: ChatStore;
+  providers: ProviderStore;
 };
 
 export function createServices(options: {
@@ -98,7 +103,27 @@ export function createServices(options: {
   initialPath: string;
   logger: Logger;
   host: EngineHost;
+  providerHost: ProviderHost;
 }): Services {
+  const chat = new ChatStore({
+    prefs: {
+      get: (k) => {
+        try {
+          return localStorage.getItem(k);
+        } catch {
+          return null;
+        }
+      },
+      set: (k, v) => {
+        try {
+          localStorage.setItem(k, v);
+        } catch {
+          // sengaja diabaikan: pilihan model hanya kenyamanan
+        }
+      },
+    },
+    onWarning: (m) => options.logger.warn(m),
+  });
   return {
     settings: new SettingsStore({
       storage: options.storage,
@@ -114,24 +139,10 @@ export function createServices(options: {
       storage: { load: () => options.host.registryLoad(), save: (t) => options.host.registrySave(t) },
       onWarning: (m) => options.logger.warn(m),
     }),
-    chat: new ChatStore({
-      prefs: {
-        get: (k) => {
-          try {
-            return localStorage.getItem(k);
-          } catch {
-            return null;
-          }
-        },
-        set: (k, v) => {
-          try {
-            localStorage.setItem(k, v);
-          } catch {
-            // sengaja diabaikan: pilihan model hanya kenyamanan
-          }
-        },
-      },
-      onWarning: (m) => options.logger.warn(m),
+    chat,
+    providers: new ProviderStore({
+      host: options.providerHost,
+      onChanged: () => void chat.refreshModels(),
     }),
   };
 }
@@ -228,5 +239,14 @@ export function useChat(): ChatStoreState {
     (cb) => chat.subscribe(cb),
     () => chat.state(),
     () => chat.state(),
+  );
+}
+
+export function useProviders(): ProvidersState {
+  const { providers } = useServices();
+  return useSyncExternalStore(
+    (cb) => providers.subscribe(cb),
+    () => providers.state(),
+    () => providers.state(),
   );
 }

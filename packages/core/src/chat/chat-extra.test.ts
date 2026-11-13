@@ -239,3 +239,20 @@ describe("tab sesi (ProjectStore)", () => {
     expect(store.state().tabs.some((t) => t.sessionId === forked.id)).toBe(true);
   });
 });
+
+describe("model disematkan", () => {
+  test("sematkan/lepas, tersimpan, dipulihkan, dan data rusak diabaikan", async () => {
+    const a = await setup();
+    a.store.togglePin({ providerID: "p", modelID: "m2" });
+    a.store.togglePin({ providerID: "p", modelID: "m1" });
+    expect(a.store.state().pinned).toEqual(["p/m2", "p/m1"]);
+    a.store.togglePin({ providerID: "p", modelID: "m2" });
+    expect(a.store.state().pinned).toEqual(["p/m1"]);
+    const b = await setup(a.prefs);
+    expect(b.store.state().pinned).toEqual(["p/m1"]);
+    const c = await setup(prefsOf({ "zandor.pinnedModels": "{bukan array" }));
+    expect(c.store.state().pinned).toEqual([]);
+    const d = await setup(prefsOf({ "zandor.pinnedModels": JSON.stringify(["a", 1, "a", null]) }));
+    expect(d.store.state().pinned).toEqual(["a"]);
+  });
+});

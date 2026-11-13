@@ -5,16 +5,22 @@ import { applyScale, applyTheme, ConfirmProvider, ErrorBoundary, ShortcutProvide
 import { useEffect } from "react";
 import { DesignSystemPage } from "./design-system/DesignSystemPage";
 import { CommandCenter } from "./shell/CommandCenter";
+import { ProvidersPage } from "./shell/ProvidersPage";
 import { SettingsPage } from "./shell/SettingsPage";
 import { ShellLayout } from "./shell/ShellLayout";
 import { type Services, ServicesProvider, useNavState, useServices, useSettings } from "./shell/services";
 import { TitleBar } from "./shell/TitleBar";
 
-export type Route = { page: "home" } | { page: "settings" } | { page: "design-system"; section: string | null };
+export type Route =
+  | { page: "home" }
+  | { page: "settings" }
+  | { page: "providers" }
+  | { page: "design-system"; section: string | null };
 
 /** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
 export function parseRoute(path: string): Route {
   if (/^\/settings\/?$/.test(path)) return { page: "settings" };
+  if (/^\/providers\/?$/.test(path)) return { page: "providers" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -26,7 +32,7 @@ export function hashToPath(hash: string): string {
 
 /** Terapkan pengaturan ke DOM (tema, skala, bahasa) dan sinkronkan riwayat navigasi dengan hash URL. */
 function Effects() {
-  const { nav, host, connection, projects, chat, logger } = useServices();
+  const { nav, host, connection, projects, chat, providers, logger } = useServices();
   const settings = useSettings();
   const { current } = useNavState();
 
@@ -52,12 +58,14 @@ function Effects() {
       const api = state.info ? createEngineApi(state.info) : null;
       projects.setApi(api);
       chat.setApi(api);
+      providers.setApi(api);
     };
     void (async () => {
       try {
         const dir = await host.chatsDir();
         projects.setChatDir(dir);
         await projects.init();
+        void providers.refresh();
         apply(await host.snapshot());
         const off = await host.onChange(apply);
         if (alive) stop = off;
@@ -70,7 +78,7 @@ function Effects() {
       alive = false;
       stop?.();
     };
-  }, [host, connection, projects, chat, logger]);
+  }, [host, connection, projects, chat, providers, logger]);
 
   useEffect(() => {
     const onHash = () => nav.push(hashToPath(window.location.hash));
@@ -90,6 +98,7 @@ function Page() {
     if (page === "design-system" && section) document.getElementById(section)?.scrollIntoView?.({ block: "start" });
   }, [page, section]);
   if (page === "settings") return <SettingsPage />;
+  if (page === "providers") return <ProvidersPage />;
   if (page === "design-system") return <DesignSystemPage />;
   return <ShellLayout />;
 }

@@ -1,6 +1,6 @@
 # Fitur: Chat inti (Panel 2)
 
-- **Status:** sebagian — inti selesai (kriteria keluar Fase 5 terpenuhi), fitur lanjutan belum. Keputusan: ADR-033.
+- **Status:** selesai (inti ADR-033; pelengkap ADR-034).
 - **Kode:** `packages/core/src/chat/` (`types.ts`, `reducer.ts`, `store.ts`), `packages/core/src/engine/api.ts`,
   `apps/desktop/src/shell/{ChatPanel,Markdown}.tsx`, `apps/desktop/src-tauri/src/providers.rs`.
 
@@ -17,31 +17,17 @@
 - **Stop** membatalkan giliran yang berjalan. Auto-scroll hanya bila pengguna berada di dekat dasar.
 - **Provider:** `app_data/providers.json` (lihat bawah).
 
-## Menambah provider (sementara, manual)
+## Pelengkap (ADR-034)
 
-Buat `%APPDATA%\id.web.zandor.app\providers.json` (di luar repo), lalu mulai ulang Zandor:
+Tab sesi (maks 12, tersimpan), Salin pesan, mode izin (tanya / setujui edit otomatis / setujui semua — sisi klien),
+varian reasoning (dari `model.variants`), lampiran berkas/folder, Ulangi jawaban (revert + kirim ulang), Kembalikan ke
+sebelum pesan ini (revert) dan Batalkan revert, Cabangkan dari sini (fork), kartu web search, diff untuk edit/izin, dan
+transcript tervirtualisasi untuk sesi ≥ 40 pesan. Provider ditambahkan lewat halaman Provider (lihat `providers.md`).
 
-```json
-{
-  "version": 1,
-  "providers": [
-    {
-      "id": "antigravity",
-      "name": "Antigravity Tools",
-      "baseUrl": "http://localhost:8045/v1",
-      "apiKey": "<kunci Anda>",
-      "models": [{ "id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5" }]
-    }
-  ]
-}
-```
+## Terbatas
 
-`id` huruf kecil/angka/`-`. Kunci hanya dikirim lewat environment engine, tidak masuk konfigurasi atau log.
-
-## Belum ada
-
-Revert, regenerate, cabang sesi, lampiran, mode izin & reasoning, tab sesi, web search, salin, virtualisasi
-sungguhan, UI provider.
+Mode izin otomatis hanya bekerja selama Zandor terbuka. Lampiran dari browser dibatasi 5 MB (data URL); lampiran
+native memakai URL `file://`. Output tool dipotong 20.000 karakter di UI.
 
 ## Cara test
 

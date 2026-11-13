@@ -21,7 +21,7 @@ test("kirim pesan dan terima jawaban streaming ber-Markdown; pilihan model ikut 
     ],
   });
   await openSession(page);
-  await expect(page.getByRole("combobox", { name: "Model" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Model: / })).toBeVisible();
 
   await composer(page).fill("halo");
   await page.getByRole("button", { name: "Kirim" }).click();

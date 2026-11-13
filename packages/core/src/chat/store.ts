@@ -23,6 +23,8 @@ export type ChatStoreState = {
   variant: string | null;
   /** Cara menjawab permintaan izin: tanya pengguna, setujui otomatis edit file, atau setujui semuanya. */
   permissionMode: PermissionMode;
+  /** Model yang disematkan pengguna, sebagai kunci `providerID/modelID` (urutan disematkan). */
+  pinned: string[];
   sessions: Record<string, SessionChat>;
 };
 
@@ -35,6 +37,8 @@ export type ChatStoreOptions = { prefs: ChatPrefs; onWarning?: (message: string)
 const MODEL_PREF = "zandor.model";
 const MODE_PREF = "zandor.permissionMode";
 const VARIANT_PREF = "zandor.variant";
+const PINNED_PREF = "zandor.pinnedModels";
+export const modelKey = (r: ModelRef) => `${r.providerID}/${r.modelID}`;
 const MAX_RELOADS = 3;
 const MESSAGE_EVENTS = new Set<EngineEvent["type"]>([
   "message.updated",
@@ -56,6 +60,7 @@ export class ChatStore {
     model: null,
     variant: null,
     permissionMode: "ask",
+    pinned: [],
     sessions: {},
   };
   private listeners = new Set<() => void>();
@@ -72,6 +77,7 @@ export class ChatStore {
       this.snap.permissionMode = mode as PermissionMode;
     }
     this.snap.variant = options.prefs.get(VARIANT_PREF) || null;
+    this.snap.pinned = parsePinned(options.prefs.get(PINNED_PREF));
   }
 
   state(): ChatStoreState {
@@ -165,6 +171,16 @@ export class ChatStore {
     for (const s of Object.values(this.snap.sessions)) {
       for (const p of s.permissions) this.maybeAutoReply(s.directory, p);
     }
+  }
+
+  /** Sematkan/lepas sematan model. Kunci tetap disimpan walau model sementara hilang dari daftar. */
+  togglePin(ref: ModelRef) {
+    const key = modelKey(ref);
+    const pinned = this.snap.pinned.includes(key)
+      ? this.snap.pinned.filter((k) => k !== key)
+      : [...this.snap.pinned, key];
+    this.safePref(PINNED_PREF, JSON.stringify(pinned));
+    this.update({ pinned });
   }
 
   private safePref(key: string, value: string) {
@@ -396,5 +412,15 @@ function parseModel(raw: string | null): ModelRef | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function parsePinned(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === "string"))] : [];
+  } catch {
+    return [];
   }
 }

@@ -17,6 +17,10 @@ export type MockEngine = {
   /** Isi file yang dikirim bersama prompt (lampiran). */
   files: Array<{ mime: string; url: string; filename?: string }>;
   variants: Array<string | undefined>;
+  oauth: {
+    authorizes: Array<{ id: string; method: number; inputs?: unknown }>;
+    callbacks: Array<{ id: string; method: number; code?: string }>;
+  };
 };
 
 export type MockOptions = {
@@ -26,6 +30,8 @@ export type MockOptions = {
   models?: Array<{ id: string; name: string; variants?: string[] }>;
   /** Jumlah pasangan pesan (pengguna+asisten) yang sudah ada di setiap sesi baru; untuk uji sesi panjang. */
   preload?: number;
+  /** Metode OAuth yang dikembalikan engine tiruan. */
+  oauthMethod?: "auto" | "code";
 };
 
 export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<MockEngine> {
@@ -39,6 +45,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     forks: [],
     files: [],
     variants: [],
+    oauth: { authorizes: [], callbacks: [] },
   };
   const revertOf = new Map<string, string>();
   const messages = new Map<string, Msg[]>();
@@ -192,6 +199,52 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     const p = url.pathname;
 
     if (p === "/global/health") return json({ healthy: true, version: "1.19.5" });
+    if (p === "/provider" && req.method() === "GET") {
+      const catalog = [
+        { id: "openrouter", name: "OpenRouter", env: ["OPENROUTER_API_KEY"], models: 3 },
+        { id: "anthropic", name: "Anthropic", env: ["ANTHROPIC_API_KEY"], models: 5 },
+        { id: "cloudflare-workers-ai", name: "Cloudflare Workers AI", env: ["CLOUDFLARE_API_KEY"], models: 8 },
+        { id: "openai", name: "OpenAI", env: ["OPENAI_API_KEY"], models: 9 },
+      ];
+      return json({
+        all: catalog.map((c) => ({
+          id: c.id,
+          name: c.name,
+          source: "env",
+          env: c.env,
+          options: {},
+          models: Object.fromEntries(Array.from({ length: c.models }, (_, i) => [`m${i}`, { id: `m${i}` }])),
+        })),
+        default: {},
+        connected: [],
+      });
+    }
+    if (p === "/provider/auth") {
+      return json({
+        openai: [
+          { type: "oauth", label: "ChatGPT Pro/Plus", prompts: [] },
+          { type: "api", label: "Manually enter API Key" },
+        ],
+        "cloudflare-workers-ai": [
+          { type: "api", label: "API key", prompts: [{ type: "text", key: "accountId", message: "Account ID" }] },
+        ],
+      });
+    }
+    const oauth = p.match(/^\/provider\/([^/]+)\/oauth\/(authorize|callback)$/);
+    if (oauth?.[1] && req.method() === "POST") {
+      const body = req.postDataJSON() ?? {};
+      if (oauth[2] === "authorize") {
+        state.oauth.authorizes.push({ id: oauth[1], method: body.method, inputs: body.inputs });
+        return json({
+          url: "https://auth.example.test/authorize?state=abc",
+          method: opts.oauthMethod ?? "auto",
+          instructions: "Selesaikan di browser.",
+        });
+      }
+      state.oauth.callbacks.push({ id: oauth[1], method: body.method, code: body.code });
+      await new Promise((r) => setTimeout(r, 300));
+      return json(true);
+    }
     if (p === "/config/providers") {
       const providers =
         models.length === 0

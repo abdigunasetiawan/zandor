@@ -9,7 +9,8 @@
 - **Fase 1 — Fondasi Repo, Docs, dan CI:** lulus 13-11-2026 (CI GitHub Actions run 43412491664, 14m50s).
 - **Fase 3 — App Shell:** lulus (CI hijau).
 - **Fase 4 — Engine & Project:** lulus (CI hijau).
-- **Fase aktif: Fase 5 — Chat Inti** (inti selesai di lokal; belum di-push).
+- **Fase 5 — Chat Inti:** lulus (CI hijau), pelengkap selesai.
+- **Fase aktif: Fase 6 — Provider & Model** (selesai di lokal dengan batasan; belum di-push).
 
 ## Checklist Fase 1
 
@@ -72,3 +73,14 @@
 - [x] Terbukti nyata: smoke native 15/15 (jawaban streaming, tulis file → izin → selesai, restart → sesi tetap)
 - [ ] Belum: UI provider, revert/regenerate/cabang sesi, lampiran, mode izin/reasoning, tab sesi, web search, salin, virtualisasi sungguhan
 - Catatan: `providers.json` milik pengguna ada di `%APPDATA%\id.web.zandor.app\` (berisi kunci; jangan di-commit). Fase chat nyata di smoke dilewati di CI (tak ada provider).
+
+## Fase 5 (pelengkap) dan Fase 6 — Provider & Model: selesai di lokal (belum di-push)
+
+- [x] Tab sesi, salin, mode izin, reasoning, web search, diff, lampiran, regenerate, revert, fork, virtualisasi transcript
+- [x] Kunci API di keychain OS; `providers.json` v2 tanpa kunci; migrasi otomatis (terbukti pada mesin pengembang)
+- [x] Endpoint kustom, lokal (deteksi Ollama/LM Studio), provider katalog (kunci), sign-in OAuth lewat engine
+- [x] Probe/ping dari Rust dengan status jujur dan batas waktu; pemilih model penuh (cari, sematkan, uji)
+- [x] Tes: 401 unit, 60 e2e, 29 Rust, smoke native 16/16
+- [ ] Belum terbukti: chat nyata setelah migrasi keychain (upstream proxy Antigravity sedang HTTP 500), model lokal sungguhan, login OAuth sungguhan
+- [ ] Belum: provider katalog yang butuh data tambahan, macOS/Linux
+- Catatan: kunci Anda sekarang di Windows Credential Manager (`id.web.zandor`); `providers.json` tidak lagi memuatnya.

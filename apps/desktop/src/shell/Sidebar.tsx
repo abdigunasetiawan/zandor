@@ -25,6 +25,7 @@ import {
   PlusIcon,
   RefreshIcon,
   SearchField,
+  SettingsIcon,
   Spinner,
   Tabs,
   useConfirm,
@@ -394,7 +395,7 @@ function SessionRows({
 
 function SidebarFooter() {
   const { t } = useI18n();
-  const { host } = useServices();
+  const { host, nav } = useServices();
   const engine = useEngineState();
   const tone =
     engine.status === "ready" ? "ok" : engine.status === "error" || engine.status === "stopped" ? "bad" : "wait";
@@ -408,6 +409,7 @@ function SidebarFooter() {
       {(engine.status === "error" || engine.status === "stopped") && host.native && (
         <IconButton label={t("engine.retry")} size="sm" icon={<RefreshIcon />} onClick={() => void host.restart()} />
       )}
+      <IconButton label={t("pv.manage")} size="sm" icon={<SettingsIcon />} onClick={() => nav.push("/providers")} />
       <span className="z-small sidebar__version">{t("app.version", { version: build.version })}</span>
     </footer>
   );

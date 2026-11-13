@@ -43,6 +43,7 @@ import {
   useState,
 } from "react";
 import { Markdown } from "./Markdown";
+import { ModelPicker } from "./ModelPicker";
 import { useChat, useEngineState, useProjects, useServices } from "./services";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -129,33 +130,6 @@ function SessionTabs() {
         );
       })}
     </nav>
-  );
-}
-
-function ModelPicker() {
-  const { t } = useI18n();
-  const { chat } = useServices();
-  const s = useChat();
-  if (s.modelsStatus === "error")
-    return <Badge tone="danger">{t("chat.modelsError", { error: s.modelsError ?? "" })}</Badge>;
-  if (s.models.length === 0) return null;
-  const key = (p: string, m: string) => `${p}\u0000${m}`;
-  const items = s.models.map((m) => ({
-    value: key(m.providerID, m.modelID),
-    label: `${m.name}${s.models.some((o) => o.providerID !== m.providerID) ? ` · ${m.providerName}` : ""}`,
-  }));
-  return (
-    <Select
-      aria-label={t("chat.model")}
-      size="sm"
-      className="chat__model"
-      items={items}
-      value={s.model ? key(s.model.providerID, s.model.modelID) : null}
-      onValueChange={(v) => {
-        const [providerID, modelID] = v.split("\u0000");
-        if (providerID && modelID) chat.selectModel({ providerID, modelID });
-      }}
-    />
   );
 }
 
@@ -536,7 +510,7 @@ function PermissionCard({ request, sessionId }: { request: PermissionRequest; se
 
 function Composer({ session }: { session: SessionChat }) {
   const { t } = useI18n();
-  const { chat, host } = useServices();
+  const { chat, host, nav } = useServices();
   const engine = useEngineState();
   const { model, models, modelsStatus, variant, permissionMode } = useChat();
   const toast = useToast();
@@ -584,7 +558,12 @@ function Composer({ session }: { session: SessionChat }) {
   return (
     <form className="composer" onSubmit={(e) => void submit(e)}>
       {(noModel || (modelsStatus === "ready" && models.length === 0)) && (
-        <p className="chat__note chat__note--warn z-small">{t("chat.noModel")}</p>
+        <p className="chat__note chat__note--warn z-small">
+          {t("chat.noModel")}{" "}
+          <Button size="sm" onClick={() => nav.push("/providers")}>
+            {t("pv.manage")}
+          </Button>
+        </p>
       )}
       {disabled && <p className="chat__note chat__note--warn z-small">{t("chat.engineDown")}</p>}
       {files.length > 0 && (
