@@ -4,6 +4,7 @@
 
 ## 2026-11-13
 
+- Fase 1: fondasi monorepo, docs, dan CI Windows (`4e376f3`)
 - Fase 0 lulus (Windows): ADR-027, roadmap & PRD diperbarui (`59a3327`)
 - Fase 0: spike S5 renderer Panel 3 + ADR-026 (`f50ed7b`)
 - Fase 0: spike S8 layout 5 panel + zoom + ADR-025 (`64a21f1`)

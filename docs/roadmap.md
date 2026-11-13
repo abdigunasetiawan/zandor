@@ -54,6 +54,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Infrastruktur i18n (ID/EN, key bertipe), error boundary, logger, dan nomor build dari jumlah commit.
 
 **Kriteria keluar:** aplikasi kosong bisa di-build di Windows lewat CI, dan test berjalan.
+**Status: LULUS (13-11-2026)** — CI Windows hijau (lint, typecheck, Vitest, e2e Edge, Clippy, cargo test, audit lisensi JS+Rust, build NSIS).
 
 ## Fase 2 — Design System
 

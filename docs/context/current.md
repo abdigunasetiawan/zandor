@@ -5,7 +5,8 @@
 ## Fase
 
 - **Fase 0 — Spike Risiko:** lulus untuk Windows (ADR-019–027).
-- **Fase 1 — Fondasi Repo, Docs, dan CI:** sedang dikerjakan. Lihat checklist di bawah.
+- **Fase 1 — Fondasi Repo, Docs, dan CI:** lulus 13-11-2026 (CI GitHub Actions run 43412491664, 14m50s).
+- **Fase aktif: Fase 2 — Design System.**
 
 ## Checklist Fase 1
 
@@ -16,7 +17,7 @@
 - [x] Audit lisensi JS (`bun run licenses`) + konfigurasi `cargo-deny`
 - [x] Workflow CI GitHub Actions (Windows)
 - [x] Struktur docs ramping + ADR 001–018 dipecah ke file
-- [ ] **CI lulus di GitHub** (kriteria keluar Fase 1) — butuh push ke `origin`
+- [x] CI lulus di GitHub (`windows-latest`), artefak installer `zandor-windows`
 
 ## Pekerjaan terbuka / keputusan tertunda
 
