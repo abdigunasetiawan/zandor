@@ -26,3 +26,14 @@
 - Persistensi sesi Google di browser bawaan belum konsisten (ADR-020) — diuji ulang di Fase 8.
 - Lisensi Zandor sendiri belum ditentukan (paket ditandai `UNLICENSED`/private).
 - Ikon aplikasi masih placeholder dari spike.
+
+## Fase 2 — status kerja (BELUM SELESAI, belum di-push)
+
+Sudah ditulis (lolos typecheck, **belum ada test komponen dan belum dijalankan di browser**):
+
+- Token CSS (`packages/ui/src/styles/tokens.css`), tema dark/light/system, `--ui-scale`, tipografi per variabel.
+- Pustaka dasar: Base UI 1.9.0 (MIT) + fontsource Plus Jakarta Sans & JetBrains Mono (OFL).
+- Atoms (14), molecules (10 termasuk Field), mesin shortcut di `@zandor/core` (27 test lulus), pengait React shortcut.
+  Sisa Fase 2: test komponen (Testing Library), halaman design system (`#/design-system`) + e2e,
+  skrip `check-design-tokens` (tolak warna/ukuran hard-coded, `alert/confirm/prompt`), test kontras WCAG token,
+  test katalog==demo, CSP `font-src`, dokumen fitur, lalu `bun run check` + push + CI.

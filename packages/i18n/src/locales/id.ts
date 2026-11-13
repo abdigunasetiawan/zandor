@@ -11,6 +11,19 @@ export const id = {
   "error.panelTitle": "Bagian ini mengalami galat",
   "error.panelBody": "Bagian lain aplikasi tetap berjalan. Detail galat tercatat di log.",
   "error.retry": "Coba lagi",
+  "ui.loading": "Memuat",
+  "ui.close": "Tutup",
+  "ui.clear": "Bersihkan",
+  "ui.search": "Cari",
+  "ui.noResults": "Tidak ada hasil",
+  "ui.confirm": "Ya, lanjutkan",
+  "ui.cancel": "Batal",
+  "ui.notifications": "Notifikasi",
+  "theme.label": "Tema",
+  "theme.dark": "Gelap",
+  "theme.light": "Terang",
+  "theme.system": "Ikuti sistem",
+  "scale.label": "Skala UI",
 } as const;
 
 export type MessageKey = keyof typeof id;

@@ -1,0 +1,264 @@
+/* Molecules. Hanya var(--z-*); lihat tokens.css. */
+
+/* ---------- Popover, Dialog, Backdrop ---------- */
+.z-popover {
+  min-width: calc(var(--z-space-7) * 4);
+  max-width: calc(var(--z-space-7) * 8);
+  padding: var(--z-space-3);
+}
+.z-popover__title {
+  margin-bottom: var(--z-space-2);
+}
+
+.z-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-layer-modal);
+  background: var(--z-color-backdrop);
+  transition: opacity var(--z-duration-base) var(--z-ease);
+}
+.z-backdrop[data-starting-style],
+.z-backdrop[data-ending-style] {
+  opacity: 0;
+}
+
+.z-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: var(--z-layer-modal);
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+  width: calc(var(--z-space-7) * 9);
+  max-width: calc(100vw - var(--z-space-6));
+  padding: var(--z-space-5);
+  border: var(--z-border-width) solid var(--z-color-border-strong);
+  border-radius: var(--z-radius-lg);
+  background: var(--z-color-raised);
+  color: var(--z-color-fg);
+  box-shadow: var(--z-shadow-3);
+  transform: translate(-50%, -50%);
+  transition:
+    opacity var(--z-duration-base) var(--z-ease),
+    scale var(--z-duration-base) var(--z-ease);
+}
+.z-dialog[data-starting-style],
+.z-dialog[data-ending-style] {
+  opacity: 0;
+  scale: 0.97;
+}
+.z-dialog__description {
+  color: var(--z-color-fg-muted);
+}
+.z-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--z-space-2);
+  margin-top: var(--z-space-2);
+}
+
+/* ---------- Toast ---------- */
+.z-toast-viewport {
+  position: fixed;
+  right: var(--z-space-4);
+  bottom: var(--z-space-4);
+  z-index: var(--z-layer-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  width: calc(var(--z-space-7) * 7);
+  max-width: calc(100vw - var(--z-space-5));
+  outline: none;
+}
+.z-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--z-space-2);
+  padding: var(--z-space-3);
+  border: var(--z-border-width) solid var(--z-color-border-strong);
+  border-left-width: var(--z-focus-width);
+  border-radius: var(--z-radius-lg);
+  background: var(--z-color-raised);
+  color: var(--z-color-fg);
+  box-shadow: var(--z-shadow-2);
+  transition:
+    opacity var(--z-duration-base) var(--z-ease),
+    transform var(--z-duration-base) var(--z-ease);
+}
+.z-toast[data-starting-style],
+.z-toast[data-ending-style] {
+  opacity: 0;
+  transform: translateY(var(--z-space-2));
+}
+.z-toast--success {
+  border-left-color: var(--z-color-success);
+}
+.z-toast--danger {
+  border-left-color: var(--z-color-danger);
+}
+.z-toast--warning {
+  border-left-color: var(--z-color-warning);
+}
+.z-toast__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  min-width: 0;
+}
+.z-toast__close {
+  display: inline-flex;
+  padding: var(--z-space-1);
+  border: 0;
+  border-radius: var(--z-radius-sm);
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  cursor: pointer;
+}
+.z-toast__close:hover {
+  background: var(--z-color-hover);
+}
+
+/* ---------- Tabs ---------- */
+.z-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+}
+.z-tabs__list {
+  position: relative;
+  display: flex;
+  gap: var(--z-space-1);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.z-tabs__tab {
+  height: var(--z-control-md);
+  padding: 0 var(--z-space-3);
+  border: 0;
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  font-family: inherit;
+  font-size: var(--z-type-button-size);
+  font-weight: var(--z-type-button-weight);
+  cursor: pointer;
+}
+.z-tabs__tab[data-active] {
+  color: var(--z-color-fg);
+}
+.z-tabs__tab[data-disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.z-tabs__tab:hover:not([data-disabled]) {
+  color: var(--z-color-fg);
+}
+.z-tabs__indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: var(--active-tab-width);
+  height: var(--z-focus-width);
+  background: var(--z-color-accent);
+  transform: translateX(var(--active-tab-left));
+  transition:
+    transform var(--z-duration-base) var(--z-ease),
+    width var(--z-duration-base) var(--z-ease);
+}
+.z-tabs__panel {
+  outline: none;
+}
+
+/* ---------- Combobox, SearchField, Field ---------- */
+.z-combobox {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--z-control-md);
+  border: var(--z-border-width) solid var(--z-color-border-strong);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-surface);
+}
+.z-combobox:focus-within {
+  outline: var(--z-focus-width) solid var(--z-color-focus);
+  outline-offset: 2px;
+}
+.z-combobox__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--z-space-3);
+  border: 0;
+  background: transparent;
+  color: var(--z-color-fg);
+  font-family: inherit;
+  font-size: var(--z-type-p-size);
+  outline: none;
+}
+.z-combobox__input::placeholder {
+  color: var(--z-color-fg-subtle);
+}
+.z-combobox__trigger {
+  display: inline-flex;
+  padding: 0 var(--z-space-2);
+  border: 0;
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  cursor: pointer;
+}
+.z-combobox__popup {
+  min-width: var(--anchor-width);
+  max-height: calc(var(--z-space-7) * 5);
+  overflow-y: auto;
+}
+.z-combobox__empty {
+  padding: var(--z-space-2);
+  color: var(--z-color-fg-muted);
+  font-size: var(--z-type-small-size);
+}
+.z-combobox__empty:empty {
+  display: none;
+}
+
+.z-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.z-search__icon {
+  position: absolute;
+  left: var(--z-space-3);
+  color: var(--z-color-fg-subtle);
+  pointer-events: none;
+}
+.z-search__input {
+  padding-left: var(--z-space-6);
+  padding-right: var(--z-space-6);
+}
+.z-search__input::-webkit-search-cancel-button {
+  display: none;
+}
+.z-search__clear {
+  position: absolute;
+  right: var(--z-space-1);
+  display: inline-flex;
+  padding: var(--z-space-1);
+  border: 0;
+  border-radius: var(--z-radius-sm);
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  cursor: pointer;
+}
+.z-search__clear:hover {
+  background: var(--z-color-hover);
+}
+
+.z-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+}
+.z-field__error {
+  color: var(--z-color-danger);
+}

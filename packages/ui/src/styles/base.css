@@ -1,0 +1,116 @@
+/* Gaya dasar + kelas tipografi per variabel. Hanya memakai token. */
+html {
+  font-size: calc(16px * var(--ui-scale));
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--z-color-bg);
+  color: var(--z-color-fg);
+  font-family: var(--z-font-ui);
+  font-size: var(--z-type-p-size);
+  font-weight: var(--z-type-p-weight);
+  line-height: var(--z-type-p-lh);
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:focus-visible {
+  outline: var(--z-focus-width) solid var(--z-color-focus);
+  outline-offset: 2px;
+}
+
+.z-h1,
+.z-h2,
+.z-h3,
+.z-h4,
+.z-p,
+.z-small,
+.z-link,
+.z-label,
+.z-code {
+  margin: 0;
+}
+
+.z-h1 {
+  font-size: var(--z-type-h1-size);
+  font-weight: var(--z-type-h1-weight);
+  line-height: var(--z-type-h1-lh);
+  letter-spacing: var(--z-type-h1-tracking);
+}
+.z-h2 {
+  font-size: var(--z-type-h2-size);
+  font-weight: var(--z-type-h2-weight);
+  line-height: var(--z-type-h2-lh);
+  letter-spacing: var(--z-type-h2-tracking);
+}
+.z-h3 {
+  font-size: var(--z-type-h3-size);
+  font-weight: var(--z-type-h3-weight);
+  line-height: var(--z-type-h3-lh);
+  letter-spacing: var(--z-type-h3-tracking);
+}
+.z-h4 {
+  font-size: var(--z-type-h4-size);
+  font-weight: var(--z-type-h4-weight);
+  line-height: var(--z-type-h4-lh);
+  letter-spacing: var(--z-type-h4-tracking);
+}
+.z-p {
+  font-size: var(--z-type-p-size);
+  font-weight: var(--z-type-p-weight);
+  line-height: var(--z-type-p-lh);
+  letter-spacing: var(--z-type-p-tracking);
+}
+.z-small {
+  font-size: var(--z-type-small-size);
+  font-weight: var(--z-type-small-weight);
+  line-height: var(--z-type-small-lh);
+  letter-spacing: var(--z-type-small-tracking);
+  color: var(--z-color-fg-muted);
+}
+.z-link {
+  font-size: var(--z-type-link-size);
+  font-weight: var(--z-type-link-weight);
+  line-height: var(--z-type-link-lh);
+  letter-spacing: var(--z-type-link-tracking);
+  color: var(--z-color-fg);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.z-label {
+  font-size: var(--z-type-label-size);
+  font-weight: var(--z-type-label-weight);
+  line-height: var(--z-type-label-lh);
+  letter-spacing: var(--z-type-label-tracking);
+}
+.z-code {
+  font-family: var(--z-font-code);
+  font-size: var(--z-type-code-size);
+  font-weight: var(--z-type-code-weight);
+  line-height: var(--z-type-code-lh);
+  letter-spacing: var(--z-type-code-tracking);
+}
+
+.z-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
