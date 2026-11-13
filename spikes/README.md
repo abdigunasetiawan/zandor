@@ -7,6 +7,7 @@ Kode sekali pakai untuk membuktikan risiko. **Bukan kode produk** — jangan dii
 |---|---|---|---|
 | S1 sidecar `opencode serve` | `s1-sidecar/` | ADR-019 | Windows lulus · mac/Linux ditunda (tidak ada perangkat) |
 | S2 pemetaan event SSE | `s2-events/` | ADR-021 | Lulus (rekaman nyata, 12/12 test) · beberapa jenis part belum terekam |
+| S4 secret keychain + injeksi | `s4-secrets/` | ADR-022 | Windows lulus (6/6) · mac/Linux ditunda |
 | S3 child webview browser | `s3-webview/` | ADR-020 | Windows lulus (termasuk login Google manual) · persistensi sesi belum konsisten · mac/Linux ditunda |
 
 ## Prasyarat
@@ -17,6 +18,7 @@ Rust (stable), Node ≥ 20, npm. Windows butuh WebView2 runtime.
 node tools/fetch-opencode.mjs          # unduh opencode versi pin → s1-sidecar/src-tauri/binaries/
 cargo test -p zandor-engine-supervisor -- --test-threads=1
 cargo build -p zandor-spike-s1 -p zandor-spike-s3
+cargo test -p zandor-spike-s4 -- --test-threads=1   # keychain asli + engine + mock provider
 ZANDOR_SELFTEST=/tmp/s1.json ./target/debug/zandor-spike-s1
 ZANDOR_SELFTEST=/tmp/s3.json ./target/debug/zandor-spike-s3
 ```

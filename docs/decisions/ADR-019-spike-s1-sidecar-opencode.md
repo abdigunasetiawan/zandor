@@ -94,7 +94,10 @@ Bundel: `tauri build` → installer NSIS **58,5 MiB**; `installer.nsi` memuat
    `CreateProcessW` + `PROC_THREAD_ATTRIBUTE_JOB_LIST`. Ganti bila ada masalah AV/kompatibilitas.
 9. `opencode serve --port 0` selalu mencoba 4096 dulu; aman (port lain dipilih bila terpakai —
    terbukti di test dua engine), tetapi URL tidak boleh di-hardcode.
-10. Belum diuji: binary tak bertanda tangan 211 MB vs Windows Defender/SmartScreen dan Gatekeeper
+10. **(Ditemukan di S4 / ADR-022)** Proses anak engine (tool bash, PTY) mewarisi
+    `OPENCODE_SERVER_PASSWORD`, sehingga perintah yang dijalankan agent bisa memanggil API engine,
+    termasuk menyetujui izinnya sendiri. Mitigasi wajib: plugin `zandor-env-guard` (hook `shell.env`).
+11. Belum diuji: binary tak bertanda tangan 211 MB vs Windows Defender/SmartScreen dan Gatekeeper
     (notarisasi macOS wajib menandatangani sidecar juga).
 
 ## Konsekuensi

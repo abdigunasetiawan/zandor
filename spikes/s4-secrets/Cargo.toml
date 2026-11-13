@@ -1,0 +1,16 @@
+[package]
+name = "zandor-spike-s4"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Spike S4: secret di keychain OS + penyuntikan kredensial ke opencode"
+
+[dependencies]
+keyring = { version = "=4.2.0" }
+serde_json = "1"
+getrandom = "0.3"
+
+[dev-dependencies]
+zandor-engine-supervisor = { path = "../s1-sidecar/supervisor" }
+keyring = { version = "=4.2.0" }
