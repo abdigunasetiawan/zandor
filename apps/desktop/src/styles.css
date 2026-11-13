@@ -730,3 +730,112 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* ---------- Chat: tab sesi, aksi, lampiran, diff ---------- */
+.stabs {
+  display: flex;
+  flex: none;
+  gap: var(--z-space-1);
+  padding: var(--z-space-1) var(--z-space-2) 0;
+  overflow-x: auto;
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.stabs__tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  max-width: 12rem;
+  border: var(--z-border-width) solid transparent;
+  border-bottom: 0;
+  border-radius: var(--z-radius-md) var(--z-radius-md) 0 0;
+}
+.stabs__tab[data-active] {
+  border-color: var(--z-color-border);
+  background: var(--z-color-raised);
+}
+.stabs__label,
+.stabs__close {
+  border: 0;
+  background: transparent;
+  color: var(--z-color-fg);
+  font: inherit;
+  cursor: pointer;
+}
+.stabs__label {
+  min-width: 0;
+  padding: var(--z-space-1) var(--z-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stabs__close {
+  display: inline-flex;
+  padding: var(--z-space-1);
+  color: var(--z-color-fg-muted);
+}
+.msg__actions {
+  display: flex;
+  gap: var(--z-space-1);
+  opacity: 0;
+}
+.msg:hover .msg__actions,
+.msg:focus-within .msg__actions {
+  opacity: 1;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--z-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-1);
+  max-width: 100%;
+  padding: 0 var(--z-space-2);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-full);
+  font-size: var(--z-type-small-size);
+}
+.chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip__x {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  cursor: pointer;
+}
+.composer__actions {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--z-space-2);
+}
+.composer__spacer {
+  flex: 1;
+}
+.composer__mode {
+  max-width: 10rem;
+}
+.diff {
+  margin: var(--z-space-1) 0;
+}
+.diff__line {
+  display: block;
+}
+.diff__line--add {
+  color: var(--z-color-success);
+}
+.diff__line--del {
+  color: var(--z-color-danger);
+}
+.diff__line--ctx {
+  color: var(--z-color-fg-muted);
+}

@@ -1,20 +1,57 @@
-// Panel 2: percakapan. Transcript dari ChatStore (SSE engine), composer, pemilih model, kartu izin, stop.
+// Panel 2: percakapan. Tab sesi, transcript dari ChatStore (SSE engine), aksi pesan (salin/cabang/revert/ulang),
+// composer (lampiran, mode izin, reasoning, model), kartu izin, stop.
 import {
   type ChatMessage,
+  type FileAttachment,
   type MessagePart,
   messageText,
+  type PermissionMode,
   type PermissionRequest,
   type SessionChat,
   sessionTitle,
   type ToolPart,
+  visibleMessages,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { Badge, Button, ChatIcon, ChevronDownIcon, ChevronRightIcon, Select, Spinner, useToast } from "@zandor/ui";
-import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Badge,
+  Button,
+  ChatIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CloseIcon,
+  CopyIcon,
+  GitIcon,
+  GlobeIcon,
+  IconButton,
+  PaperclipIcon,
+  RefreshIcon,
+  Select,
+  Spinner,
+  UndoIcon,
+  useToast,
+} from "@zandor/ui";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Markdown } from "./Markdown";
 import { useChat, useEngineState, useProjects, useServices } from "./services";
 
-export function ChatPanel({ empty }: { empty: React.ReactNode }) {
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+function useErrorToast() {
+  const toast = useToast();
+  const { t } = useI18n();
+  return (e: unknown) => toast.show({ title: t("sb.error", { error: errText(e) }), tone: "danger" });
+}
+
+export function ChatPanel({ empty }: { empty: ReactNode }) {
   const { t } = useI18n();
   const { projects, chat } = useServices();
   const state = useProjects();
@@ -36,6 +73,7 @@ export function ChatPanel({ empty }: { empty: React.ReactNode }) {
 
   return (
     <div className="chat">
+      <SessionTabs />
       <header className="chat__head">
         <ChatIcon size="sm" />
         <div className="chat__titles">
@@ -49,6 +87,46 @@ export function ChatPanel({ empty }: { empty: React.ReactNode }) {
       {session ? <Transcript session={session} /> : <p className="sidebar__note z-small">{t("chat.loading")}</p>}
       {session && <Composer session={session} />}
     </div>
+  );
+}
+
+/** Tab sesi yang terbuka (urutan dibuka). Hanya tampil bila ada lebih dari satu. */
+function SessionTabs() {
+  const { t } = useI18n();
+  const { projects } = useServices();
+  const state = useProjects();
+  if (state.tabs.length < 2) return null;
+  const titleOf = (key: string, id: string) => {
+    const s = state.sessions[key]?.items.find((i) => i.id === id);
+    return s ? (sessionTitle(s) ?? t("sb.untitled")) : t("sb.untitled");
+  };
+  return (
+    <nav className="stabs" aria-label={t("chat.tabs")}>
+      {state.tabs.map((tab) => {
+        const title = titleOf(tab.key, tab.sessionId);
+        const active = state.selection.sessionId === tab.sessionId;
+        return (
+          <div key={tab.sessionId} className="stabs__tab" data-active={active ? "" : undefined}>
+            <button
+              type="button"
+              className="stabs__label"
+              aria-current={active ? "true" : undefined}
+              onClick={() => projects.select(tab.key, tab.sessionId)}
+            >
+              {title}
+            </button>
+            <button
+              type="button"
+              className="stabs__close"
+              aria-label={t("chat.closeTab", { title })}
+              onClick={() => projects.closeTab(tab.sessionId)}
+            >
+              <CloseIcon size="sm" />
+            </button>
+          </div>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -97,8 +175,13 @@ function useStickToBottom(dep: unknown) {
 
 function Transcript({ session }: { session: SessionChat }) {
   const { t } = useI18n();
+  const { chat } = useServices();
+  const fail = useErrorToast();
   const { ref, onScroll } = useStickToBottom(session.messages);
   const busy = session.status.type !== "idle" || session.sending;
+  const messages = visibleMessages(session);
+  const lastAssistant = [...messages].reverse().find((m) => m.info.role === "assistant");
+
   return (
     <div
       className="chat__scroll"
@@ -109,12 +192,25 @@ function Transcript({ session }: { session: SessionChat }) {
       aria-busy={busy}
     >
       {session.loading && session.messages.length === 0 && <p className="chat__note z-small">{t("chat.loading")}</p>}
-      {session.loaded && session.messages.length === 0 && !session.loading && (
+      {session.loaded && messages.length === 0 && !session.loading && (
         <p className="chat__note z-small">{t("chat.empty")}</p>
       )}
-      {session.messages.map((m) => (
-        <Message key={m.info.id} message={m} />
+      {messages.map((m) => (
+        <Message
+          key={m.info.id}
+          message={m}
+          sessionId={session.sessionID}
+          isLastAssistant={m === lastAssistant && !busy}
+        />
       ))}
+      {session.revert !== null && (
+        <div className="chat__note chat__note--warn z-small" role="status">
+          <span>{t("chat.reverted")}</span>
+          <Button size="sm" onClick={() => void chat.unrevert(session.sessionID).catch(fail)}>
+            {t("chat.unrevert")}
+          </Button>
+        </div>
+      )}
       {session.permissions.map((p) => (
         <PermissionCard key={p.id} request={p} sessionId={session.sessionID} />
       ))}
@@ -136,16 +232,95 @@ function Transcript({ session }: { session: SessionChat }) {
   );
 }
 
-function Message({ message }: { message: ChatMessage }) {
+function MessageActions({
+  message,
+  sessionId,
+  isLastAssistant,
+}: {
+  message: ChatMessage;
+  sessionId: string;
+  isLastAssistant: boolean;
+}) {
+  const { t } = useI18n();
+  const { chat, projects } = useServices();
+  const state = useProjects();
+  const toast = useToast();
+  const fail = useErrorToast();
+  const text = messageText(message);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.show({ title: t("chat.copied"), tone: "success", timeoutMs: 1500 });
+    } catch (e) {
+      fail(e);
+    }
+  };
+  const fork = async () => {
+    try {
+      const s = await chat.fork(sessionId, message.info.id);
+      const key = state.selection.key;
+      if (key) projects.adoptSession(key, s);
+    } catch (e) {
+      fail(e);
+    }
+  };
+  return (
+    <div className="msg__actions">
+      {text && <IconButton label={t("chat.copy")} size="sm" icon={<CopyIcon />} onClick={() => void copy()} />}
+      <IconButton label={t("chat.fork")} size="sm" icon={<GitIcon />} onClick={() => void fork()} />
+      {message.info.role === "user" && (
+        <IconButton
+          label={t("chat.revert")}
+          size="sm"
+          icon={<UndoIcon />}
+          onClick={() => void chat.revertTo(sessionId, message.info.id).catch(fail)}
+        />
+      )}
+      {isLastAssistant && (
+        <IconButton
+          label={t("chat.regenerate")}
+          size="sm"
+          icon={<RefreshIcon />}
+          onClick={() => void chat.regenerate(sessionId).catch(fail)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Message({
+  message,
+  sessionId,
+  isLastAssistant,
+}: {
+  message: ChatMessage;
+  sessionId: string;
+  isLastAssistant: boolean;
+}) {
   const { t } = useI18n();
   const { info } = message;
   const visible = message.parts.filter((p) => p.type !== "other" && p.type !== "step-finish");
   if (info.role === "user") {
     const text = messageText(message);
-    if (!text) return null;
+    const files = message.parts.filter((p) => p.type === "file");
+    if (!text && files.length === 0) return null;
     return (
       <article className="msg msg--user" aria-label={t("chat.you")}>
-        <p className="msg__text">{text}</p>
+        {files.length > 0 && (
+          <ul className="chips">
+            {files.map((f) =>
+              f.type === "file" ? (
+                <li key={f.id} className="chip">
+                  <PaperclipIcon size="sm" />
+                  <span>{f.filename ?? f.url.split("/").pop()}</span>
+                </li>
+              ) : null,
+            )}
+          </ul>
+        )}
+        {text && <p className="msg__text">{text}</p>}
+        <MessageActions message={message} sessionId={sessionId} isLastAssistant={false} />
       </article>
     );
   }
@@ -160,6 +335,9 @@ function Message({ message }: { message: ChatMessage }) {
         </p>
       )}
       <MessageMeta message={message} />
+      {info.time.completed !== undefined && (
+        <MessageActions message={message} sessionId={sessionId} isLastAssistant={isLastAssistant} />
+      )}
     </article>
   );
 }
@@ -204,10 +382,38 @@ function Reasoning({ text, label }: { text: string; label: string }) {
   );
 }
 
-const summarize = (input: Record<string, unknown>): string => {
-  const first = Object.values(input).find((v) => typeof v === "string") as string | undefined;
-  return first ?? "";
-};
+const WEB_TOOLS = new Set(["websearch", "webfetch", "codesearch"]);
+const str = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/** Ringkasan satu baris per jenis tool (pencarian web → kueri/URL; shell → perintah; file → path; dst). */
+export function toolSummary(tool: string, input: Record<string, unknown>, title?: string): string {
+  const pick = (...keys: string[]) => keys.map((k) => str(input[k])).find(Boolean) ?? "";
+  if (tool === "websearch" || tool === "codesearch") return pick("query") || title || "";
+  if (tool === "webfetch") return pick("url") || title || "";
+  if (tool === "bash") return pick("command", "description") || title || "";
+  if (tool === "glob" || tool === "grep") return pick("pattern") || title || "";
+  const fallback = pick("filePath", "path", "pattern", "command", "url", "query");
+  return title || fallback || (Object.values(input).find((v) => typeof v === "string") as string | undefined) || "";
+}
+
+function DiffView({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <pre className="fold__pre diff">
+      {lines.map((l, i) => {
+        const kind =
+          l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : "ctx";
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: baris diff statis, urutan tetap
+          <span key={i} className={`diff__line diff__line--${kind}`}>
+            {l}
+            {"\n"}
+          </span>
+        );
+      })}
+    </pre>
+  );
+}
 
 function ToolCard({ part }: { part: ToolPart }) {
   const { t } = useI18n();
@@ -215,16 +421,25 @@ function ToolCard({ part }: { part: ToolPart }) {
   const { state } = part;
   const tone = state.status === "error" ? "danger" : state.status === "completed" ? "success" : "outline";
   const body = state.status === "error" ? (state.error ?? "") : (state.output ?? "");
+  const diff = typeof state.metadata?.diff === "string" ? state.metadata.diff : "";
+  const web = WEB_TOOLS.has(part.tool);
   return (
     <div className="fold fold--tool" data-status={state.status}>
       <button type="button" className="fold__head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         {open ? <ChevronDownIcon size="sm" /> : <ChevronRightIcon size="sm" />}
-        <code className="fold__tool">{part.tool}</code>
-        <span className="fold__summary z-small">{state.title ?? summarize(state.input)}</span>
+        {web && <GlobeIcon size="sm" />}
+        <code className="fold__tool">{web ? t("chat.webSearch") : part.tool}</code>
+        <span className="fold__summary z-small">{toolSummary(part.tool, state.input, state.title)}</span>
         <Badge tone={tone}>{t(`chat.tool.${state.status}` as never)}</Badge>
       </button>
       {open && (
         <div className="fold__body">
+          {diff && (
+            <>
+              <p className="z-small fold__label">{t("chat.diff")}</p>
+              <DiffView text={diff} />
+            </>
+          )}
           <p className="z-small fold__label">{t("chat.input")}</p>
           <pre className="fold__pre">{JSON.stringify(state.input, null, 2)}</pre>
           {body && (
@@ -242,14 +457,14 @@ function ToolCard({ part }: { part: ToolPart }) {
 function PermissionCard({ request, sessionId }: { request: PermissionRequest; sessionId: string }) {
   const { t } = useI18n();
   const { chat } = useServices();
-  const toast = useToast();
+  const fail = useErrorToast();
   const [busy, setBusy] = useState(false);
   const answer = async (reply: "once" | "always" | "reject") => {
     setBusy(true);
     try {
       await chat.reply(sessionId, request.id, reply);
     } catch (e) {
-      toast.show({ title: t("sb.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" });
+      fail(e);
     } finally {
       setBusy(false);
     }
@@ -262,7 +477,7 @@ function PermissionCard({ request, sessionId }: { request: PermissionRequest; se
     >
       <h3 className="z-label">{t("chat.permission.title", { permission: request.permission })}</h3>
       {request.patterns.length > 0 && <pre className="fold__pre">{request.patterns.join("\n")}</pre>}
-      {typeof request.metadata.diff === "string" && <pre className="fold__pre perm__diff">{request.metadata.diff}</pre>}
+      {typeof request.metadata.diff === "string" && <DiffView text={request.metadata.diff} />}
       <div className="perm__actions">
         <Button size="sm" variant="solid" disabled={busy} onClick={() => void answer("once")}>
           {t("chat.permission.once")}
@@ -282,28 +497,32 @@ function PermissionCard({ request, sessionId }: { request: PermissionRequest; se
 
 function Composer({ session }: { session: SessionChat }) {
   const { t } = useI18n();
-  const { chat } = useServices();
+  const { chat, host } = useServices();
   const engine = useEngineState();
-  const { model, models, modelsStatus } = useChat();
+  const { model, models, modelsStatus, variant, permissionMode } = useChat();
   const toast = useToast();
   const [text, setText] = useState("");
+  const [files, setFiles] = useState<FileAttachment[]>([]);
   const running = session.status.type !== "idle" || session.sending;
   const noModel = modelsStatus === "ready" && !model;
   const disabled = engine.status !== "ready";
+  const variants =
+    models.find((m) => m.providerID === model?.providerID && m.modelID === model?.modelID)?.variants ?? [];
+  const canSend = !disabled && !!model && (text.trim() !== "" || files.length > 0);
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
-    const value = text.trim();
-    if (!value || running || disabled || !model) return;
+    if (!canSend || running) return;
+    const value = text;
+    const attached = files;
     setText("");
+    setFiles([]);
     try {
-      await chat.send(session.sessionID, value);
+      await chat.send(session.sessionID, value, attached);
     } catch (err) {
       setText(value); // kembalikan agar tidak hilang
-      toast.show({
-        title: t("chat.sendError", { error: err instanceof Error ? err.message : String(err) }),
-        tone: "danger",
-      });
+      setFiles(attached);
+      toast.show({ title: t("chat.sendError", { error: errText(err) }), tone: "danger" });
     }
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -312,12 +531,41 @@ function Composer({ session }: { session: SessionChat }) {
       void submit();
     }
   };
+  const attach = async (kind: "files" | "folder") => {
+    try {
+      const picked = await host.pickAttachments(kind);
+      if (!picked) return;
+      for (const name of picked.skipped) toast.show({ title: t("chat.attachTooLarge", { name }), tone: "warning" });
+      setFiles((prev) => [...prev, ...picked.items.filter((n) => !prev.some((p) => p.url === n.url))]);
+    } catch (err) {
+      toast.show({ title: t("sb.error", { error: errText(err) }), tone: "danger" });
+    }
+  };
+
   return (
     <form className="composer" onSubmit={(e) => void submit(e)}>
       {(noModel || (modelsStatus === "ready" && models.length === 0)) && (
         <p className="chat__note chat__note--warn z-small">{t("chat.noModel")}</p>
       )}
       {disabled && <p className="chat__note chat__note--warn z-small">{t("chat.engineDown")}</p>}
+      {files.length > 0 && (
+        <ul className="chips">
+          {files.map((f) => (
+            <li key={f.url} className="chip">
+              <PaperclipIcon size="sm" />
+              <span>{f.filename ?? f.url}</span>
+              <button
+                type="button"
+                className="chip__x"
+                aria-label={t("chat.removeAttachment", { name: f.filename ?? f.url })}
+                onClick={() => setFiles((prev) => prev.filter((p) => p.url !== f.url))}
+              >
+                <CloseIcon size="sm" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea
         className="z-input composer__input"
         rows={3}
@@ -329,12 +577,46 @@ function Composer({ session }: { session: SessionChat }) {
         disabled={disabled}
       />
       <div className="composer__actions">
+        <IconButton
+          label={t("chat.attach")}
+          size="sm"
+          icon={<PaperclipIcon />}
+          disabled={disabled}
+          onClick={() => void attach("files")}
+        />
+        {host.native && (
+          <Button size="sm" disabled={disabled} onClick={() => void attach("folder")}>
+            {t("chat.attachFolder")}
+          </Button>
+        )}
+        <Select
+          aria-label={t("chat.permissionMode")}
+          size="sm"
+          className="composer__mode"
+          items={(["ask", "auto-edit", "auto-all"] as PermissionMode[]).map((m) => ({
+            value: m,
+            label: t(`chat.mode.${m}` as never),
+          }))}
+          value={permissionMode}
+          onValueChange={(v) => chat.setPermissionMode(v as PermissionMode)}
+        />
+        {variants.length > 0 && (
+          <Select
+            aria-label={t("chat.variant")}
+            size="sm"
+            className="composer__mode"
+            items={[{ value: "", label: t("chat.variant.default") }, ...variants.map((v) => ({ value: v, label: v }))]}
+            value={variant ?? ""}
+            onValueChange={(v) => chat.setVariant(v || null)}
+          />
+        )}
+        <span className="composer__spacer" />
         {running ? (
           <Button variant="danger" onClick={() => void chat.abort(session.sessionID)}>
             {t("chat.stop")}
           </Button>
         ) : (
-          <Button variant="solid" type="submit" disabled={disabled || !model || !text.trim()}>
+          <Button variant="solid" type="submit" disabled={!canSend}>
             {t("chat.send")}
           </Button>
         )}

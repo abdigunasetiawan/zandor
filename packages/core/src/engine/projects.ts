@@ -16,6 +16,8 @@ export type SessionsState = {
   error: string | null;
 };
 export type Selection = { key: ProjectKey | null; sessionId: string | null };
+export type SessionTab = { key: ProjectKey; sessionId: string };
+const MAX_TABS = 12;
 
 export type ProjectsState = {
   loaded: boolean;
@@ -24,6 +26,8 @@ export type ProjectsState = {
   engineReady: boolean;
   sessions: Record<ProjectKey, SessionsState>;
   selection: Selection;
+  /** Sesi yang dibuka sebagai tab di atas panel Chat (urutan dibuka). */
+  tabs: SessionTab[];
 };
 
 export type RegistryStorage = { load(): Promise<string | null>; save(text: string): Promise<void> };
@@ -61,7 +65,7 @@ export function baseName(path: string): string {
 const emptySessions = (): SessionsState => ({ status: "idle", items: [], error: null });
 const byRecent = (a: SessionInfo, b: SessionInfo) => b.time.updated - a.time.updated || b.time.created - a.time.created;
 
-type Persisted = { version: number; projects: Project[]; selection: Selection };
+type Persisted = { version: number; projects: Project[]; selection: Selection; tabs: SessionTab[] };
 
 function parseRegistry(text: string | null): { value: Persisted | null; error: string | null } {
   if (!text) return { value: null, error: null };
@@ -96,7 +100,19 @@ function parseRegistry(text: string | null): { value: Persisted | null; error: s
     key: typeof sel?.key === "string" ? sel.key : null,
     sessionId: typeof sel?.sessionId === "string" ? sel.sessionId : null,
   };
-  return { value: { version: REGISTRY_VERSION, projects, selection }, error: null };
+  const tabs: SessionTab[] = [];
+  if (Array.isArray((o as { tabs?: unknown }).tabs)) {
+    for (const t of (o as { tabs: Array<Partial<SessionTab>> }).tabs) {
+      if (
+        typeof t?.key === "string" &&
+        typeof t.sessionId === "string" &&
+        !tabs.some((x) => x.sessionId === t.sessionId)
+      ) {
+        tabs.push({ key: t.key, sessionId: t.sessionId });
+      }
+    }
+  }
+  return { value: { version: REGISTRY_VERSION, projects, selection, tabs: tabs.slice(-MAX_TABS) }, error: null };
 }
 
 export type ProjectStoreOptions = {
@@ -114,6 +130,7 @@ export class ProjectStore {
     engineReady: false,
     sessions: {},
     selection: { key: null, sessionId: null },
+    tabs: [],
   };
   private listeners = new Set<() => void>();
   private api: EngineApi | null = null;
@@ -148,7 +165,12 @@ export class ProjectStore {
   }
 
   private async persist() {
-    const data: Persisted = { version: REGISTRY_VERSION, projects: this.snap.projects, selection: this.snap.selection };
+    const data: Persisted = {
+      version: REGISTRY_VERSION,
+      projects: this.snap.projects,
+      selection: this.snap.selection,
+      tabs: this.snap.tabs,
+    };
     await this.options.storage.save(JSON.stringify(data));
   }
 
@@ -161,6 +183,7 @@ export class ProjectStore {
       loaded: true,
       projects: value?.projects ?? [],
       selection: value?.selection ?? { key: null, sessionId: null },
+      tabs: value?.tabs ?? [],
     });
   }
 
@@ -211,6 +234,15 @@ export class ProjectStore {
 
   /** Pilihan yang menunjuk sesi yang tidak ada lagi (dihapus di tempat lain) dikosongkan. */
   private dropStaleSelection() {
+    // Tab untuk sesi yang sudah tidak ada (daftar sudah berstatus siap) ikut dibuang.
+    const alive = this.snap.tabs.filter((t) => {
+      const g = this.snap.sessions[t.key];
+      return !(g?.status === "ready" && !g.items.some((i) => i.id === t.sessionId));
+    });
+    if (alive.length !== this.snap.tabs.length) {
+      this.update({ tabs: alive });
+      void this.persist();
+    }
     const { key, sessionId } = this.snap.selection;
     if (!key || !sessionId) return;
     const s = this.snap.sessions[key];
@@ -248,6 +280,7 @@ export class ProjectStore {
     this.update({
       projects: this.snap.projects.filter((p) => p.id !== id),
       sessions: rest,
+      tabs: this.snap.tabs.filter((t) => t.key !== id),
       selection: sel.key === id ? { key: null, sessionId: null } : sel,
     });
     await this.persist();
@@ -270,8 +303,39 @@ export class ProjectStore {
   // ---------- Sesi ----------
 
   select(key: ProjectKey | null, sessionId: string | null) {
-    this.update({ selection: { key, sessionId } });
+    let tabs = this.snap.tabs;
+    if (key && sessionId && !tabs.some((t) => t.sessionId === sessionId)) {
+      tabs = [...tabs, { key, sessionId }];
+      if (tabs.length > MAX_TABS) tabs = tabs.slice(tabs.length - MAX_TABS);
+    }
+    this.update({ selection: { key, sessionId }, tabs });
     void this.persist();
+  }
+
+  /** Tutup tab. Bila tab aktif, pindah ke tetangganya (atau tanpa sesi bila tab terakhir). */
+  closeTab(sessionId: string) {
+    const i = this.snap.tabs.findIndex((t) => t.sessionId === sessionId);
+    if (i === -1) return;
+    const tabs = this.snap.tabs.filter((t) => t.sessionId !== sessionId);
+    const sel = this.snap.selection;
+    if (sel.sessionId !== sessionId) {
+      this.update({ tabs });
+      void this.persist();
+      return;
+    }
+    const next = tabs[Math.min(i, tabs.length - 1)];
+    this.update({
+      tabs,
+      selection: next ? { key: next.key, sessionId: next.sessionId } : { key: sel.key, sessionId: null },
+    });
+    void this.persist();
+  }
+
+  /** Sesi hasil operasi engine di luar createSession (mis. fork): masukkan ke daftar dan pilih. */
+  adoptSession(key: ProjectKey, session: SessionInfo) {
+    const cur = this.snap.sessions[key] ?? emptySessions();
+    this.updateSessions(key, { status: "ready", items: [session, ...cur.items.filter((s) => s.id !== session.id)] });
+    this.select(key, session.id);
   }
 
   private requireApi(): EngineApi {
@@ -305,6 +369,7 @@ export class ProjectStore {
     await this.requireApi().deleteSession(dir, sessionId);
     const cur = this.snap.sessions[key] ?? emptySessions();
     this.updateSessions(key, { items: cur.items.filter((s) => s.id !== sessionId) });
+    this.closeTab(sessionId);
     const sel = this.snap.selection;
     if (sel.key === key && sel.sessionId === sessionId) this.select(key, null);
   }

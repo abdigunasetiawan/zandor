@@ -1,8 +1,8 @@
 // Store chat: memuat riwayat, berlangganan SSE per direktori, mengirim prompt, abort, membalas izin, dan memilih
 // model. Semua logika di sini murni terhadap `EngineApi` (diuji dengan engine palsu).
-import type { EngineApi, ModelOption, ModelRef } from "../engine/api";
+import type { EngineApi, FileAttachment, ModelOption, ModelRef, SessionInfo } from "../engine/api";
 import { applyEvent, type ChatState, clearError, initialChatState, loadMessages } from "./reducer";
-import type { EngineEvent, PermissionReply } from "./types";
+import type { EngineEvent, PermissionReply, PermissionRequest } from "./types";
 
 export type SessionChat = ChatState & {
   directory: string;
@@ -19,13 +19,22 @@ export type ChatStoreState = {
   modelsError: string | null;
   /** Model terpilih untuk prompt berikutnya (null bila belum ada model). */
   model: ModelRef | null;
+  /** Varian reasoning terpilih (null = bawaan model). */
+  variant: string | null;
+  /** Cara menjawab permintaan izin: tanya pengguna, setujui otomatis edit file, atau setujui semuanya. */
+  permissionMode: PermissionMode;
   sessions: Record<string, SessionChat>;
 };
+
+export type PermissionMode = "ask" | "auto-edit" | "auto-all";
+export const PERMISSION_MODES: readonly PermissionMode[] = ["ask", "auto-edit", "auto-all"];
 
 export type ChatPrefs = { get(key: string): string | null; set(key: string, value: string): void };
 export type ChatStoreOptions = { prefs: ChatPrefs; onWarning?: (message: string) => void };
 
 const MODEL_PREF = "zandor.model";
+const MODE_PREF = "zandor.permissionMode";
+const VARIANT_PREF = "zandor.variant";
 const MAX_RELOADS = 3;
 const MESSAGE_EVENTS = new Set<EngineEvent["type"]>([
   "message.updated",
@@ -40,7 +49,15 @@ const sameModel = (a: ModelRef | null, b: ModelRef | null) =>
   a?.providerID === b?.providerID && a?.modelID === b?.modelID;
 
 export class ChatStore {
-  private snap: ChatStoreState = { models: [], modelsStatus: "idle", modelsError: null, model: null, sessions: {} };
+  private snap: ChatStoreState = {
+    models: [],
+    modelsStatus: "idle",
+    modelsError: null,
+    model: null,
+    variant: null,
+    permissionMode: "ask",
+    sessions: {},
+  };
   private listeners = new Set<() => void>();
   private api: EngineApi | null = null;
   private subs = new Map<string, { unsub: () => void; sessions: Set<string> }>();
@@ -50,6 +67,11 @@ export class ChatStore {
 
   constructor(private readonly options: ChatStoreOptions) {
     this.preferred = parseModel(options.prefs.get(MODEL_PREF));
+    const mode = options.prefs.get(MODE_PREF);
+    if (mode && (PERMISSION_MODES as readonly string[]).includes(mode)) {
+      this.snap.permissionMode = mode as PermissionMode;
+    }
+    this.snap.variant = options.prefs.get(VARIANT_PREF) || null;
   }
 
   state(): ChatStoreState {
@@ -100,7 +122,13 @@ export class ChatStore {
     try {
       const models = await api.listModels();
       if (api !== this.api) return;
-      this.update({ models, modelsStatus: "ready", model: this.pickModel(models) });
+      const model = this.pickModel(models);
+      this.update({
+        models,
+        modelsStatus: "ready",
+        model,
+        variant: this.validVariant(models, model, this.snap.variant),
+      });
     } catch (e) {
       if (api !== this.api) return;
       this.update({ modelsStatus: "error", modelsError: errMsg(e) });
@@ -116,6 +144,46 @@ export class ChatStore {
     return first ? { providerID: first.providerID, modelID: first.modelID } : null;
   }
 
+  private validVariant(models: ModelOption[], model: ModelRef | null, variant: string | null): string | null {
+    if (!variant || !model) return null;
+    const m = models.find((o) => o.providerID === model.providerID && o.modelID === model.modelID);
+    return m?.variants.includes(variant) ? variant : null;
+  }
+
+  setVariant(variant: string | null) {
+    const v = this.validVariant(this.snap.models, this.snap.model, variant);
+    if (v === this.snap.variant) return;
+    this.safePref(VARIANT_PREF, v ?? "");
+    this.update({ variant: v });
+  }
+
+  setPermissionMode(mode: PermissionMode) {
+    if (mode === this.snap.permissionMode) return;
+    this.safePref(MODE_PREF, mode);
+    this.update({ permissionMode: mode });
+    // Permintaan yang sudah menunggu ikut dijawab sesuai mode baru.
+    for (const s of Object.values(this.snap.sessions)) {
+      for (const p of s.permissions) this.maybeAutoReply(s.directory, p);
+    }
+  }
+
+  private safePref(key: string, value: string) {
+    try {
+      this.options.prefs.set(key, value);
+    } catch (e) {
+      this.options.onWarning?.(`gagal menyimpan preferensi: ${errMsg(e)}`);
+    }
+  }
+
+  private maybeAutoReply(directory: string, req: PermissionRequest) {
+    const mode = this.snap.permissionMode;
+    const allowed = mode === "auto-all" || (mode === "auto-edit" && req.permission === "edit");
+    if (!allowed || !this.api) return;
+    void this.api.replyPermission(directory, req.id, "once").catch((e) => {
+      this.options.onWarning?.(`gagal menjawab izin otomatis: ${errMsg(e)}`);
+    });
+  }
+
   selectModel(ref: ModelRef) {
     if (sameModel(ref, this.snap.model)) return;
     this.preferred = ref;
@@ -124,7 +192,7 @@ export class ChatStore {
     } catch (e) {
       this.options.onWarning?.(`gagal menyimpan pilihan model: ${errMsg(e)}`);
     }
-    this.update({ model: ref });
+    this.update({ model: ref, variant: this.validVariant(this.snap.models, ref, this.snap.variant) });
   }
 
   // ---------- sesi ----------
@@ -194,6 +262,7 @@ export class ChatStore {
   }
 
   private onEvent(directory: string, ev: EngineEvent) {
+    if (ev.type === "permission.asked") this.maybeAutoReply(directory, ev.request);
     const isMessageEvent = MESSAGE_EVENTS.has(ev.type);
     for (const id of this.sessionsOf(directory)) {
       if (isMessageEvent && this.reloading.has(id)) {
@@ -214,13 +283,14 @@ export class ChatStore {
     try {
       for (let attempt = 0; attempt < MAX_RELOADS; attempt++) {
         this.dirty.delete(sessionId);
-        const [messages, permissions] = await Promise.all([
+        const [messages, permissions, revert] = await Promise.all([
           api.listMessages(start.directory, sessionId),
           api.listPermissions(start.directory).catch(() => []),
+          api.getRevert(start.directory, sessionId).catch(() => null),
         ]);
         if (api !== this.api || !this.snap.sessions[sessionId]) return;
         const mine = permissions.filter((p) => p.sessionID === sessionId);
-        this.patchSession(sessionId, (s) => ({ ...s, ...loadMessages(s, messages, mine), error: s.error }));
+        this.patchSession(sessionId, (s) => ({ ...s, ...loadMessages(s, messages, mine, revert), error: s.error }));
         if (!this.dirty.has(sessionId)) break;
       }
     } catch (e) {
@@ -234,23 +304,72 @@ export class ChatStore {
 
   // ---------- aksi ----------
 
-  async send(sessionId: string, text: string): Promise<void> {
+  async send(sessionId: string, text: string, files: FileAttachment[] = []): Promise<void> {
     const api = this.api;
     const s = this.snap.sessions[sessionId];
     const trimmed = text.trim();
     if (!api || !s) throw new Error("engine belum siap");
-    if (!trimmed) throw new Error("pesan kosong");
+    if (!trimmed && files.length === 0) throw new Error("pesan kosong");
     if (!this.snap.model) throw new Error("belum ada model; tambahkan provider terlebih dahulu");
     if (s.sending || s.status.type !== "idle") throw new Error("sesi sedang berjalan");
     this.patchSession(sessionId, (x) => ({ ...clearError(x), ...{ sending: true } }) as SessionChat);
     try {
-      await api.sendPrompt(s.directory, sessionId, { text: trimmed, model: this.snap.model });
+      await api.sendPrompt(s.directory, sessionId, {
+        text: trimmed || files.map((f) => f.filename ?? f.url).join(", "),
+        model: this.snap.model,
+        ...(this.snap.variant ? { variant: this.snap.variant } : {}),
+        ...(files.length ? { files } : {}),
+      });
     } catch (e) {
       this.patchSession(sessionId, (x) => ({ ...x, error: `gagal mengirim: ${errMsg(e)}` }));
       throw e;
     } finally {
       this.patchSession(sessionId, (x) => ({ ...x, sending: false }));
     }
+  }
+
+  /** Ulangi jawaban terakhir: revert ke pesan pengguna terakhir lalu kirim ulang isinya (teks + lampiran). */
+  async regenerate(sessionId: string): Promise<void> {
+    const api = this.api;
+    const s = this.snap.sessions[sessionId];
+    if (!api || !s) throw new Error("engine belum siap");
+    if (s.status.type !== "idle" || s.sending) throw new Error("sesi sedang berjalan");
+    const cut = s.revert;
+    const visible = cut === null ? s.messages : s.messages.filter((m) => m.info.id < cut);
+    const user = [...visible].reverse().find((m) => m.info.role === "user");
+    if (!user) throw new Error("tidak ada pesan pengguna untuk diulang");
+    const text = user.parts
+      .filter((p) => p.type === "text" && !p.synthetic)
+      .map((p) => (p.type === "text" ? p.text : ""))
+      .join("");
+    const files: FileAttachment[] = user.parts.flatMap((p) =>
+      p.type === "file" && p.url ? [{ mime: p.mime, url: p.url, ...(p.filename ? { filename: p.filename } : {}) }] : [],
+    );
+    await api.revert(s.directory, sessionId, user.info.id);
+    await this.send(sessionId, text, files);
+  }
+
+  /** Kembalikan sesi (dan perubahan file) ke sebelum pesan ini. */
+  async revertTo(sessionId: string, messageId: string): Promise<void> {
+    const s = this.snap.sessions[sessionId];
+    if (!this.api || !s) throw new Error("engine belum siap");
+    if (s.status.type !== "idle") throw new Error("hentikan sesi sebelum revert");
+    await this.api.revert(s.directory, sessionId, messageId);
+    this.patchSession(sessionId, (x) => ({ ...x, revert: messageId }));
+  }
+
+  async unrevert(sessionId: string): Promise<void> {
+    const s = this.snap.sessions[sessionId];
+    if (!this.api || !s) throw new Error("engine belum siap");
+    await this.api.unrevert(s.directory, sessionId);
+    this.patchSession(sessionId, (x) => ({ ...x, revert: null }));
+  }
+
+  /** Cabangkan sesi sampai pesan ini menjadi sesi baru (pemanggil memilihnya di daftar project). */
+  async fork(sessionId: string, messageId: string): Promise<SessionInfo> {
+    const s = this.snap.sessions[sessionId];
+    if (!this.api || !s) throw new Error("engine belum siap");
+    return this.api.fork(s.directory, sessionId, messageId);
   }
 
   async abort(sessionId: string): Promise<void> {

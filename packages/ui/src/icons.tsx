@@ -22,12 +22,14 @@ import {
   Minus,
   PanelLeft,
   PanelRight,
+  Paperclip,
   Plus,
   RotateCw,
   Search,
   Settings,
   Square,
   Terminal,
+  Undo2,
   X,
 } from "lucide-react";
 import type { SVGProps } from "react";
@@ -78,3 +80,6 @@ export const FileIcon = icon(File, "FileIcon");
 export const MoreIcon = icon(Ellipsis, "MoreIcon");
 export const RefreshIcon = icon(RotateCw, "RefreshIcon");
 export const ChatIcon = icon(MessageSquare, "ChatIcon");
+export const CopyIcon = icon(Copy, "CopyIcon");
+export const UndoIcon = icon(Undo2, "UndoIcon");
+export const PaperclipIcon = icon(Paperclip, "PaperclipIcon");

@@ -11,17 +11,34 @@ export type MockEngine = {
   prompts: Array<{ text: string; model?: { providerID: string; modelID: string } }>;
   aborted: string[];
   permissionReplies: Array<{ id: string; reply: string }>;
+  reverts: string[];
+  unreverts: number;
+  forks: string[];
+  /** Isi file yang dikirim bersama prompt (lampiran). */
+  files: Array<{ mime: string; url: string; filename?: string }>;
+  variants: Array<string | undefined>;
 };
 
 export type MockOptions = {
   /** Semua panggilan gagal 500. */
   fail?: boolean;
   /** Daftar model; default satu model. Kosong = tidak ada provider. */
-  models?: Array<{ id: string; name: string }>;
+  models?: Array<{ id: string; name: string; variants?: string[] }>;
 };
 
 export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<MockEngine> {
-  const state: MockEngine = { sessions: [], prompts: [], aborted: [], permissionReplies: [] };
+  const state: MockEngine = {
+    sessions: [],
+    prompts: [],
+    aborted: [],
+    permissionReplies: [],
+    reverts: [],
+    unreverts: 0,
+    forks: [],
+    files: [],
+    variants: [],
+  };
+  const revertOf = new Map<string, string>();
   const messages = new Map<string, Msg[]>();
   const queue: unknown[] = [];
   const permissions: Array<Record<string, unknown>> = [];
@@ -41,7 +58,15 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
 
   /** Skenario balasan asisten: teks streaming, plus tool call atau permintaan izin sesuai isi prompt. */
   const respond = (sessionID: string, text: string) => {
-    const list = messages.get(sessionID) ?? [];
+    let list = messages.get(sessionID) ?? [];
+    const cut = revertOf.get(sessionID);
+    if (cut) {
+      // Prompt setelah revert membersihkan pesan yang di-revert (perilaku engine asli).
+      list = list.filter((m) => m.info.id < cut);
+      revertOf.delete(sessionID);
+      const s = state.sessions.find((x) => x.id === sessionID);
+      if (s) emit("session.updated", { sessionID, info: { ...s } });
+    }
     messages.set(sessionID, list);
     const t0 = ++clock;
     const user: Msg = {
@@ -124,6 +149,27 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
       asst.parts.push(tool);
       emit("message.part.updated", { sessionID, part: tool });
     }
+    for (const [needle, tool, input, metadata] of [
+      ["cari web", "websearch", { query: "cuaca jakarta" }, {}],
+      [
+        "buat diff",
+        "edit",
+        { filePath: "a.txt" },
+        { diff: ["--- a.txt", "+++ a.txt", "@@ -1 +1 @@", "-lama", "+baru"].join("\n") },
+      ],
+    ] as const) {
+      if (!text.includes(needle)) continue;
+      asst.parts.push({
+        id: id("prt"),
+        messageID: asst.info.id,
+        sessionID,
+        type: "tool",
+        tool,
+        callID: id("call"),
+        state: { status: "completed", input, output: "ok", title: "", metadata, time: { start: 1, end: 2 } },
+      });
+      emit("message.part.updated", { sessionID, part: asst.parts.at(-1) });
+    }
     say(text.includes("baca") ? "Isinya halo dunia." : "Halo, ada yang bisa dibantu?");
     finish();
   };
@@ -155,7 +201,17 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
                 source: "config",
                 env: [],
                 options: {},
-                models: Object.fromEntries(models.map((m) => [m.id, { id: m.id, providerID: "mock", name: m.name }])),
+                models: Object.fromEntries(
+                  models.map((m) => [
+                    m.id,
+                    {
+                      id: m.id,
+                      providerID: "mock",
+                      name: m.name,
+                      variants: Object.fromEntries((m.variants ?? []).map((v) => [v, {}])),
+                    },
+                  ]),
+                ),
               },
             ];
       return json({ providers, default: {} });
@@ -213,6 +269,40 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     if (m?.[1]) {
       const sid = m[1];
       const sub = m[2];
+      if (!sub && req.method() === "GET") {
+        const s = state.sessions.find((x) => x.id === sid);
+        if (!s) return json({ message: "tidak ada" }, 404);
+        const cutId = revertOf.get(sid);
+        return json({ ...s, ...(cutId ? { revert: { messageID: cutId } } : {}) });
+      }
+      if (sub === "revert" && req.method() === "POST") {
+        const body = req.postDataJSON() ?? {};
+        state.reverts.push(body.messageID);
+        revertOf.set(sid, body.messageID);
+        const s = state.sessions.find((x) => x.id === sid);
+        if (s) emit("session.updated", { sessionID: sid, info: { ...s, revert: { messageID: body.messageID } } });
+        return json(s ?? {});
+      }
+      if (sub === "unrevert" && req.method() === "POST") {
+        state.unreverts++;
+        revertOf.delete(sid);
+        const s = state.sessions.find((x) => x.id === sid);
+        if (s) emit("session.updated", { sessionID: sid, info: { ...s } });
+        return json(s ?? {});
+      }
+      if (sub === "fork" && req.method() === "POST") {
+        const body = req.postDataJSON() ?? {};
+        state.forks.push(body.messageID);
+        const t = ++clock;
+        const forked = {
+          id: `ses_${++n}`,
+          title: "Cabang percakapan",
+          directory: dir,
+          time: { created: t, updated: t },
+        };
+        state.sessions.push(forked);
+        return json(forked);
+      }
       if (!sub && req.method() === "PATCH") {
         const s = state.sessions.find((x) => x.id === sid);
         if (!s) return json({ message: "tidak ada" }, 404);
@@ -229,6 +319,10 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         const body = req.postDataJSON() ?? {};
         const text = (body.parts ?? []).map((x: { text?: string }) => x.text ?? "").join("");
         state.prompts.push({ text, ...(body.model ? { model: body.model } : {}) });
+        state.variants.push(body.variant);
+        for (const part of body.parts ?? []) {
+          if (part.type === "file") state.files.push({ mime: part.mime, url: part.url, filename: part.filename });
+        }
         respond(sid, text);
         return route.fulfill({ status: 204, headers: cors });
       }

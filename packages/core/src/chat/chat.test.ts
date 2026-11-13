@@ -215,8 +215,8 @@ describe("ChatStore", () => {
   async function setup(prefs = prefsOf()) {
     const engine = createFakeEngine();
     engine.models = [
-      { providerID: "p", providerName: "P", modelID: "m1", name: "M1" },
-      { providerID: "p", providerName: "P", modelID: "m2", name: "M2" },
+      { providerID: "p", providerName: "P", modelID: "m1", name: "M1", variants: ["low", "high"] },
+      { providerID: "p", providerName: "P", modelID: "m2", name: "M2", variants: [] },
     ];
     const store = new ChatStore({ prefs });
     store.setApi(engine);

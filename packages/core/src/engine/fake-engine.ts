@@ -1,7 +1,15 @@
 // Engine palsu di memori untuk test (core dan UI). Meniru perilaku yang terbukti pada engine asli:
 // sesi terikat direktori, judul bawaan "New session - <ISO>", daftar berkas menurut path relatif.
 import type { ChatMessage, EngineEvent, PermissionReply, PermissionRequest } from "../chat/types";
-import type { EngineApi, FileNode, ModelOption, ModelRef, SessionInfo, SubscriptionHandlers } from "./api";
+import type {
+  EngineApi,
+  FileAttachment,
+  FileNode,
+  ModelOption,
+  ModelRef,
+  SessionInfo,
+  SubscriptionHandlers,
+} from "./api";
 
 export type FakeEngine = EngineApi & {
   sessions: Map<string, SessionInfo[]>;
@@ -13,7 +21,16 @@ export type FakeEngine = EngineApi & {
   models: ModelOption[];
   messages: Map<string, ChatMessage[]>;
   permissions: PermissionRequest[];
-  prompts: Array<{ directory: string; sessionId: string; text: string; model?: ModelRef }>;
+  prompts: Array<{
+    directory: string;
+    sessionId: string;
+    text: string;
+    model?: ModelRef;
+    variant?: string;
+    files?: FileAttachment[];
+  }>;
+  reverts: Map<string, string | null>;
+  forks: Array<{ sessionId: string; messageId: string }>;
   replies: Array<{ requestId: string; reply: PermissionReply }>;
   aborted: string[];
   /** Dipanggil saat prompt diterima; test memakainya untuk menjalankan skenario respons lewat `emit`. */
@@ -37,6 +54,8 @@ export function createFakeEngine(): FakeEngine {
     messages: new Map(),
     permissions: [],
     prompts: [],
+    reverts: new Map(),
+    forks: [],
     replies: [],
     aborted: [],
     onPrompt: null,
@@ -65,8 +84,31 @@ export function createFakeEngine(): FakeEngine {
     },
     async sendPrompt(directory, sessionId, input) {
       if (e.failWith) throw new Error(e.failWith);
-      e.prompts.push({ directory, sessionId, text: input.text, ...(input.model ? { model: input.model } : {}) });
+      e.prompts.push({
+        directory,
+        sessionId,
+        text: input.text,
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.variant ? { variant: input.variant } : {}),
+        ...(input.files ? { files: input.files } : {}),
+      });
       e.onPrompt?.(directory, sessionId, input.text);
+    },
+    async getRevert(_dir, sessionId) {
+      return e.reverts.get(sessionId) ?? null;
+    },
+    async revert(_dir, sessionId, messageId) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.reverts.set(sessionId, messageId);
+    },
+    async unrevert(_dir, sessionId) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.reverts.set(sessionId, null);
+    },
+    async fork(dir, sessionId, messageId) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.forks.push({ sessionId, messageId });
+      return e.createSession(dir, `Cabang dari ${sessionId}`);
     },
     async abort(_dir, sessionId) {
       if (e.failWith) throw new Error(e.failWith);

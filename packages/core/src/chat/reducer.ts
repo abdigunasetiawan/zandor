@@ -14,6 +14,8 @@ export type ChatState = {
   loaded: boolean;
   messages: ChatMessage[];
   status: SessionRunStatus;
+  /** Pesan tujuan revert aktif; pesan sejak id ini disembunyikan. */
+  revert: string | null;
   permissions: PermissionRequest[];
   /** Galat tingkat sesi terakhir (mis. provider gagal); dihapus saat prompt baru dikirim. */
   error: string | null;
@@ -26,6 +28,7 @@ export const initialChatState = (sessionID: string): ChatState => ({
   loaded: false,
   messages: [],
   status: { type: "idle" },
+  revert: null,
   permissions: [],
   error: null,
   pending: {},
@@ -48,7 +51,12 @@ const upsertPart = (parts: MessagePart[], next: MessagePart): MessagePart[] => {
 };
 
 /** Ganti seluruh riwayat (hasil muat awal/sinkron ulang). Event yang sudah tiba dipertahankan bila lebih baru. */
-export function loadMessages(state: ChatState, messages: ChatMessage[], permissions: PermissionRequest[]): ChatState {
+export function loadMessages(
+  state: ChatState,
+  messages: ChatMessage[],
+  permissions: PermissionRequest[],
+  revert: string | null = state.revert,
+): ChatState {
   const sorted = [...messages].sort((a, b) => byId(a.info, b.info));
   const last = sorted.at(-1);
   // Bila pesan asisten terakhir belum selesai, sesi masih berjalan walau belum ada event status.
@@ -56,6 +64,7 @@ export function loadMessages(state: ChatState, messages: ChatMessage[], permissi
   return {
     ...state,
     loaded: true,
+    revert,
     messages: sorted,
     permissions,
     pending: {},
@@ -136,6 +145,10 @@ export function applyEvent(state: ChatState, ev: EngineEvent): ChatState {
       if (sameStatus(state.status, ev.status)) return state;
       return { ...state, status: ev.status };
     }
+    case "session.revert": {
+      if (ev.sessionID !== state.sessionID || ev.revert === state.revert) return state;
+      return { ...state, revert: ev.revert };
+    }
     case "session.error": {
       if (ev.sessionID !== null && ev.sessionID !== state.sessionID) return state;
       return { ...state, error: ev.error.message };
@@ -165,4 +178,10 @@ export function messageText(m: ChatMessage): string {
     .filter((p) => p.type === "text" && !p.synthetic)
     .map((p) => (p.type === "text" ? p.text : ""))
     .join("");
+}
+
+/** Pesan yang terlihat: yang sejak id revert (jika ada) disembunyikan. */
+export function visibleMessages(state: Pick<ChatState, "messages" | "revert">): ChatMessage[] {
+  const cut = state.revert;
+  return cut === null ? state.messages : state.messages.filter((m) => m.info.id < cut);
 }

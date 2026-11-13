@@ -1,3 +1,4 @@
+export * from "./attachments";
 export * from "./build-info";
 export * from "./chat";
 export * from "./commands";

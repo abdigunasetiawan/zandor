@@ -27,6 +27,8 @@ export type ToolState = {
   output?: string;
   error?: string;
   title?: string;
+  /** Metadata dari tool (mis. `diff` untuk edit/write). */
+  metadata?: Record<string, unknown>;
   time?: { start: number; end?: number };
 };
 
@@ -66,6 +68,8 @@ export type EngineEvent =
   | { type: "message.part.removed"; sessionID: string; messageID: string; partID: string }
   | { type: "message.part.delta"; sessionID: string; messageID: string; partID: string; field: string; delta: string }
   | { type: "session.status"; sessionID: string; status: SessionRunStatus }
+  /** Status revert sesi (id pesan tujuan revert, atau null bila tidak sedang di-revert). */
+  | { type: "session.revert"; sessionID: string; revert: string | null }
   | { type: "session.error"; sessionID: string | null; error: MessageError }
   | { type: "permission.asked"; request: PermissionRequest }
   | { type: "permission.replied"; sessionID: string; requestID: string; reply: PermissionReply };
@@ -137,6 +141,7 @@ function toToolState(raw: unknown): ToolState {
   if (error !== undefined) state.error = error;
   const title = str(o.title);
   if (title !== undefined) state.title = title;
+  if (isObj(o.metadata)) state.metadata = o.metadata;
   if (isObj(o.time)) {
     state.time = { start: num(o.time.start), ...(typeof o.time.end === "number" ? { end: o.time.end } : {}) };
   }
@@ -253,6 +258,13 @@ export function toEngineEvent(raw: unknown): EngineEvent | null {
         return { type, sessionID, status: { type: "retry", attempt: num(s.attempt), message: str(s.message) ?? "" } };
       }
       return { type, sessionID, status: { type: "idle" } };
+    }
+    case "session.updated": {
+      const info = isObj(p.info) ? p.info : null;
+      const sessionID = str(p.sessionID) ?? (info ? str(info.id) : undefined);
+      if (!info || !sessionID) return null;
+      const revert = isObj(info.revert) ? (str(info.revert.messageID) ?? null) : null;
+      return { type: "session.revert", sessionID, revert };
     }
     case "session.idle": {
       const sessionID = str(p.sessionID);

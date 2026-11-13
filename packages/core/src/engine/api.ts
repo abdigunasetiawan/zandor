@@ -29,7 +29,15 @@ export type FileNode = {
   ignored: boolean;
 };
 
-export type ModelOption = { providerID: string; providerName: string; modelID: string; name: string };
+export type ModelOption = {
+  providerID: string;
+  providerName: string;
+  modelID: string;
+  name: string;
+  /** Varian reasoning yang diterima model (kosong bila tidak ada). */
+  variants: string[];
+};
+export type FileAttachment = { mime: string; url: string; filename?: string };
 export type ModelRef = { providerID: string; modelID: string };
 export type SubscriptionState = "connected" | "reconnecting";
 export type SubscriptionHandlers = {
@@ -49,7 +57,16 @@ export interface EngineApi {
   listMessages(directory: string, sessionId: string): Promise<ChatMessage[]>;
   listPermissions(directory: string): Promise<PermissionRequest[]>;
   /** Kirim prompt tanpa menunggu jawaban; hasilnya mengalir lewat `subscribe`. */
-  sendPrompt(directory: string, sessionId: string, input: { text: string; model?: ModelRef }): Promise<void>;
+  sendPrompt(
+    directory: string,
+    sessionId: string,
+    input: { text: string; model?: ModelRef; variant?: string; files?: FileAttachment[] },
+  ): Promise<void>;
+  /** Id pesan tujuan revert sesi, atau null. */
+  getRevert(directory: string, sessionId: string): Promise<string | null>;
+  revert(directory: string, sessionId: string, messageId: string): Promise<void>;
+  unrevert(directory: string, sessionId: string): Promise<void>;
+  fork(directory: string, sessionId: string, messageId: string): Promise<SessionInfo>;
   abort(directory: string, sessionId: string): Promise<void>;
   replyPermission(directory: string, requestId: string, reply: PermissionReply): Promise<void>;
   /** Berlangganan event SSE satu direktori dengan reconnect otomatis. Mengembalikan fungsi berhenti. */
@@ -116,7 +133,13 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
       const out: ModelOption[] = [];
       for (const p of body(r, "config.providers").providers) {
         for (const m of Object.values(p.models)) {
-          out.push({ providerID: p.id, providerName: p.name, modelID: m.id, name: m.name });
+          out.push({
+            providerID: p.id,
+            providerName: p.name,
+            modelID: m.id,
+            name: m.name,
+            variants: Object.keys(m.variants ?? {}),
+          });
         }
       }
       return out;
@@ -138,8 +161,31 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
         sessionID: sessionId,
         directory,
         ...(input.model ? { model: input.model } : {}),
-        parts: [{ type: "text", text: input.text }],
+        ...(input.variant ? { variant: input.variant } : {}),
+        parts: [
+          { type: "text", text: input.text },
+          ...(input.files ?? []).map((f) => ({
+            type: "file" as const,
+            mime: f.mime,
+            url: f.url,
+            ...(f.filename ? { filename: f.filename } : {}),
+          })),
+        ],
       });
+    },
+    async getRevert(directory, sessionId) {
+      const r = await client.session.get({ sessionID: sessionId, directory });
+      return body(r, "session.get").revert?.messageID ?? null;
+    },
+    async revert(directory, sessionId, messageId) {
+      await client.session.revert({ sessionID: sessionId, directory, messageID: messageId });
+    },
+    async unrevert(directory, sessionId) {
+      await client.session.unrevert({ sessionID: sessionId, directory });
+    },
+    async fork(directory, sessionId, messageId) {
+      const r = await client.session.fork({ sessionID: sessionId, directory, messageID: messageId });
+      return toSession(body(r, "session.fork"));
     },
     async abort(directory, sessionId) {
       await client.session.abort({ sessionID: sessionId, directory });
