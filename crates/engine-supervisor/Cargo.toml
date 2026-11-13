@@ -1,0 +1,24 @@
+[package]
+name = "zandor-engine-supervisor"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Supervisor proses `opencode serve`: start, health, monitor, stop tanpa proses yatim (ADR-019)"
+
+[dependencies]
+getrandom = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[lints]
+workspace = true

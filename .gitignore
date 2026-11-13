@@ -28,3 +28,6 @@ Thumbs.db
 test-results/
 playwright-report/
 *.tsbuildinfo
+
+# Artefak engine (diunduh/dibundel oleh scripts/prepare-engine.ts)
+apps/desktop/src-tauri/resources/

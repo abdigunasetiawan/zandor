@@ -1,0 +1,13 @@
+{
+  "name": "opencode",
+  "version": "1.19.5",
+  "license": "MIT",
+  "source": "paket npm resmi opencode-<os>-<arch> (npm pack memeriksa integritas tarball)",
+  "targets": {
+    "x86_64-pc-windows-msvc": {
+      "package": "opencode-windows-x64",
+      "binary": "bin/opencode.exe",
+      "sha256": "d7b473388cb62555970e400ce54cdfb6d6573608beea6f8fdf382cd1a698a3fa"
+    }
+  }
+}

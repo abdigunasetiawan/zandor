@@ -17,7 +17,9 @@
     "dev": "bun run --filter @zandor/desktop tauri dev",
     "build:desktop": "bun run --filter @zandor/desktop tauri build",
     "design-tokens": "bun scripts/check-design-tokens.ts",
-    "e2e:native": "bun run --filter @zandor/desktop e2e:native"
+    "e2e:native": "bun run --filter @zandor/desktop e2e:native",
+    "engine:fetch": "bun scripts/prepare-engine.ts --fetch",
+    "prepare:engine": "bun scripts/prepare-engine.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",
