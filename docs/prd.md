@@ -39,7 +39,7 @@ Zandor adalah aplikasi desktop *agentic harness* untuk vibecoder dan pekerja yan
   - Tema dan ikon editor diambil dari **Open VSX**, bukan VS Code Marketplace.
 
 ## 6. Platform
-- Desktop: **Windows, macOS, Linux** (x64; arm64 untuk macOS).
+- Desktop: **Windows (x64) dulu** sampai aplikasi selesai. macOS (x64/arm64) dan Linux menyusul di fase port (ADR-027).
 - Mobile: nanti, di luar scope PRD ini.
 - Remake dengan GPUI: **dicoret.** Sebagai gantinya, engine dan logika dipisah total dari UI.
 

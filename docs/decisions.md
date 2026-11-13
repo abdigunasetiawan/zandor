@@ -8,7 +8,7 @@
 | 002 | 13-11-2026 | Shell aplikasi memakai Tauri 2 + React + TypeScript | Lintas OS, ringan, berlisensi MIT/Apache |
 | 003 | 13-11-2026 | GPUI dicoret. Engine dan logika dipisah total dari UI | GPUI tidak punya webview, jadi remake sama dengan menulis ulang semuanya |
 | 004 | 13-11-2026 | Engine memakai `opencode serve` (sidecar lokal atau remote URL) + plugin Zandor | Sumber mesin jadi gratis, sign-in provider diwarisi, update engine terpisah dari aplikasi |
-| 005 | 13-11-2026 | Target OS: Windows, macOS, Linux. Mobile nanti | Permintaan pemilik |
+| 005 | 13-11-2026 | Target OS: Windows, macOS, Linux. Mobile nanti. **Diubah ADR-027: Windows dulu** | Permintaan pemilik |
 | 006 | 13-11-2026 | Model bisnis freemium. Inti gratis tanpa login. Berbayar nanti: model hosted dan mesin always-on | Versi 1 tidak butuh server lisensi |
 | 007 | 13-11-2026 | Tidak ada OAuth langganan Anthropic. Login provider hanya lewat jalur resmi OpenCode | Anthropic melarang OAuth langganan di pihak ketiga (Feb 2026) |
 | 008 | 13-11-2026 | Model gratis OpenCode Zen tidak dijadikan nilai jual sebelum ada izin tertulis | ToS OpenCode: layanan hanya untuk penggunaan internal |
@@ -30,3 +30,4 @@
 | 024 | 13-11-2026 | Spike S7: terminal = xterm.js 6 + API `/pty` engine opencode (WebSocket + tiket, replay), bukan `portable-pty`; app wajib `SetConsoleCtrlHandler(NULL, FALSE)` di Windows. Detail: `decisions/ADR-024-spike-s7-terminal.md` | Lulus di Windows untuk kedua backend; B dipilih karena benar untuk engine remote + reconnect; tampilan echo rusak setelah resize (input utuh); mac/Linux ditunda |
 | 025 | 13-11-2026 | Spike S8: `react-resizable-panels` 4.22 (API v4) + semua ukuran `rem` dengan `--ui-scale` di root font-size; browser disembunyikan saat P4 terlipat/overlay. Detail: `decisions/ADR-025-spike-s8-layout.md` | Lulus 15/15 ×3 di Windows 100%: drag ≤ 11 ms/frame, bounds browser ≤ 0,45 px, konten browser tidak ikut zoom; 1366 px tidak muat 5 panel di atas 112,5%; HiDPI & mac/Linux belum |
 | 026 | 13-11-2026 | Spike S5: pdf.js (worker), docx-preview, SheetJS CE 0.20.3 dari CDN (wajib Web Worker); exceljs & pptx-preview ditolak; PPTX hanya @aiden0z/pptx-renderer yang berfungsi tetapi membawa MPL-2.0. Detail: `decisions/ADR-026-spike-s5-renderers.md` | Lulus PDF/DOCX/XLSX dengan file ±10 MB; **keputusan pemilik tertunda: MPL-2.0 untuk PPTX**; fidelitas visual belum dinilai |
+| 027 | 13-11-2026 | Fokus Windows sampai aplikasi selesai; macOS/Linux ditunda ke Fase 13 (port). Spike S9 dibatalkan, ADR-008 tetap berlaku. Fase 0 dinyatakan lulus untuk Windows. Detail: `decisions/ADR-027-windows-first-dan-s9-batal.md` | Keputusan pemilik; tidak ada perangkat mac/Linux |

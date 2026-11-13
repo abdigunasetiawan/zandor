@@ -17,29 +17,39 @@
 ## Fase 0 — Spike Risiko (sebelum menulis fitur)
 Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat sebagai ADR.
 
-| Spike | Pertanyaan | Lulus jika |
-|---|---|---|
-| S1 | Apakah binary `opencode` bisa dibundel sebagai sidecar di Win/mac/Linux dan dijalankan, dipantau, lalu dimatikan dengan bersih? | Tidak ada proses yatim; port loopback + token; versi di-pin |
-| S2 | Event SSE `opencode serve`: bisakah semua part (thinking, tool, file, patch, permission) dipetakan? | Contoh transcript lengkap ter-render dari event nyata |
-| S3 | Child webview untuk browser bawaan di Win/mac/Linux X11; fallback di Wayland | Bisa membuka google.com dan login Google; posisinya mengikuti resize panel |
-| S4 | Secret: keychain OS (crate `keyring`) dan cara memberikan kredensial ke OpenCode tanpa file plaintext dari pihak kita | Rencana penyimpanan secret tertulis + PoC |
-| S5 | Renderer Panel 3: pdf.js, docx-preview, SheetJS, kandidat PPTX — cek lisensi dan performa | Tabel lisensi + demo file 10 MB |
-| S6 | Plugin OpenCode untuk memori: hook untuk system prompt, compaction, dan tool kustom | Plugin bisa menyuntik blok memori dan menambah tool |
-| S7 | Terminal: xterm.js + PTY (`portable-pty`) di tiga OS | Shell interaktif berjalan, resize benar |
-| S8 | Layout: `react-resizable-panels` + child webview + zoom `--ui-scale` | Lima panel bisa di-resize tanpa jank; zoom tidak merusak layout |
-| S9 | Kirim email ke OpenCode soal izin model gratis Zen | Jawaban tercatat (boleh berjalan paralel) |
+> **Diubah 13-11-2026 (ADR-027):** semua spike dinilai di **Windows** saja; macOS/Linux ditunda sampai
+> aplikasi selesai. S9 dibatalkan.
+
+| Spike | Pertanyaan | Lulus jika | Hasil (Windows) |
+|---|---|---|---|
+| S1 | Apakah binary `opencode` bisa dibundel sebagai sidecar lalu dijalankan, dipantau, dan dimatikan dengan bersih? | Tidak ada proses yatim; port loopback + token; versi di-pin | ✅ ADR-019 |
+| S2 | Event SSE `opencode serve`: bisakah semua part (thinking, tool, file, patch, permission) dipetakan? | Contoh transcript lengkap ter-render dari event nyata | ✅ ADR-021 |
+| S3 | Child webview untuk browser bawaan | Bisa membuka google.com dan login Google; posisinya mengikuti resize panel | ✅ ADR-020 (persistensi sesi Google belum konsisten) |
+| S4 | Secret: keychain OS (crate `keyring`) dan cara memberikan kredensial ke OpenCode tanpa file plaintext dari pihak kita | Rencana penyimpanan secret tertulis + PoC | ✅ ADR-022 |
+| S5 | Renderer Panel 3: pdf.js, docx-preview, SheetJS, kandidat PPTX — cek lisensi dan performa | Tabel lisensi + demo file 10 MB | ✅ ADR-026 (PPTX: keputusan MPL-2.0 tertunda sampai Fase 11) |
+| S6 | Plugin OpenCode untuk memori: hook untuk system prompt, compaction, dan tool kustom | Plugin bisa menyuntik blok memori dan menambah tool | ✅ ADR-023 |
+| S7 | Terminal: xterm.js + PTY | Shell interaktif berjalan, resize benar | ✅ ADR-024 (dipilih `/pty` engine, bukan `portable-pty`) |
+| S8 | Layout: `react-resizable-panels` + child webview + zoom `--ui-scale` | Lima panel bisa di-resize tanpa jank; zoom tidak merusak layout | ✅ ADR-025 |
+| S9 | ~~Kirim email ke OpenCode soal izin model gratis Zen~~ | — | ❌ Dibatalkan (ADR-027); ADR-008 tetap berlaku |
 
 **Kriteria keluar:** semua spike punya ADR. Kalau ada yang gagal, PRD direvisi dulu.
+**Status: LULUS (13-11-2026)** untuk Windows.
+
+**Bawaan wajib dari Fase 0 ke fase berikutnya:**
+- Plugin `zandor-env-guard` (hook `shell.env`) selalu dimuat sejak engine pertama kali jalan (ADR-022).
+- `SetConsoleCtrlHandler(NULL, FALSE)` saat app start di Windows (ADR-024).
+- Suite test kontrak S2, S4, S6, dan S7 wajib dijalankan setiap kali versi opencode di-pin ulang.
+- Build UI → build Tauri selalu berurutan; aset frontend ditanam ke binary (ADR-025).
 
 ## Fase 1 — Fondasi Repo, Docs, dan CI
 - Monorepo (Bun workspaces): `apps/desktop` (Tauri + React), `packages/ui`, `packages/core` (client engine dan state), `packages/plugin` (plugin OpenCode), `packages/i18n`.
 - Struktur docs ramping (lihat lampiran) + `AGENTS.md`.
 - Lint dan format (Biome atau ESLint + Prettier), TypeScript strict, Clippy.
 - Test: Vitest + Testing Library; e2e Playwright terhadap UI dengan engine tiruan untuk test; `cargo test`.
-- CI GitHub Actions: lint, test, dan build untuk ketiga OS.
+- CI GitHub Actions: lint, test, audit lisensi, dan build untuk **Windows** (ADR-027).
 - Infrastruktur i18n (ID/EN, key bertipe), error boundary, logger, dan nomor build dari jumlah commit.
 
-**Kriteria keluar:** aplikasi kosong bisa di-build di 3 OS lewat CI, dan test berjalan.
+**Kriteria keluar:** aplikasi kosong bisa di-build di Windows lewat CI, dan test berjalan.
 
 ## Fase 2 — Design System
 - Token (warna, tipografi per variabel, spacing, radius, shadow, `--ui-scale`). Default monokrom dark + light.
@@ -127,10 +137,16 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Model peran (memori, image generator).
 - Manual "agent bisa mengonfigurasi Zandor": skema pengaturan + skill bawaan.
 
-## Fase 12 — Rilis Publik
-- Code signing Windows, notarisasi macOS, paket Linux (AppImage/deb/rpm).
+## Fase 12 — Rilis Publik (Windows)
+- Code signing Windows (aplikasi + sidecar opencode).
 - Auto-updater (semver), Third-Party Notices otomatis, crash report opt-in.
 - Website `zandor.web.id`, akun opsional, persiapan paket berbayar.
+
+## Fase 13 — Port macOS & Linux (setelah aplikasi selesai, ADR-027)
+- Jalankan ulang suite spike S1, S3, S4, S7, dan S8 di macOS dan Linux; tutup risiko yang sudah diketahui:
+  proses yatim saat crash di macOS (ADR-019), WKWebView/WebKitGTK + fallback Wayland (ADR-020),
+  Secret Service di Linux headless (ADR-022), PTY (ADR-024), HiDPI (ADR-025).
+- Notarisasi macOS, paket Linux (AppImage/deb/rpm), CI matrix tiga OS.
 
 ---
 
