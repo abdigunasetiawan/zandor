@@ -99,6 +99,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Tab sesi di atas Panel 2.
 
 **Kriteria keluar:** tool call nyata (baca/tulis file, terminal) berjalan dari chat dengan persetujuan izin, dan ada test e2e-nya.
+**Status: inti selesai di lokal (13-11-2026)** — kriteria keluar terbukti (smoke native dengan provider nyata + e2e); revert, regenerate, cabang sesi, lampiran, mode izin/reasoning, tab sesi, web search belum. Lihat ADR-033 dan `docs/features/chat.md`.
 
 ## Fase 6 — Provider & Model
 

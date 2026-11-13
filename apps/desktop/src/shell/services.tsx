@@ -1,5 +1,7 @@
 // Layanan bersama aplikasi (satu instance per aplikasi, dibuat di main.tsx). Komponen mengaksesnya lewat hook.
 import {
+  ChatStore,
+  type ChatStoreState,
   type CommandDef,
   CommandRegistry,
   ConnectionStore,
@@ -88,6 +90,7 @@ export type Services = {
   host: EngineHost;
   connection: ConnectionStore;
   projects: ProjectStore;
+  chat: ChatStore;
 };
 
 export function createServices(options: {
@@ -109,6 +112,25 @@ export function createServices(options: {
     connection: new ConnectionStore(),
     projects: new ProjectStore({
       storage: { load: () => options.host.registryLoad(), save: (t) => options.host.registrySave(t) },
+      onWarning: (m) => options.logger.warn(m),
+    }),
+    chat: new ChatStore({
+      prefs: {
+        get: (k) => {
+          try {
+            return localStorage.getItem(k);
+          } catch {
+            return null;
+          }
+        },
+        set: (k, v) => {
+          try {
+            localStorage.setItem(k, v);
+          } catch {
+            // sengaja diabaikan: pilihan model hanya kenyamanan
+          }
+        },
+      },
       onWarning: (m) => options.logger.warn(m),
     }),
   };
@@ -197,5 +219,14 @@ export function useProjects(): ProjectsState {
     (cb) => projects.subscribe(cb),
     () => projects.state(),
     () => projects.state(),
+  );
+}
+
+export function useChat(): ChatStoreState {
+  const { chat } = useServices();
+  return useSyncExternalStore(
+    (cb) => chat.subscribe(cb),
+    () => chat.state(),
+    () => chat.state(),
   );
 }

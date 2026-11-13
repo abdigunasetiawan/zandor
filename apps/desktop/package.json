@@ -21,7 +21,9 @@
     "material-icon-theme": "5.40.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "react-resizable-panels": "4.22.0"
+    "react-markdown": "10.1.0",
+    "react-resizable-panels": "4.22.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@playwright/test": "1.65.0",

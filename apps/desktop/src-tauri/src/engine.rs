@@ -118,6 +118,8 @@ pub fn config_content(plugin: &Path, marker: &Path, providers: &[Provider]) -> S
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
         "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy() }]],
+        // Bawaan aman: opencode mengizinkan edit/shell tanpa bertanya. Zandor meminta persetujuan (kartu izin di chat).
+        "permission": { "edit": "ask", "bash": "ask", "webfetch": "ask", "external_directory": "ask" },
         "provider": providers::config_section(providers),
     })
     .to_string()
@@ -407,6 +409,9 @@ mod tests {
         assert_eq!(v["plugin"][0][0], "file:///C:/app/zandor-plugin.js");
         assert_eq!(v["plugin"][0][1]["markerFile"], r"C:\data\guard-loaded");
         assert_eq!(v["autoupdate"], false);
+        for k in ["edit", "bash", "webfetch", "external_directory"] {
+            assert_eq!(v["permission"][k], "ask", "{k} harus meminta izin");
+        }
         let lower = c.to_lowercase();
         assert!(
             !lower.contains("password") && !lower.contains("token") && !lower.contains("apikey")

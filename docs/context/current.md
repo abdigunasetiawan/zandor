@@ -8,7 +8,8 @@
 - **Fase 2 — Design System:** lulus 13-11-2026 (CI run 43427766836).
 - **Fase 1 — Fondasi Repo, Docs, dan CI:** lulus 13-11-2026 (CI GitHub Actions run 43412491664, 14m50s).
 - **Fase 3 — App Shell:** lulus (CI hijau).
-- **Fase aktif: Fase 4 — Engine & Project** (kode selesai di lokal, menunggu push + CI).
+- **Fase 4 — Engine & Project:** lulus (CI hijau).
+- **Fase aktif: Fase 5 — Chat Inti** (inti selesai di lokal; belum di-push).
 
 ## Checklist Fase 1
 
@@ -61,3 +62,13 @@
 - [x] Terbukti end-to-end: smoke native 12/12 termasuk restart aplikasi → sesi tetap ada
 - [ ] Belum: UI warna project, single-instance (DB terkunci bila dua Zandor), remote engine (Fase 11)
 - Catatan CI: langkah baru `bun run prepare:engine` dan `ZANDOR_REQUIRE_ENGINE=1`; belum pernah dijalankan di runner.
+
+## Fase 5 — Chat Inti: inti selesai di lokal (belum di-push)
+
+- [x] SSE per direktori + reducer murni + `ChatStore`, diuji dengan rekaman SSE asli
+- [x] Transcript Markdown, reasoning, kartu tool call, meta, composer, pilih model, Stop
+- [x] Izin bawaan `ask` (temuan: opencode bawaan tidak meminta izin) + kartu izin dengan diff
+- [x] Provider kustom OpenAI-compatible lewat `providers.json` (kunci hanya via env; bukan di repo)
+- [x] Terbukti nyata: smoke native 15/15 (jawaban streaming, tulis file → izin → selesai, restart → sesi tetap)
+- [ ] Belum: UI provider, revert/regenerate/cabang sesi, lampiran, mode izin/reasoning, tab sesi, web search, salin, virtualisasi sungguhan
+- Catatan: `providers.json` milik pengguna ada di `%APPDATA%\id.web.zandor.app\` (berisi kunci; jangan di-commit). Fase chat nyata di smoke dilewati di CI (tak ada provider).

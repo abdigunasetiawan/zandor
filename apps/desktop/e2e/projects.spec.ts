@@ -1,81 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
-
-// Engine tiruan di memori, dicegat lewat page.route (tanpa jaringan). Kontrak terhadap engine asli diverifikasi
-// di smoke native (e2e-native) dan tes integrasi supervisor.
-type Sess = { id: string; title: string; directory: string; time: { created: number; updated: number } };
-
-async function mockEngine(page: Page, opts: { fail?: boolean } = {}) {
-  const sessions: Sess[] = [];
-  let n = 0;
-  await page.addInitScript(() => {
-    if (!localStorage.getItem("zandor.engine.override")) {
-      localStorage.setItem("zandor.engine.override", JSON.stringify({ url: "http://engine.test", password: "x" }));
-      localStorage.setItem("zandor.chatsDir", "C:\\data\\chats");
-    }
-  });
-  await page.route("http://engine.test/**", async (route) => {
-    const req = route.request();
-    const url = new URL(req.url());
-    const dir = url.searchParams.get("directory") ?? req.headers()["x-opencode-directory"] ?? "";
-    const cors = {
-      "access-control-allow-origin": "*",
-      "access-control-allow-headers": "*",
-      "access-control-allow-methods": "*",
-    };
-    const json = (body: unknown, status = 200) =>
-      route.fulfill({ status, headers: { ...cors, "content-type": "application/json" }, body: JSON.stringify(body) });
-    if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
-    if (opts.fail) return json({ message: "engine rusak" }, 500);
-    const p = url.pathname;
-    if (p === "/global/health") return json({ healthy: true, version: "1.19.5" });
-    if (p === "/session" && req.method() === "GET") return json(sessions.filter((s) => s.directory === dir));
-    if (p === "/session" && req.method() === "POST") {
-      const body = req.postDataJSON() ?? {};
-      const t = Date.now() + ++n;
-      const s = {
-        id: `ses_${n}`,
-        title: body.title ?? `New session - ${new Date(t).toISOString()}`,
-        directory: dir,
-        time: { created: t, updated: t },
-      };
-      sessions.push(s);
-      return json(s);
-    }
-    const m = p.match(/^\/session\/([^/]+)$/);
-    if (m && req.method() === "PATCH") {
-      const s = sessions.find((x) => x.id === m[1]);
-      if (!s) return json({ message: "tidak ada" }, 404);
-      Object.assign(s, req.postDataJSON() ?? {});
-      return json(s);
-    }
-    if (m && req.method() === "DELETE") {
-      const i = sessions.findIndex((x) => x.id === m[1]);
-      if (i >= 0) sessions.splice(i, 1);
-      return json(true);
-    }
-    if (p === "/file") {
-      const path = url.searchParams.get("path") ?? ".";
-      const node = (name: string, rel: string, type: string, ignored = false) => ({
-        name,
-        path: rel,
-        absolute: `${dir}\\${rel}`,
-        type,
-        ignored,
-      });
-      const tree: Record<string, unknown[]> = {
-        ".": [
-          node("src", "src", "directory"),
-          node("README.md", "README.md", "file"),
-          node("node_modules", "node_modules", "directory", true),
-        ],
-        src: [node("main.ts", "src/main.ts", "file")],
-      };
-      return json(tree[path] ?? []);
-    }
-    return json({ message: `tidak ditangani: ${req.method()} ${p}` }, 404);
-  });
-  return sessions;
-}
+import { mockEngine } from "./mock-engine";
 
 async function addProject(page: Page, path: string) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
@@ -124,7 +48,7 @@ test("tambah project, buat sesi, rename, cari, hapus; data bertahan setelah muat
 });
 
 test("lepas project dari daftar meminta konfirmasi dan tidak menghapus sesi", async ({ page }) => {
-  const sessions = await mockEngine(page);
+  const { sessions } = await mockEngine(page);
   await page.goto("/");
   await addProject(page, "C:\\Work\\beta");
   await page.getByRole("button", { name: "Sesi baru di beta" }).click();
@@ -138,7 +62,7 @@ test("lepas project dari daftar meminta konfirmasi dan tidak menghapus sesi", as
 });
 
 test("sesi tanpa project dibuat di grup Chat", async ({ page }) => {
-  const sessions = await mockEngine(page);
+  const { sessions } = await mockEngine(page);
   await page.goto("/");
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
   await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).click();

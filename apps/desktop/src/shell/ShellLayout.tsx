@@ -1,6 +1,6 @@
 // Lima panel (ADR-015/025): P1 Sidebar | P2 Chat | P3 Dokumen | P4 Tools | P5 Rail.
 // Auto-collapse ditentukan perencana murni (@zandor/core `desiredCollapsed`), bukan reaksi pustaka UI.
-import { desiredCollapsed, formatCombo, type PanelSpec, remToPx, sessionTitle } from "@zandor/core";
+import { desiredCollapsed, formatCombo, type PanelSpec, remToPx } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
   Badge,
@@ -16,17 +16,9 @@ import {
 } from "@zandor/ui";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { Group, Panel, Separator, useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-panels";
+import { ChatPanel } from "./ChatPanel";
 import { Sidebar } from "./Sidebar";
-import {
-  PANEL_IDS,
-  type PanelId,
-  TOOL_IDS,
-  type ToolId,
-  usePanelState,
-  useProjects,
-  useServices,
-  useSetting,
-} from "./services";
+import { PANEL_IDS, type PanelId, TOOL_IDS, type ToolId, usePanelState, useServices, useSetting } from "./services";
 
 type PanelDef = { id: PanelId; minRem: number; collapsible: boolean; priority: number; defaultSize: string };
 
@@ -59,23 +51,6 @@ function PanelEmpty({ title, body }: { title: string; body: string }) {
       <Badge tone="outline">{t("empty.soon")}</Badge>
       <h2 className="z-h4">{title}</h2>
       <p className="z-p shell-empty__body">{body}</p>
-    </div>
-  );
-}
-
-/** Fase 4: P2 baru menampilkan sesi terpilih (percakapan hadir di Fase 5). */
-function ChatPanel() {
-  const { t } = useI18n();
-  const state = useProjects();
-  const { projects } = useServices();
-  const sel = state.selection.sessionId ? projects.selected() : null;
-  if (!sel) return <PanelEmpty title={t("empty.p2.title")} body={t("empty.p2.body")} />;
-  return (
-    <div className="shell-empty">
-      <Badge tone="outline">{t("empty.soon")}</Badge>
-      <h2 className="z-h4">{sessionTitle(sel.session) ?? t("sb.untitled")}</h2>
-      <p className="z-small">{sel.project ? t("chat.inProject", { name: sel.project.name }) : t("chat.noProject")}</p>
-      <p className="z-p shell-empty__body">{t("chat.sessionBody")}</p>
     </div>
   );
 }
@@ -320,7 +295,11 @@ export function ShellLayout() {
           className="shell-panel"
         >
           <section aria-label={t("panel.chat")} className="shell-panel__inner">
-            {guarded("chat", "panel.chat", <ChatPanel />)}
+            {guarded(
+              "chat",
+              "panel.chat",
+              <ChatPanel empty={<PanelEmpty title={t("empty.p2.title")} body={t("empty.p2.body")} />} />,
+            )}
           </section>
         </Panel>
         <Separator id="sep-2" className="shell-sep" />

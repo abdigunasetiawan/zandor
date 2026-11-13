@@ -4,6 +4,8 @@
 // Pemakaian (Windows): bun e2e-native/smoke.ts <path zandor-desktop.exe>
 // Build dengan UI tertanam: `bun run tauri build --debug --no-bundle` (cargo build biasa memuat devUrl).
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { chromium } from "@playwright/test";
 
 const exe = process.argv[2];
@@ -111,6 +113,36 @@ try {
   await page.getByText("Sesi tanpa judul").first().waitFor({ timeout: 15000 });
   check("buat sesi tanpa project lewat engine asli", true);
 
+  // 1c) Chat nyata (Fase 5). Hanya bila mesin ini punya provider di providers.json; di CI tidak ada → dilewati.
+  const modelPicker = page.getByRole("combobox", { name: "Model" });
+  const hasProvider = await modelPicker
+    .waitFor({ timeout: 15000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!hasProvider) {
+    console.log("      (info) tidak ada provider terkonfigurasi; pengujian chat nyata dilewati");
+  } else {
+    const box = page.getByRole("textbox", { name: /^Tulis pesan/ });
+    await box.fill("Balas hanya dengan satu kata: pong");
+    await box.press("Enter");
+    await page
+      .getByRole("article", { name: "Asisten" })
+      .filter({ hasText: /pong/i })
+      .first()
+      .waitFor({ timeout: 90000 });
+    check("chat nyata: prompt → jawaban streaming dari model", true);
+
+    await box.fill("Buat file zandor-smoke.txt berisi kata halo (gunakan tool tulis file).");
+    await box.press("Enter");
+    const card = page.getByRole("alertdialog", { name: /Izin diperlukan/ });
+    await card.waitFor({ timeout: 90000 });
+    check("tool call tulis file meminta izin (kartu izin tampil)", true, (await card.textContent())?.slice(0, 60));
+    await card.getByRole("button", { name: "Izinkan sekali" }).click();
+    await page.locator(".fold--tool[data-status='completed']").first().waitFor({ timeout: 90000 });
+    check("setelah Izinkan sekali, tool call selesai dijalankan engine", true);
+    await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
+  }
+
   // 2) Jendela asli tanpa title bar sistem (frameless) — bit WS_CAPTION bisa tetap menyala pada jendela
   //    tanpa dekorasi bergaya bayangan, jadi hanya dilaporkan, bukan syarat lulus.
   const s0 = winState(pid);
@@ -170,22 +202,32 @@ try {
   check("klik Tutup → aplikasi keluar", exited);
   await browser?.close().catch(() => {});
 
-  // 6) Persistensi: jalankan ulang aplikasi → sesi yang dibuat tadi masih ada; lalu bersihkan.
+  // 6) Persistensi: jalankan ulang aplikasi → sesi yang dibuat tadi masih ada; lalu bersihkan semuanya.
+  // (Judul sesi bisa berubah karena engine memberi judul otomatis setelah chat, jadi dicari lewat barisnya.)
   const second = await launch();
-  await second.page.getByText("Sesi tanpa judul").first().waitFor({ timeout: 40000 });
-  check("restart aplikasi → sesi tetap ada (persisten di engine)", true);
-  await second.page
-    .getByRole("button", { name: /^Menu untuk Sesi tanpa judul$/ })
-    .first()
-    .click({ force: true });
-  await second.page.getByRole("menuitem", { name: "Hapus sesi" }).click();
-  await second.page.getByRole("alertdialog").getByRole("button", { name: "Hapus sesi" }).click();
-  await waitFor(
-    "sesi uji dibersihkan",
-    () => second.page.getByText("Sesi tanpa judul").count(),
-    (n) => n === 0,
-  );
+  const rows = second.page.locator(".tree__children .tree__session");
+  await rows.first().waitFor({ timeout: 40000 });
+  check("restart aplikasi → sesi tetap ada (persisten di engine)", true, `${await rows.count()} sesi`);
+  while ((await rows.count()) > 0) {
+    await second.page.locator(".tree__children .tree__row button[aria-haspopup='menu']").first().click({ force: true });
+    await second.page.getByRole("menuitem", { name: "Hapus sesi" }).click();
+    await second.page.getByRole("alertdialog").getByRole("button", { name: "Hapus sesi" }).click();
+    await waitFor(
+      "satu sesi uji terhapus",
+      () => rows.count(),
+      (n) => n >= 0,
+      5000,
+    );
+    await new Promise((r) => setTimeout(r, 400));
+  }
   check("sesi uji dihapus (tidak meninggalkan sampah)", true);
+  // berkas yang ditulis agent saat uji izin (best effort)
+  const junk = join(process.env.APPDATA ?? "", "id.web.zandor.app", "chats", "zandor-smoke.txt");
+  try {
+    rmSync(junk, { force: true });
+  } catch {
+    // diabaikan
+  }
   await second.page.getByRole("button", { name: /^(Tutup jendela|Close window)$/ }).click();
   await waitFor(
     "proses keluar (kedua)",

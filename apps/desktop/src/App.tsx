@@ -26,7 +26,7 @@ export function hashToPath(hash: string): string {
 
 /** Terapkan pengaturan ke DOM (tema, skala, bahasa) dan sinkronkan riwayat navigasi dengan hash URL. */
 function Effects() {
-  const { nav, host, connection, projects, logger } = useServices();
+  const { nav, host, connection, projects, chat, logger } = useServices();
   const settings = useSettings();
   const { current } = useNavState();
 
@@ -49,7 +49,9 @@ function Effects() {
       if (!alive) return;
       const state = fromSnapshot(raw);
       connection.set(state);
-      projects.setApi(state.info ? createEngineApi(state.info) : null);
+      const api = state.info ? createEngineApi(state.info) : null;
+      projects.setApi(api);
+      chat.setApi(api);
     };
     void (async () => {
       try {
@@ -68,7 +70,7 @@ function Effects() {
       alive = false;
       stop?.();
     };
-  }, [host, connection, projects, logger]);
+  }, [host, connection, projects, chat, logger]);
 
   useEffect(() => {
     const onHash = () => nav.push(hashToPath(window.location.hash));
