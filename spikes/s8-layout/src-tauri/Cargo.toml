@@ -1,0 +1,15 @@
+[package]
+name = "zandor-spike-s8"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.4", features = [] }
+
+[dependencies]
+# Child webview (multiwebview) hanya tersedia di balik feature `unstable` → versi di-pin persis.
+tauri = { version = "=2.12.5", features = ["unstable"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

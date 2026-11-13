@@ -5163,6 +5163,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "zandor-spike-s8"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+]
+
+[[package]]
 name = "zbus"
 version = "5.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

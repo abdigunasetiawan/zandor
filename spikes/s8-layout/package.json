@@ -1,0 +1,19 @@
+{
+  "name": "zandor-spike-s8",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build src/main.tsx --outdir ui/dist --target browser --minify",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-resizable-panels": "4.22.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}

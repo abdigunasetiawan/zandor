@@ -6,6 +6,7 @@ members = [
   "s3-webview/src-tauri",
   "s4-secrets",
   "s7-terminal/src-tauri",
+  "s8-layout/src-tauri",
 ]
 
 [profile.dev]
