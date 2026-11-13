@@ -148,8 +148,10 @@ test("fokus keyboard terlihat pada tombol", async ({ page }) => {
 
 test("tabel shortcut menampilkan pintasan nyata (tidak kosong)", async ({ page }) => {
   await open(page);
-  await expect(page.locator("#shortcuts tbody tr")).toHaveCount(4);
-  await expect(page.locator("#shortcuts")).toContainText("view.toggleTheme");
+  const rows = page.locator("#shortcuts tbody tr");
+  expect(await rows.count()).toBeGreaterThanOrEqual(8);
+  await expect(page.locator("#shortcuts")).toContainText("cmd:view.toggleTheme");
+  await expect(page.locator("#shortcuts")).toContainText("cmd:app.palette");
 });
 
 test("Tabs: panah memindahkan fokus, Enter memilih", async ({ page }) => {

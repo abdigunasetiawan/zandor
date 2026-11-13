@@ -15,6 +15,7 @@ import {
   Kbd,
   Menu,
   type MenuEntry,
+  Palette,
   PlusIcon,
   Popover,
   SearchField,
@@ -140,6 +141,44 @@ function ConfirmDemo() {
       <span className="z-small" role="status">
         Hasil: {result}
       </span>
+    </>,
+  );
+}
+
+function PaletteDemo() {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [last, setLast] = useState("—");
+  const all = [
+    { id: "a", label: "Buka Pengaturan", group: "Aplikasi", shortcut: "Ctrl+," },
+    { id: "b", label: "Ganti tema gelap/terang", group: "Tampilan", shortcut: "Ctrl+Alt+T" },
+    { id: "c", label: "Perbesar UI", group: "Tampilan", shortcut: "Ctrl+=" },
+    { id: "d", label: "Tidak tersedia", group: "Aplikasi", disabled: true },
+  ];
+  const items = all.filter((i) => i.label.toLowerCase().includes(q.trim().toLowerCase()));
+  return row(
+    <>
+      <Button
+        onClick={() => {
+          setQ("");
+          setOpen(true);
+        }}
+      >
+        Buka palette
+      </Button>
+      <span className="z-small" role="status">
+        Dipilih: {last}
+      </span>
+      <Palette
+        aria-label="Contoh palette"
+        placeholder="Cari perintah…"
+        open={open}
+        onOpenChange={setOpen}
+        query={q}
+        onQueryChange={setQ}
+        items={items}
+        onSelect={(id) => setLast(all.find((i) => i.id === id)?.label ?? id)}
+      />
     </>,
   );
 }
@@ -311,6 +350,7 @@ export const MOLECULE_DEMOS: Record<MoleculeName, () => ReactNode> = {
   ConfirmDialog: ConfirmDemo,
   Combobox: ComboboxDemo,
   SearchField: SearchDemo,
+  Palette: PaletteDemo,
   Field: () => (
     <div className="ds-stack ds-narrow">
       <Field label="Nama project" description="Huruf kecil, tanpa spasi.">

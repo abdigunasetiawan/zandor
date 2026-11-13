@@ -76,6 +76,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Kerangka Pengaturan (dialog/halaman) berbasis JSON Schema.
 
 **Kriteria keluar:** shell lengkap tanpa fitur palsu; panel yang belum punya isi menampilkan empty state yang jujur.
+**Status: selesai (13-11-2026)** — lihat ADR-030 dan `docs/features/app-shell.md`; menunggu CI hijau.
 
 ## Fase 4 — Engine & Project
 

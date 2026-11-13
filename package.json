@@ -16,7 +16,8 @@
     "check": "bun run lint && bun run typecheck && bun run test && bun run licenses && bun run design-tokens",
     "dev": "bun run --filter @zandor/desktop tauri dev",
     "build:desktop": "bun run --filter @zandor/desktop tauri build",
-    "design-tokens": "bun scripts/check-design-tokens.ts"
+    "design-tokens": "bun scripts/check-design-tokens.ts",
+    "e2e:native": "bun run --filter @zandor/desktop e2e:native"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.7",

@@ -1,97 +1,93 @@
-// Kerangka aplikasi. Belum ada fitur produk; layar ini jujur menyatakannya (prinsip "tidak ada UI palsu").
-import { buildInfo, type Logger } from "@zandor/core";
-import { LOCALES, type Locale } from "@zandor/i18n";
-import { I18nProvider, useI18n } from "@zandor/i18n/react";
-import { ConfirmProvider, ErrorBoundary, Select, ShortcutProvider, ToastProvider } from "@zandor/ui";
-import { useEffect, useState } from "react";
+// Akar aplikasi: layanan, penyedia, top bar, dan halaman (beranda = lima panel, Pengaturan, design system).
+import { I18nProvider } from "@zandor/i18n/react";
+import { applyScale, applyTheme, ConfirmProvider, ErrorBoundary, ShortcutProvider, ToastProvider } from "@zandor/ui";
+import { useEffect } from "react";
 import { DesignSystemPage } from "./design-system/DesignSystemPage";
+import { CommandCenter } from "./shell/CommandCenter";
+import { SettingsPage } from "./shell/SettingsPage";
+import { ShellLayout } from "./shell/ShellLayout";
+import { type Services, ServicesProvider, useNavState, useServices, useSettings } from "./shell/services";
+import { TitleBar } from "./shell/TitleBar";
 
-export const build = buildInfo({
-  packageVersion: __APP_PACKAGE_VERSION__,
-  commitCount: __APP_COMMIT_COUNT__,
-  isRelease: __APP_RELEASE__,
-});
+export type Route = { page: "home" } | { page: "settings" } | { page: "design-system"; section: string | null };
 
-export type Route = { page: "shell" } | { page: "design-system"; section: string | null };
-
-/** `#/design-system[/<bagian>]` → halaman design system; selainnya → kerangka aplikasi. */
-export function parseRoute(hash: string): Route {
-  const m = hash.match(/^#\/design-system(?:\/([a-z-]+))?\/?$/);
-  return m ? { page: "design-system", section: m[1] ?? null } : { page: "shell" };
+/** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
+export function parseRoute(path: string): Route {
+  if (/^\/settings\/?$/.test(path)) return { page: "settings" };
+  const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
+  return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
 
-function useRoute(): Route {
-  const [hash, setHash] = useState(window.location.hash);
+/** "#/settings" → "/settings"; kosong/tak dikenal → "/". */
+export function hashToPath(hash: string): string {
+  return hash.startsWith("#/") ? hash.slice(1) : "/";
+}
+
+/** Terapkan pengaturan ke DOM (tema, skala, bahasa) dan sinkronkan riwayat navigasi dengan hash URL. */
+function Effects() {
+  const { nav } = useServices();
+  const settings = useSettings();
+  const { current } = useNavState();
+
+  useEffect(() => applyTheme(settings.theme), [settings.theme]);
+  useEffect(() => applyScale(settings.uiScale), [settings.uiScale]);
   useEffect(() => {
-    const onChange = () => setHash(window.location.hash);
-    window.addEventListener("hashchange", onChange);
-    return () => window.removeEventListener("hashchange", onChange);
-  }, []);
-  return parseRoute(hash);
+    document.documentElement.lang = settings.language;
+  }, [settings.language]);
+
+  useEffect(() => {
+    const target = current === "/" ? "" : `#${current}`;
+    if (window.location.hash !== target) history.replaceState(null, "", target || window.location.pathname);
+  }, [current]);
+
+  useEffect(() => {
+    const onHash = () => nav.push(hashToPath(window.location.hash));
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [nav]);
+
+  return null;
 }
 
-function Shell({ locale, onLocale }: { locale: Locale; onLocale: (l: Locale) => void }) {
-  const { t } = useI18n();
+function Page() {
+  const { current } = useNavState();
+  const route = parseRoute(current);
+  const page = route.page;
+  const section = route.page === "design-system" ? route.section : null;
+  useEffect(() => {
+    if (page === "design-system" && section) document.getElementById(section)?.scrollIntoView?.({ block: "start" });
+  }, [page, section]);
+  if (page === "settings") return <SettingsPage />;
+  if (page === "design-system") return <DesignSystemPage />;
+  return <ShellLayout />;
+}
+
+export function App({ services }: { services: Services }) {
   return (
-    <main className="shell">
-      <header className="shell__header">
-        <h1 className="z-h4">{t("app.name")}</h1>
-        <div className="shell__lang">
-          <span className="z-label">{t("settings.language")}</span>
-          <Select
-            aria-label={t("settings.language")}
-            value={locale}
-            onValueChange={(v) => onLocale(v as Locale)}
-            items={LOCALES.map((l) => ({ value: l, label: t(`language.${l}`) }))}
-          />
-        </div>
-      </header>
-      <section className="shell__empty" aria-labelledby="empty-title">
-        <h2 id="empty-title" className="z-h3">
-          {t("shell.emptyTitle")}
-        </h2>
-        <p className="z-p shell__muted">{t("shell.emptyBody")}</p>
-      </section>
-      <footer className="shell__footer">
-        <span data-testid="version" className="z-small">
-          {t("app.version", { version: build.version })}
-        </span>
-        <a className="z-link" href="#/design-system">
-          {t("shell.designSystem")}
-        </a>
-      </footer>
-    </main>
+    <ServicesProvider services={services}>
+      <Root />
+    </ServicesProvider>
   );
 }
 
-function Routed({ locale, onLocale }: { locale: Locale; onLocale: (l: Locale) => void }) {
-  const route = useRoute();
-  useEffect(() => {
-    if (route.page === "design-system" && route.section) {
-      document.getElementById(route.section)?.scrollIntoView?.({ block: "start" });
-    }
-  }, [route]);
-  return route.page === "design-system" ? <DesignSystemPage /> : <Shell locale={locale} onLocale={onLocale} />;
-}
-
-export function App({ initialLocale, logger }: { initialLocale: Locale; logger: Logger }) {
-  const [locale, setLocale] = useState<Locale>(initialLocale);
-  const onLocale = (l: Locale) => {
-    setLocale(l);
-    document.documentElement.lang = l;
-    try {
-      localStorage.setItem("zandor.locale", l);
-    } catch {
-      // penyimpanan tidak tersedia: bahasa tetap berlaku untuk sesi ini
-    }
-  };
+function Root() {
+  const { logger } = useServices();
+  const settings = useSettings();
   return (
-    <I18nProvider locale={locale}>
+    <I18nProvider locale={settings.language}>
       <ErrorBoundary name="app" logger={logger}>
         <ShortcutProvider>
           <ToastProvider>
             <ConfirmProvider>
-              <Routed locale={locale} onLocale={onLocale} />
+              <CommandCenter>
+                <Effects />
+                <div className="app">
+                  <TitleBar />
+                  <div className="app__content">
+                    <Page />
+                  </div>
+                </div>
+              </CommandCenter>
             </ConfirmProvider>
           </ToastProvider>
         </ShortcutProvider>

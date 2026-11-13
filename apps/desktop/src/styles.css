@@ -1,50 +1,201 @@
 /* Gaya aplikasi. Token ada di @zandor/ui (tokens.css); file ini hanya memakai var(--z-*). */
 
-.shell {
+/* ---------- Kerangka: top bar + isi ---------- */
+.app {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
-.shell__header {
+.app__content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.titlebar {
   display: flex;
+  flex: none;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--z-space-3) var(--z-space-4);
+  gap: var(--z-space-2);
+  height: var(--z-titlebar-height);
+  padding: 0 0 0 var(--z-space-2);
   border-bottom: var(--z-border-width) solid var(--z-color-border);
   background: var(--z-color-surface);
+  user-select: none;
 }
-.shell__header h1 {
-  margin: 0;
-}
-.shell__lang {
+.titlebar__nav,
+.titlebar__menus,
+.titlebar__tools,
+.titlebar__window {
   display: flex;
-  gap: var(--z-space-2);
+  flex: none;
   align-items: center;
-  color: var(--z-color-fg-muted);
+  gap: var(--z-space-1);
 }
-.shell__empty {
-  flex: 1;
+.titlebar fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.titlebar__center {
   display: flex;
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 var(--z-space-2);
+}
+.titlebar__window {
+  align-self: stretch;
+  gap: 0;
+}
+.titlebar__window .z-button {
+  height: 100%;
+  border-radius: 0;
+  width: var(--z-rail-width);
+}
+.titlebar__close:hover:not(:disabled) {
+  background: var(--z-color-danger);
+  color: var(--z-color-on-accent);
+}
+.omnibox {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  width: 100%;
+  max-width: calc(var(--z-space-7) * 9);
+  height: var(--z-control-md);
+  padding: 0 var(--z-space-3);
+  border: var(--z-border-width) solid var(--z-color-border-strong);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-raised);
+  color: var(--z-color-fg-muted);
+  font-family: inherit;
+  font-size: var(--z-type-button-size);
+  cursor: pointer;
+}
+.omnibox:hover {
+  background: var(--z-color-hover);
+}
+.omnibox__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- Lima panel ---------- */
+.shell-body {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.shell-group {
+  flex: 1;
+  min-width: 0;
+}
+.shell-panel {
+  overflow: hidden;
+}
+.shell-panel__inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--z-space-3);
+}
+.shell-sep {
+  width: var(--z-separator-size);
+  background: var(--z-color-border);
+  transition: background var(--z-duration-fast) var(--z-ease);
+}
+.shell-sep:hover,
+.shell-sep[data-separator-state="drag"],
+.shell-sep:focus-visible {
+  background: var(--z-color-border-strong);
+}
+.shell-rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--z-space-1);
+  width: var(--z-rail-width);
+  padding-top: var(--z-space-2);
+  border-left: var(--z-border-width) solid var(--z-color-border);
+  background: var(--z-color-surface);
+}
+.shell-rail .z-button[aria-pressed="true"],
+.titlebar__tools .z-button[aria-pressed="true"] {
+  background: var(--z-color-active);
+}
+.shell-empty {
+  display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  padding: var(--z-space-6);
   gap: var(--z-space-2);
+  padding: var(--z-space-4);
+  text-align: center;
 }
-.shell__empty h2 {
+.shell-empty h2 {
   margin: 0;
 }
-.shell__muted {
+.shell-empty__body {
+  max-width: calc(var(--z-space-7) * 7);
   margin: 0;
-  max-width: calc(var(--z-space-7) * 9);
   color: var(--z-color-fg-muted);
 }
-.shell__footer {
+
+/* ---------- Pengaturan ---------- */
+.settings {
+  max-width: calc(var(--z-space-7) * 16);
+  margin: 0 auto;
+  padding: var(--z-space-5);
+}
+.settings h1 {
+  margin: 0 0 var(--z-space-2);
+}
+.settings__note {
+  margin: 0 0 var(--z-space-5);
+}
+.settings__group {
+  margin-bottom: var(--z-space-5);
+}
+.settings__group h2 {
+  margin: 0 0 var(--z-space-2);
+  padding-bottom: var(--z-space-2);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.settings__row {
   display: flex;
-  justify-content: space-between;
-  padding: var(--z-space-2) var(--z-space-4);
-  border-top: var(--z-border-width) solid var(--z-color-border);
+  align-items: center;
+  gap: var(--z-space-4);
+  padding: var(--z-space-3) 0;
+}
+.settings__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  min-width: 0;
+}
+.settings__control {
+  flex: none;
+  min-width: calc(var(--z-space-7) * 4);
+}
+.settings__json {
+  margin: 0;
+  padding: var(--z-space-3);
+  overflow: auto;
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-surface);
 }
 
 /* ---------- Halaman design system ---------- */

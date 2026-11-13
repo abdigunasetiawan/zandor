@@ -77,6 +77,12 @@ jobs:
         working-directory: apps/desktop
         run: bun run tauri build --ci
 
+      # Smoke native: aplikasi sungguhan + kontrol jendela via CDP. Non-blocking sampai terbukti stabil di runner.
+      - name: Smoke native (kontrol jendela)
+        continue-on-error: true
+        working-directory: apps/desktop
+        run: bun e2e-native/smoke.ts ../../target/release/zandor-desktop.exe
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:

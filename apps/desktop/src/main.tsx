@@ -1,30 +1,40 @@
 import { consoleSink, createLogger } from "@zandor/core";
 import { detectLocale } from "@zandor/i18n";
-import { initPreferences } from "@zandor/ui";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
+import { App, hashToPath } from "./App";
+import { createServices } from "./shell/services";
+import "@zandor/ui";
 import "./styles.css";
 
-initPreferences();
+const SETTINGS_KEY = "zandor.settings";
 
 const logger = createLogger("app", { level: import.meta.env.DEV ? "debug" : "info", sinks: [consoleSink] });
 
-function storedLocale(): string | null {
-  try {
-    return localStorage.getItem("zandor.locale");
-  } catch {
-    return null;
-  }
-}
+const services = createServices({
+  logger,
+  initialPath: hashToPath(window.location.hash),
+  storage: {
+    get: () => {
+      try {
+        return localStorage.getItem(SETTINGS_KEY);
+      } catch {
+        return null;
+      }
+    },
+    set: (v) => localStorage.setItem(SETTINGS_KEY, v),
+  },
+});
 
-const locale = detectLocale(storedLocale() ?? navigator.language);
-document.documentElement.lang = locale;
+// Pemakaian pertama: ikuti bahasa sistem bila didukung, lalu simpan sebagai pilihan eksplisit.
+if (!services.settings.isExplicit("language")) {
+  services.settings.set("language", detectLocale(navigator.language));
+}
 
 const root = document.getElementById("root");
 if (!root) throw new Error("elemen #root tidak ada");
 createRoot(root).render(
   <StrictMode>
-    <App initialLocale={locale} logger={logger} />
+    <App services={services} />
   </StrictMode>,
 );

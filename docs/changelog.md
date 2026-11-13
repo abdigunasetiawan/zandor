@@ -4,6 +4,9 @@
 
 ## 2026-11-13
 
+- Fase 3: skema pengaturan (JSON Schema) + store + validator; perencana layout murni; jendela frameless (`1538098`)
+- Fase 3: perencana layout, registry perintah + fuzzy (core, diuji) (`d6b9b0d`)
+- Fase 2: design system (token, 14 atoms, 10 molecules, shortcut, halaman) (`ed3369a`)
 - WIP Fase 2: token, atoms, molecules, mesin shortcut (belum diuji penuh) (`3e273b2`)
 - Fase 1 lulus: CI hijau; perbaiki peringatan CI (`a14ab91`)
 - Fase 1: fondasi monorepo, docs, dan CI Windows (`4e376f3`)

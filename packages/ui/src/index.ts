@@ -15,6 +15,8 @@ export { Field } from "./molecules/Field";
 export type { MenuEntry } from "./molecules/Menu";
 export { ContextMenu, Menu } from "./molecules/Menu";
 export { ConfirmProvider, Dialog, Popover, useConfirm } from "./molecules/Overlay";
+export type { PaletteItem } from "./molecules/Palette";
+export { Palette } from "./molecules/Palette";
 export { Combobox, SearchField } from "./molecules/Search";
 export { Tabs } from "./molecules/Tabs";
 export { ToastProvider, useToast } from "./molecules/Toast";
@@ -27,13 +29,4 @@ export {
   useShortcutRegistry,
 } from "./shortcuts/react";
 export type { Theme, UiScale } from "./theme";
-export {
-  applyScale,
-  applyTheme,
-  initPreferences,
-  stepScale,
-  storedScale,
-  storedTheme,
-  THEMES,
-  UI_SCALES,
-} from "./theme";
+export { applyScale, applyTheme, stepScale, THEMES, UI_SCALES } from "./theme";

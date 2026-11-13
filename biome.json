@@ -51,7 +51,7 @@
   },
   "overrides": [
     {
-      "includes": ["scripts/**"],
+      "includes": ["scripts/**", "apps/desktop/e2e-native/**"],
       "linter": {
         "rules": {
           "suspicious": {

@@ -28,6 +28,7 @@ export const MOLECULES = [
   "ConfirmDialog",
   "Combobox",
   "SearchField",
+  "Palette",
   "Field",
 ] as const;
 

@@ -25,16 +25,16 @@
 
 ## Struktur repo
 
-| Path              | Isi                                                                    |
-| ----------------- | ---------------------------------------------------------------------- |
-| `apps/desktop`    | Aplikasi Tauri: `src/` (UI), `src-tauri/` (Rust), `e2e/` (Playwright)  |
-| `packages/core`   | Logika tanpa UI. Sekarang: logger, build info                          |
-| `packages/ui`     | Komponen React. Sekarang: `ErrorBoundary`                              |
-| `packages/i18n`   | Katalog ID (sumber kebenaran) + EN, `createTranslator`, `I18nProvider` |
-| `packages/plugin` | Plugin opencode Zandor. Sekarang: guard `shell.env`                    |
-| `scripts/`        | Audit lisensi, utilitas repo                                           |
-| `spikes/`         | Kode spike Fase 0 (referensi, tidak dipakai produk)                    |
-| `docs/`           | Dokumentasi (lihat `docs/README.md`)                                   |
+| Path              | Isi                                                                                   |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| `apps/desktop`    | Aplikasi Tauri: `src/` (UI), `src-tauri/` (Rust), `e2e/` (Playwright)                 |
+| `packages/core`   | Logika tanpa UI: logger, build info, shortcut, perintah, layout, navigasi, pengaturan |
+| `packages/ui`     | Komponen React. Sekarang: `ErrorBoundary`                                             |
+| `packages/i18n`   | Katalog ID (sumber kebenaran) + EN, `createTranslator`, `I18nProvider`                |
+| `packages/plugin` | Plugin opencode Zandor. Sekarang: guard `shell.env`                                   |
+| `scripts/`        | Audit lisensi, utilitas repo                                                          |
+| `spikes/`         | Kode spike Fase 0 (referensi, tidak dipakai produk)                                   |
+| `docs/`           | Dokumentasi (lihat `docs/README.md`)                                                  |
 
 ## Kontrak engine (dari Fase 0)
 

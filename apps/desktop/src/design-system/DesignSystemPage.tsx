@@ -1,23 +1,8 @@
 import { formatCombo } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import {
-  applyScale,
-  applyTheme,
-  Button,
-  Kbd,
-  Select,
-  Slider,
-  stepScale,
-  storedScale,
-  storedTheme,
-  THEMES,
-  type Theme,
-  UI_SCALES,
-  type UiScale,
-  useShortcut,
-  useShortcutList,
-} from "@zandor/ui";
-import { type ReactNode, useState } from "react";
+import { Button, Kbd, Select, Slider, THEMES, type Theme, UI_SCALES, type UiScale, useShortcutList } from "@zandor/ui";
+import type { ReactNode } from "react";
+import { useSetting } from "../shell/services";
 import { ATOM_DEMOS, MOLECULE_DEMOS } from "./demos";
 import { TokensSection } from "./TokensSection";
 
@@ -95,51 +80,8 @@ function ShortcutsSection() {
 
 export function DesignSystemPage() {
   const { t } = useI18n();
-  const [theme, setTheme] = useState<Theme>(storedTheme());
-  const [scale, setScale] = useState<UiScale>(storedScale());
-
-  const changeTheme = (next: Theme) => {
-    setTheme(next);
-    applyTheme(next);
-  };
-  const changeScale = (next: UiScale) => {
-    setScale(next);
-    applyScale(next);
-  };
-
-  // Pintasan nyata (bukan dekorasi): ganti tema dan zoom UI.
-  useShortcut({
-    id: "view.toggleTheme",
-    combo: "Ctrl+Alt+T",
-    scope: "global",
-    description: "theme.label",
-    allowInInput: true,
-    run: () => changeTheme(theme === "dark" ? "light" : "dark"),
-  });
-  useShortcut({
-    id: "view.zoomIn",
-    combo: "Ctrl+=",
-    scope: "global",
-    description: "scale.label",
-    allowInInput: true,
-    run: () => changeScale(stepScale(scale, 1)),
-  });
-  useShortcut({
-    id: "view.zoomOut",
-    combo: "Ctrl+-",
-    scope: "global",
-    description: "scale.label",
-    allowInInput: true,
-    run: () => changeScale(stepScale(scale, -1)),
-  });
-  useShortcut({
-    id: "view.zoomReset",
-    combo: "Ctrl+0",
-    scope: "global",
-    description: "scale.label",
-    allowInInput: true,
-    run: () => changeScale(1),
-  });
+  const [theme, changeTheme] = useSetting("theme");
+  const [scale, changeScale] = useSetting("uiScale");
 
   const molecules = Object.entries(MOLECULE_DEMOS).filter(([n]) => !SPECIAL.has(n));
   const pick = (names: readonly string[]) => Object.entries(MOLECULE_DEMOS).filter(([n]) => names.includes(n));

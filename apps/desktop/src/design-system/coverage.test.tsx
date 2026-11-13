@@ -6,7 +6,8 @@ import { createLogger } from "@zandor/core";
 import * as ui from "@zandor/ui";
 import { ATOMS, INFRASTRUCTURE, MOLECULES } from "@zandor/ui";
 import { afterEach, describe, expect, test } from "vitest";
-import { App, parseRoute } from "../App";
+import { App, hashToPath, parseRoute } from "../App";
+import { createServices } from "../shell/services";
 import { SECTIONS } from "./DesignSystemPage";
 import { ATOM_DEMOS, MOLECULE_DEMOS } from "./demos";
 
@@ -50,8 +51,12 @@ describe("katalog komponen", () => {
 
 describe("halaman design system", () => {
   const renderPage = () => {
-    window.location.hash = "#/design-system";
-    return render(<App initialLocale="id" logger={createLogger("test", { sinks: [] })} />);
+    const services = createServices({
+      logger: createLogger("test", { sinks: [] }),
+      initialPath: "/design-system",
+      storage: { get: () => null, set: () => {} },
+    });
+    return render(<App services={services} />);
   };
 
   test("bagian sesuai urutan roadmap: Tokens → Atoms → Molecules → Organisms → Panels → Menus → Modals → Pages", () => {
@@ -98,7 +103,13 @@ describe("halaman design system", () => {
   test("Shortcut menampilkan binding nyata yang terdaftar", () => {
     renderPage();
     const section = document.getElementById("shortcuts") as HTMLElement;
-    for (const id of ["view.toggleTheme", "view.zoomIn", "view.zoomOut", "view.zoomReset"]) {
+    for (const id of [
+      "cmd:view.toggleTheme",
+      "cmd:view.zoomIn",
+      "cmd:view.zoomOut",
+      "cmd:view.zoomReset",
+      "cmd:app.palette",
+    ]) {
       expect(within(section).getByText(id)).toBeInTheDocument();
     }
   });
@@ -111,14 +122,26 @@ describe("halaman design system", () => {
 
 describe("routing", () => {
   test.each([
-    ["", { page: "shell" }],
-    ["#/", { page: "shell" }],
-    ["#/design-system", { page: "design-system", section: null }],
-    ["#/design-system/atoms", { page: "design-system", section: "atoms" }],
-    ["#/design-system/atoms/", { page: "design-system", section: "atoms" }],
-    ["#/design-systemx", { page: "shell" }],
-    ["#/lain", { page: "shell" }],
-  ])("%j", (hash, want) => {
-    expect(parseRoute(hash)).toEqual(want);
+    ["/", { page: "home" }],
+    ["/settings", { page: "settings" }],
+    ["/settings/", { page: "settings" }],
+    ["/design-system", { page: "design-system", section: null }],
+    ["/design-system/atoms", { page: "design-system", section: "atoms" }],
+    ["/design-system/atoms/", { page: "design-system", section: "atoms" }],
+    ["/design-systemx", { page: "home" }],
+    ["/lain", { page: "home" }],
+  ])("%j", (path, want) => {
+    expect(parseRoute(path)).toEqual(want);
+  });
+
+  test.each([
+    ["", "/"],
+    ["#", "/"],
+    ["#/", "/"],
+    ["#/settings", "/settings"],
+    ["#/design-system/atoms", "/design-system/atoms"],
+    ["#acak", "/"],
+  ])("hashToPath(%j) = %j", (hash, want) => {
+    expect(hashToPath(hash)).toBe(want);
   });
 });

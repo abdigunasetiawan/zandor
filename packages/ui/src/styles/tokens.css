@@ -103,6 +103,9 @@
   --z-icon-sm: 0.875rem;
   --z-icon-md: 1rem;
   --z-icon-lg: 1.25rem;
+  --z-titlebar-height: 2.5rem;
+  --z-rail-width: 3rem;
+  --z-separator-size: 0.375rem;
 
   /* ---------- Gerak & lapisan ---------- */
   --z-duration-fast: 90ms;
