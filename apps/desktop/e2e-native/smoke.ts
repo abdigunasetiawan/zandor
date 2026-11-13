@@ -15,6 +15,8 @@ if (!exe) {
 }
 const exePath: string = exe;
 const PORT = 9333;
+// Tidak semua model di endpoint pengembang berfungsi; model ini diketahui bisa dipakai (bisa diganti lewat env).
+const SMOKE_MODEL = process.env.ZANDOR_SMOKE_MODEL ?? "Gemini 3.8 Flash (High)";
 
 /** Status jendela Windows asli milik proses (IsZoomed/IsIconic/IsWindowVisible + ada title bar sistem?). */
 function winState(pid: number): { found: boolean; zoomed: boolean; iconic: boolean; caption: boolean } {
@@ -129,13 +131,23 @@ try {
     check("koneksi provider tampil dengan kunci tersimpan (keychain)", true);
     await first.getByText("Tersambung ke engine").waitFor({ timeout: 30000 });
     check("engine mengenali provider (tersambung)", true);
-    const ping = first.getByRole("button", { name: /^Uji / }).first();
-    await ping.click();
-    // Hasil ping bisa OK atau gagal (mis. upstream provider sedang mati); yang diuji: selalu berakhir dan jujur.
-    const status = first.locator(".pmodel__status [data-tone]").first();
-    await status.waitFor({ timeout: 40000 });
-    const text = (await status.textContent())?.trim() ?? "";
-    providerHealthy = (await status.getAttribute("data-tone")) === "ok";
+    const named = first.getByRole("button", { name: `Uji ${SMOKE_MODEL}` });
+    const ping = (await named.count()) > 0 ? named : first.getByRole("button", { name: /^Uji / }).first();
+    // Baris model yang diuji (bukan sekadar baris pertama).
+    const row =
+      (await named.count()) > 0
+        ? first.locator(".pmodel").filter({ hasText: SMOKE_MODEL })
+        : first.locator(".pmodel").first();
+    const status = row.locator(".pmodel__status [data-tone]");
+    let text = "";
+    // Upstream pengembang bergantian 200/500: beri hingga 3 percobaan. Yang diuji: selalu berakhir dan jujur.
+    for (let attempt = 1; attempt <= 3 && !providerHealthy; attempt++) {
+      await ping.click();
+      await status.waitFor({ timeout: 120000 });
+      text = (await status.textContent())?.trim() ?? "";
+      providerHealthy = (await status.getAttribute("data-tone")) === "ok";
+      if (!providerHealthy) await new Promise((r) => setTimeout(r, 5000));
+    }
     check("ping model nyata lewat Rust (kunci dari keychain) berakhir dengan status jujur", true, text.slice(0, 90));
     // berkas provider tidak boleh memuat kunci (migrasi v1 → v2)
     const file = join(process.env.APPDATA ?? "", "id.web.zandor.app", "providers.json");
@@ -165,6 +177,18 @@ try {
       `      (info) chat nyata dilewati: ${hasProvider ? "ping provider tidak OK (upstream bermasalah)" : "tidak ada provider terkonfigurasi"}`,
     );
   } else {
+    // pilih model yang diketahui berfungsi lewat pemilih model (cari, pilih)
+    await modelPicker.click();
+    const picker = page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Pilih model" }) });
+    await picker.getByRole("searchbox", { name: "Cari model atau provider" }).fill(SMOKE_MODEL);
+    const choice = picker.getByRole("button", { name: SMOKE_MODEL }).first();
+    if ((await choice.count()) > 0) {
+      await choice.click();
+      check("pemilih model: pilih model uji", true, SMOKE_MODEL);
+    } else {
+      await page.keyboard.press("Escape");
+      console.log(`      (info) model ${SMOKE_MODEL} tidak ada; memakai model bawaan`);
+    }
     const box = page.getByRole("textbox", { name: /^Tulis pesan/ });
     await box.fill("Balas hanya dengan satu kata: pong");
     await box.press("Enter");
@@ -172,16 +196,16 @@ try {
       .getByRole("article", { name: "Asisten" })
       .filter({ hasText: /pong/i })
       .first()
-      .waitFor({ timeout: 90000 });
+      .waitFor({ timeout: 180000 });
     check("chat nyata: prompt → jawaban streaming dari model", true);
 
     await box.fill("Buat file zandor-smoke.txt berisi kata halo (gunakan tool tulis file).");
     await box.press("Enter");
     const card = page.getByRole("alertdialog", { name: /Izin diperlukan/ });
-    await card.waitFor({ timeout: 90000 });
+    await card.waitFor({ timeout: 180000 });
     check("tool call tulis file meminta izin (kartu izin tampil)", true, (await card.textContent())?.slice(0, 60));
     await card.getByRole("button", { name: "Izinkan sekali" }).click();
-    await page.locator(".fold--tool[data-status='completed']").first().waitFor({ timeout: 90000 });
+    await page.locator(".fold--tool[data-status='completed']").first().waitFor({ timeout: 180000 });
     check("setelah Izinkan sekali, tool call selesai dijalankan engine", true);
     await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
   }

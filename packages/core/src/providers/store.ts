@@ -237,7 +237,7 @@ export class ProviderStore {
   async ping(providerId: string, modelId: string): Promise<ProbeResult> {
     const key = pingKey(providerId, modelId);
     this.update({ pings: { ...this.snap.pings, [key]: { status: "pending" } } });
-    const watchdog = this.options.pingWatchdogMs ?? 30_000;
+    const watchdog = this.options.pingWatchdogMs ?? 100_000;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const result = await Promise.race([
       this.options.host.ping(providerId, modelId).catch((e) => invalid(errMsg(e))),

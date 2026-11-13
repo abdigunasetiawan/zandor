@@ -133,7 +133,7 @@ async fn provider_ping(
             &base,
             key.as_deref(),
             &model,
-            std::time::Duration::from_secs(20),
+            std::time::Duration::from_secs(90),
         )
     })
     .await

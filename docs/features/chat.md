@@ -15,7 +15,7 @@
 - **Kartu izin** (`ask` untuk edit/shell/webfetch/di luar folder): Izinkan sekali / Selalu izinkan / Tolak, dengan
   pola path dan diff.
 - **Stop** membatalkan giliran yang berjalan. Auto-scroll hanya bila pengguna berada di dekat dasar.
-- **Provider:** `app_data/providers.json` (lihat bawah).
+- **Provider:** lihat `providers.md` (keychain; halaman Provider & model).
 
 ## Pelengkap (ADR-034)
 
