@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<title>Zandor Spike S7</title>
+<link rel="stylesheet" href="vendor/xterm.css" />
+<style>
+  html, body { margin: 0; height: 100%; background: #121212; color: #e6e6e6; font: 13px system-ui, sans-serif; }
+  header { padding: 8px 12px; border-bottom: 1px solid #262626; }
+  main { display: flex; height: calc(100% - 37px); }
+  .pane { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #262626; }
+  .pane h3 { margin: 0; padding: 6px 10px; font-size: 12px; color: #9a9a9a; font-weight: 500; }
+  .host { flex: 1; min-height: 0; padding: 4px; }
+</style>
+</head>
+<body>
+<header>Spike S7 — halaman uji (bukan UI produk). Kiri: A <code>portable-pty</code> · Kanan: B <code>opencode /pty</code></header>
+<main>
+  <section class="pane"><h3>A · portable-pty (Rust)</h3><div class="host" id="hostA"></div></section>
+  <section class="pane"><h3>B · opencode /pty (WebSocket)</h3><div class="host" id="hostB"></div></section>
+</main>
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="vendor/addon-unicode11.js"></script>
+<script>
+const { invoke, Channel } = window.__TAURI__.core;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const SHELL = "powershell.exe";
+const ARGS = ["-NoLogo", "-NoProfile"];
+
+function makeTerm(host) {
+  const term = new Terminal({ scrollback: 30000, fontFamily: "Consolas, monospace", fontSize: 13, allowProposedApi: true, theme: { background: "#121212" } });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.loadAddon(new Unicode11Addon.Unicode11Addon());
+  term.unicode.activeVersion = "11";
+  term.open(host);
+  fit.fit();
+  new ResizeObserver(() => { try { fit.fit(); } catch {} }).observe(host);
+  return { term, fit };
+}
+
+// ---------- Backend A: portable-pty ----------
+async function openLocal(host) {
+  const { term, fit } = makeTerm(host);
+  const ch = new Channel();
+  ch.onmessage = (m) => term.write(m instanceof ArrayBuffer ? new Uint8Array(m) : typeof m === "string" ? m : new Uint8Array(m));
+  const { id, pid } = await invoke("local_open", { shell: SHELL, args: ARGS, cwd: null, cols: term.cols, rows: term.rows, onData: ch });
+  term.onData((d) => invoke("local_write", { id, data: d }));
+  term.onResize(({ cols, rows }) => invoke("local_resize", { id, cols, rows }));
+  return { name: "A-portable-pty", term, fit, pid, send: (d) => invoke("local_write", { id, data: d }), close: () => invoke("local_close", { id }) };
+}
+
+// ---------- Backend B: opencode /pty ----------
+async function engine() {
+  for (let i = 0; i < 200; i++) { const e = await invoke("engine_info"); if (e) return e; await sleep(100); }
+  throw new Error("engine tidak siap");
+}
+async function openEngine(host, existing) {
+  const e = await engine();
+  const auth = { authorization: "Basic " + btoa("opencode:" + e.password) };
+  const api = async (m, p, b, h = {}) => {
+    const r = await fetch(e.url + p, { method: m, headers: { ...auth, ...(b ? { "content-type": "application/json" } : {}), ...h }, body: b ? JSON.stringify(b) : undefined });
+    if (!r.ok) throw new Error(`${m} ${p} → ${r.status} ${await r.text()}`);
+    const t = await r.text(); return t ? JSON.parse(t) : null;
+  };
+  const { term, fit } = makeTerm(host);
+  const info = existing ?? (await api("POST", "/pty", { command: SHELL, args: ARGS }));
+  await api("PUT", `/pty/${info.id}`, { size: { cols: term.cols, rows: term.rows } });
+  const { ticket } = await api("POST", `/pty/${info.id}/connect-token`, null, { "x-opencode-ticket": "1" });
+  const ws = new WebSocket(`${e.url.replace(/^http/, "ws")}/pty/${info.id}/connect?ticket=${ticket}&cursor=0`);
+  ws.binaryType = "arraybuffer";
+  let cursor = 0;
+  ws.onmessage = (m) => {
+    if (typeof m.data === "string") return term.write(m.data);
+    const u = new Uint8Array(m.data);
+    if (u[0] === 0) { try { cursor = JSON.parse(new TextDecoder().decode(u.slice(1))).cursor; } catch {} return; }
+    term.write(u);
+  };
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error("websocket gagal")); });
+  term.onData((d) => ws.readyState === 1 && ws.send(d));
+  term.onResize(({ cols, rows }) => api("PUT", `/pty/${info.id}`, { size: { cols, rows } }));
+  return { name: "B-opencode-pty", term, fit, pid: info.pid, info, cursor: () => cursor, send: (d) => ws.send(d), close: async () => { ws.close(); await api("DELETE", `/pty/${info.id}`); }, ws };
+}
+
+// ---------- utilitas self-test ----------
+function bufferText(term) {
+  const b = term.buffer.active, out = [];
+  for (let i = 0; i < b.length; i++) out.push(b.getLine(i)?.translateToString(true) ?? "");
+  return out.join("\n");
+}
+async function waitFor(t, pred, ms = 15000) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < ms) { const txt = bufferText(t.term); const v = pred(txt); if (v) return { v, ms: Math.round(performance.now() - t0) }; await sleep(40); }
+  throw new Error("timeout: " + bufferText(t.term).split("\n").filter(Boolean).slice(-4).join(" ⏎ "));
+}
+const countOf = (txt, s) => txt.split(s).length - 1;
+const log = (m) => invoke("selftest_log", { msg: `${new Date().toISOString().slice(11, 23)} ${m}` });
+async function check(r, name, fn) {
+  log(`mulai ${r.backend ?? ""} ${name}`);
+  try { r[name] = { ok: true, ...(await fn()) }; } catch (e) { r[name] = { ok: false, error: String(e).slice(0, 400) }; }
+  log(`selesai ${name}: ${JSON.stringify(r[name]).slice(0, 300)}`);
+}
+window.addEventListener("error", (e) => log("ERROR " + e.message));
+window.addEventListener("unhandledrejection", (e) => log("REJECT " + String(e.reason)));
+
+async function suite(open, host) {
+  const r = {};
+  const t0 = performance.now();
+  const t = await open(host);
+  r.backend = t.name;
+  await check(r, "prompt_ready", async () => { await waitFor(t, (x) => /PS [A-Z]:\\.*>/.test(x)); return { ms: Math.round(performance.now() - t0) }; });
+  await check(r, "echo", async () => { t.send("Write-Output ('ZANDOR-S7' + '-OK')\r"); return { ms: (await waitFor(t, (x) => x.split("\n").some((l) => l.trim() === "ZANDOR-S7-OK"))).ms }; });
+  await check(r, "unicode_wide", async () => {
+    t.send("[Console]::OutputEncoding=[Text.Encoding]::UTF8; Write-Output ('h' + [char]0xE9 + 'llo ' + [char]0x4F60 + [char]0x597D + ' ' + [char]::ConvertFromUtf32(0x1F680) + ' ' + [char]0x2713)\r");
+    await waitFor(t, (x) => x.includes("héllo 你好 🚀 ✓"));
+    // 你 harus menempati 2 sel
+    const b = t.term.buffer.active; let width = null;
+    for (let i = 0; i < b.length; i++) { const l = b.getLine(i); if (l?.translateToString(true).includes("héllo 你好")) { const c = l.getCell(6); width = c?.getWidth(); } }
+    if (width !== 2) throw new Error("lebar sel CJK = " + width);
+    return { cjkCellWidth: width };
+  });
+  const sizes = [];
+  for (const [w, h] of [[420, 260], [900, 520], [600, 360]]) {
+    await check(r, `resize_${w}x${h}`, async () => {
+      t.term.element.parentElement.style.width = w + "px"; t.term.element.parentElement.style.height = h + "px"; t.term.element.parentElement.style.flex = "none";
+      await sleep(200); t.fit.fit(); await sleep(300);
+      const tag = "SZ" + w;
+      const cmd = `Write-Output "${tag} W=$([Console]::WindowWidth) H=$([Console]::WindowHeight)"`;
+      t.send(cmd + "\r");
+      const m = (await waitFor(t, (x) => [...x.matchAll(new RegExp(tag + " W=(\\d+) H=(\\d+)", "g"))].pop())).v;
+      const got = { cols: +m[1], rows: +m[2] }, want = { cols: t.term.cols, rows: t.term.rows };
+      const echoIntact = bufferText(t.term).includes(cmd.slice(0, 20));
+      sizes.push({ got, want });
+      if (got.cols !== want.cols || got.rows !== want.rows) throw new Error(`ukuran PTY ${JSON.stringify(got)} ≠ xterm ${JSON.stringify(want)}`);
+      return { ...want, echoIntact }; // echo rusak = tampilan saja; integritas input diuji terpisah
+    });
+  }
+  await check(r, "input_integrity_after_resize", async () => {
+    // Resize lalu langsung mengetik (tanpa jeda), 5x. Gagal bila ada input yang hilang.
+    const host = t.term.element.parentElement, lost = [];
+    for (let i = 0; i < 5; i++) {
+      host.style.width = (i % 2 ? 640 : 520) + "px"; t.fit.fit();
+      t.send(`Write-Output ('IN${i}' + '-OK')\r`);
+      try { await waitFor(t, (x) => x.split("\n").some((l) => l.trim() === `IN${i}-OK`), 5000); } catch { lost.push(i); }
+    }
+    if (lost.length) throw new Error("input hilang pada iterasi " + lost.join(","));
+    return { iterations: 5 };
+  });
+  t.term.element.parentElement.style.cssText = ""; await sleep(200); t.fit.fit();
+  await check(r, "interactive_stdin", async () => {
+    t.send("$n = Read-Host 'Nama'; Write-Output \"Halo $n\"\r");
+    await waitFor(t, (x) => /Nama: ?$/m.test(x));
+    t.send("Budi\r");
+    return { ms: (await waitFor(t, (x) => x.includes("Halo Budi"))).ms };
+  });
+  await check(r, "ctrl_c_interrupt", async () => {
+    t.send("ping -t 127.0.0.1\r");
+    await waitFor(t, (x) => countOf(x, "127.0.0.1") >= 4, 20000);
+    t.send("\x03");
+    await sleep(500);
+    t.send("Write-Output ('CTRLC' + '-OK')\r");
+    return { ms: (await waitFor(t, (x) => x.split("\n").some((l) => l.trim() === "CTRLC-OK"))).ms };
+  });
+  await check(r, "throughput_20k_lines", async () => {
+    let maxGap = 0, last = performance.now(), run = true;
+    (function tick() { const n = performance.now(); maxGap = Math.max(maxGap, n - last); last = n; if (run) requestAnimationFrame(tick); })();
+    const s = performance.now();
+    t.send("1..20000 | % { \"baris $_\" }; Write-Output ('FLOOD' + '-DONE')\r");
+    await waitFor(t, (x) => x.split("\n").some((l) => l.trim() === "FLOOD-DONE"), 120000);
+    run = false;
+    return { ms: Math.round(performance.now() - s), maxFrameGapMs: Math.round(maxGap), hasLast: bufferText(t.term).includes("baris 20000") };
+  });
+  if (t.name.startsWith("B")) {
+    await check(r, "reconnect_replay", async () => {
+      t.ws.close();
+      const host2 = document.createElement("div"); host2.style.cssText = "position:absolute;left:-9999px;width:600px;height:300px"; document.body.appendChild(host2);
+      const t2 = await openEngine(host2, t.info);
+      await waitFor(t2, (x) => x.includes("ZANDOR-S7-OK"), 20000);
+      t2.send("Write-Output ('SETELAH' + '-RECONNECT')\r");
+      await waitFor(t2, (x) => x.split("\n").some((l) => l.trim() === "SETELAH-RECONNECT"));
+      t.ws = t2.ws; t.term.dispose(); t.term = t2.term;
+      return { cursor: t2.cursor() };
+    });
+  }
+  await check(r, "close_kills_shell", async () => {
+    await t.close(); await sleep(800);
+    const alive = await invoke("process_alive", { pid: t.pid });
+    if (alive) throw new Error("shell pid " + t.pid + " masih hidup");
+    return { pid: t.pid };
+  });
+  t.term.dispose();
+  return r;
+}
+
+(async () => {
+  const st = await invoke("selftest_path");
+  if (!st) { openLocal(document.getElementById("hostA")); openEngine(document.getElementById("hostB")); return; }
+  const report = { startedAt: new Date().toISOString() };
+  report.A = await suite(openLocal, document.getElementById("hostA"));
+  report.B = await suite(openEngine, document.getElementById("hostB"));
+  report.finishedAt = new Date().toISOString();
+  await invoke("selftest_done", { report });
+})();
+</script>
+</body>
+</html>

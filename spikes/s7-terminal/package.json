@@ -1,0 +1,11 @@
+{
+  "name": "zandor-spike-s7",
+  "private": true,
+  "type": "module",
+  "scripts": { "vendor": "node tools/vendor.mjs" },
+  "dependencies": {
+    "@xterm/xterm": "6.0.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-unicode11": "0.9.0"
+  }
+}

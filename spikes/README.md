@@ -9,6 +9,7 @@ Kode sekali pakai untuk membuktikan risiko. **Bukan kode produk** — jangan dii
 | S2 pemetaan event SSE | `s2-events/` | ADR-021 | Lulus (rekaman nyata, 12/12 test) · beberapa jenis part belum terekam |
 | S4 secret keychain + injeksi | `s4-secrets/` | ADR-022 | Windows lulus (6/6) · mac/Linux ditunda |
 | S6 plugin memori | `s6-memory-plugin/` | ADR-023 | Lulus (10/10, opencode asli + mock model) |
+| S7 terminal xterm.js + PTY | `s7-terminal/` | ADR-024 | Windows lulus (A & B) · mac/Linux ditunda |
 | S3 child webview browser | `s3-webview/` | ADR-020 | Windows lulus (termasuk login Google manual) · persistensi sesi belum konsisten · mac/Linux ditunda |
 
 ## Prasyarat
@@ -24,6 +25,12 @@ ZANDOR_SELFTEST=/tmp/s1.json ./target/debug/zandor-spike-s1
 ZANDOR_SELFTEST=/tmp/s3.json ./target/debug/zandor-spike-s3
 ```
 Tanpa `ZANDOR_SELFTEST`, app terbuka untuk uji manual.
+
+S7 (butuh Bun untuk aset xterm.js):
+```
+cd s7-terminal && bun install && node tools/vendor.mjs && cd ..
+cargo build -p zandor-spike-s7 && ZANDOR_SELFTEST=/tmp/s7.json ./target/debug/zandor-spike-s7
+```
 
 S6 (butuh Bun + `cargo build -p zandor-spike-s1` lebih dulu):
 ```
