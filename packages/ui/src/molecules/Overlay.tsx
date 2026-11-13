@@ -4,6 +4,7 @@ import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useI18n } from "@zandor/i18n/react";
 import { createContext, type ReactElement, type ReactNode, useCallback, useContext, useRef, useState } from "react";
 import { Button } from "../atoms/Button";
+import { OFFSET_NORMAL } from "../layout";
 
 export type PopoverProps = { trigger: ReactElement; title?: string; children: ReactNode };
 
@@ -12,7 +13,7 @@ export function Popover({ trigger, title, children }: PopoverProps) {
     <BasePopover.Root>
       <BasePopover.Trigger render={trigger} />
       <BasePopover.Portal>
-        <BasePopover.Positioner sideOffset={6} className="z-popup-positioner">
+        <BasePopover.Positioner sideOffset={OFFSET_NORMAL} className="z-popup-positioner">
           <BasePopover.Popup className="z-popup z-popover" data-shortcut-scope="popover">
             {title && <BasePopover.Title className="z-h4 z-popover__title">{title}</BasePopover.Title>}
             {children}

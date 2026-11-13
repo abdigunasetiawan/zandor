@@ -5,6 +5,7 @@ export const en: Messages = {
   "app.version": "Version {version}",
   "shell.emptyTitle": "Application shell",
   "shell.emptyBody": "No features yet. Panels will appear as development phases land.",
+  "shell.designSystem": "Design system",
   "settings.language": "Language",
   "language.id": "Indonesia",
   "language.en": "English",

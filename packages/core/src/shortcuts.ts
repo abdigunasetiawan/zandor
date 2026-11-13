@@ -131,6 +131,21 @@ export type DispatchContext = { scopes: string[]; inInput: boolean };
 
 export class ShortcutRegistry {
   private bindings = new Map<string, { binding: ShortcutBinding; combo: Combo }>();
+  private listeners = new Set<() => void>();
+  private snapshot: ShortcutBinding[] = [];
+
+  private changed() {
+    this.snapshot = [...this.bindings.values()].map((b) => b.binding);
+    for (const l of this.listeners) l();
+  }
+
+  /** Berlangganan perubahan daftar binding (untuk useSyncExternalStore). Mengembalikan fungsi berhenti. */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
 
   /** Daftarkan binding. Melempar bila id ganda atau combo yang sama sudah dipakai di scope yang sama. */
   register(binding: ShortcutBinding): () => void {
@@ -143,13 +158,15 @@ export class ShortcutRegistry {
       throw new Error(`bentrok: ${formatCombo(combo)} di scope "${binding.scope}" sudah dipakai ${clash.binding.id}`);
     }
     this.bindings.set(binding.id, { binding, combo });
+    this.changed();
     return () => {
-      this.bindings.delete(binding.id);
+      if (this.bindings.delete(binding.id)) this.changed();
     };
   }
 
+  /** Daftar binding. Identitas array stabil selama daftar tidak berubah (aman untuk useSyncExternalStore). */
   list(): ShortcutBinding[] {
-    return [...this.bindings.values()].map((b) => b.binding);
+    return this.snapshot;
   }
 
   /** Binding yang berlaku untuk combo, atau null. Tidak menjalankan apa pun. */

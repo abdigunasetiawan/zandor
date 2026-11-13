@@ -7,7 +7,8 @@ export { Badge, Skeleton, Spinner } from "./atoms/Feedback";
 export { Checkbox, Input, Select, Slider, Switch, Textarea } from "./atoms/Fields";
 export { Kbd } from "./atoms/Kbd";
 export { Tooltip } from "./atoms/Tooltip";
-export { CATALOG } from "./catalog";
+export type { AtomName, MoleculeName } from "./catalog";
+export { ATOMS, CATALOG, INFRASTRUCTURE, MOLECULES } from "./catalog";
 export { ErrorBoundary } from "./ErrorBoundary";
 export * from "./icons";
 export { Field } from "./molecules/Field";
@@ -22,6 +23,7 @@ export {
   ShortcutScope,
   scopesFromElement,
   useShortcut,
+  useShortcutList,
   useShortcutRegistry,
 } from "./shortcuts/react";
 export type { Theme, UiScale } from "./theme";

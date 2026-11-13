@@ -143,4 +143,23 @@ describe("ShortcutRegistry", () => {
     r.dispatch(ev("e", { ctrlKey: true }), { scopes: ["panel.chat"], inInput: false });
     expect(calls).toEqual(["global"]);
   });
+
+  test("subscribe: dipanggil saat daftar berubah; snapshot stabil bila tidak berubah", () => {
+    const r = new ShortcutRegistry();
+    const listener = vi.fn();
+    const off = r.subscribe(listener);
+    const empty = r.list();
+    expect(r.list()).toBe(empty);
+    const dispose = r.register(binding({ id: "a", combo: "Ctrl+B" }));
+    expect(listener).toHaveBeenCalledTimes(1);
+    const one = r.list();
+    expect(one).not.toBe(empty);
+    expect(r.list()).toBe(one);
+    dispose();
+    dispose(); // idempoten: tidak memicu lagi
+    expect(listener).toHaveBeenCalledTimes(2);
+    off();
+    r.register(binding({ id: "b", combo: "Ctrl+Q" }));
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
 });

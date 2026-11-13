@@ -1,7 +1,7 @@
 // Pengait React untuk ShortcutRegistry (logika murni di @zandor/core).
 // Scope ditentukan dari leluhur elemen yang sedang fokus: atribut `data-shortcut-scope`.
 import { GLOBAL_SCOPE, type ShortcutBinding, ShortcutRegistry } from "@zandor/core";
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 const RegistryContext = createContext<ShortcutRegistry | null>(null);
 
@@ -42,6 +42,16 @@ export function useShortcutRegistry(): ShortcutRegistry {
   const reg = useContext(RegistryContext);
   if (!reg) throw new Error("harus dipakai di dalam <ShortcutProvider>");
   return reg;
+}
+
+/** Daftar binding yang selalu mutakhir (render ulang saat ada yang didaftarkan/dilepas). */
+export function useShortcutList(): ShortcutBinding[] {
+  const reg = useShortcutRegistry();
+  return useSyncExternalStore(
+    (cb) => reg.subscribe(cb),
+    () => reg.list(),
+    () => reg.list(),
+  );
 }
 
 /** Daftarkan binding selama komponen terpasang. `run` selalu memakai versi terbaru (tanpa daftar ulang). */

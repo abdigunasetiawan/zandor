@@ -4,6 +4,8 @@
 
 ## 2026-11-13
 
+- WIP Fase 2: token, atoms, molecules, mesin shortcut (belum diuji penuh) (`3e273b2`)
+- Fase 1 lulus: CI hijau; perbaiki peringatan CI (`a14ab91`)
 - Fase 1: fondasi monorepo, docs, dan CI Windows (`4e376f3`)
 - Fase 0 lulus (Windows): ADR-027, roadmap & PRD diperbarui (`59a3327`)
 - Fase 0: spike S5 renderer Panel 3 + ADR-026 (`f50ed7b`)

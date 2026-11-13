@@ -50,7 +50,7 @@ export function applyScale(scale: UiScale, root: HTMLElement = document.document
 
 /** Skala berikutnya/sebelumnya dalam daftar; berhenti di ujung. */
 export function stepScale(current: number, direction: 1 | -1): UiScale {
-  const i = UI_SCALES.findIndex((s) => s === current);
+  const i = (UI_SCALES as readonly number[]).indexOf(current);
   const from = i === -1 ? UI_SCALES.indexOf(1) : i;
   return UI_SCALES[Math.min(UI_SCALES.length - 1, Math.max(0, from + direction))] as UiScale;
 }

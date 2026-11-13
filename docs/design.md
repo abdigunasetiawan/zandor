@@ -1,6 +1,7 @@
 # Preferensi Visual — Zandor
 
-> Ringkasan arah visual. Token lengkap dan halaman design system dibuat di Fase 2.
+> Ringkasan arah visual. Token lengkap: `packages/ui/src/styles/tokens.css`; halaman hidup: `#/design-system`
+> (lihat `docs/features/design-system.md`, ADR-029).
 
 - **Tema default monokrom** tanpa warna primary. Dark: `#121212` (latar), `#141414` (permukaan),
   `#1f1f1f` (permukaan menonjol). Light: padanan monokrom.

@@ -6,6 +6,7 @@
       "name": "zandor",
       "devDependencies": {
         "@biomejs/biome": "2.6.7",
+        "@testing-library/jest-dom": "7.0.1",
         "@types/node": "26.6.6",
         "typescript": "7.0.2",
         "vitest": "5.1.0",

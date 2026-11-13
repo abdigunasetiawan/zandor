@@ -3,6 +3,7 @@ import { useI18n } from "@zandor/i18n/react";
 import { Input } from "../atoms/Fields";
 import { cx } from "../cx";
 import { ChevronDownIcon, CloseIcon, SearchIcon } from "../icons";
+import { OFFSET_TIGHT } from "../layout";
 
 export type ComboboxItem = { value: string; label: string };
 
@@ -34,7 +35,7 @@ export function Combobox({ items, value, onValueChange, placeholder, className, 
         </BaseCombobox.Trigger>
       </BaseCombobox.InputGroup>
       <BaseCombobox.Portal>
-        <BaseCombobox.Positioner sideOffset={4} className="z-popup-positioner">
+        <BaseCombobox.Positioner sideOffset={OFFSET_TIGHT} className="z-popup-positioner">
           <BaseCombobox.Popup className="z-popup z-combobox__popup">
             <BaseCombobox.Empty className="z-combobox__empty">{t("ui.noResults")}</BaseCombobox.Empty>
             <BaseCombobox.List>
@@ -64,7 +65,7 @@ export type SearchFieldProps = {
 export function SearchField({ value, onValueChange, placeholder, className, ...aria }: SearchFieldProps) {
   const { t } = useI18n();
   return (
-    <div className={cx("z-search", className)} role="search">
+    <search className={cx("z-search", className)}>
       <SearchIcon size="sm" className="z-search__icon" />
       <Input
         type="search"
@@ -86,6 +87,6 @@ export function SearchField({ value, onValueChange, placeholder, className, ...a
           <CloseIcon size="sm" />
         </button>
       )}
-    </div>
+    </search>
   );
 }

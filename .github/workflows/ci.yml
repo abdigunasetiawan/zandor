@@ -43,6 +43,9 @@ jobs:
       - name: Audit lisensi JS
         run: bun run licenses
 
+      - name: Token desain (anti hardcode)
+        run: bun run design-tokens
+
       - name: Build UI
         working-directory: apps/desktop
         run: bun run build

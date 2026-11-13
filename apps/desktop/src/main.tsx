@@ -1,9 +1,12 @@
 import { consoleSink, createLogger } from "@zandor/core";
 import { detectLocale } from "@zandor/i18n";
+import { initPreferences } from "@zandor/ui";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./styles.css";
+
+initPreferences();
 
 const logger = createLogger("app", { level: import.meta.env.DEV ? "debug" : "info", sinks: [consoleSink] });
 

@@ -6,7 +6,7 @@
 
 - **Fase 0 — Spike Risiko:** lulus untuk Windows (ADR-019–027).
 - **Fase 1 — Fondasi Repo, Docs, dan CI:** lulus 13-11-2026 (CI GitHub Actions run 43412491664, 14m50s).
-- **Fase aktif: Fase 2 — Design System.**
+- **Fase aktif: Fase 2 — Design System** (kode selesai, menunggu CI).
 
 ## Checklist Fase 1
 
@@ -27,13 +27,12 @@
 - Lisensi Zandor sendiri belum ditentukan (paket ditandai `UNLICENSED`/private).
 - Ikon aplikasi masih placeholder dari spike.
 
-## Fase 2 — status kerja (BELUM SELESAI, belum di-push)
+## Fase 2 — Design System: selesai (menunggu CI hijau di GitHub)
 
-Sudah ditulis (lolos typecheck, **belum ada test komponen dan belum dijalankan di browser**):
-
-- Token CSS (`packages/ui/src/styles/tokens.css`), tema dark/light/system, `--ui-scale`, tipografi per variabel.
-- Pustaka dasar: Base UI 1.9.0 (MIT) + fontsource Plus Jakarta Sans & JetBrains Mono (OFL).
-- Atoms (14), molecules (10 termasuk Field), mesin shortcut di `@zandor/core` (27 test lulus), pengait React shortcut.
-  Sisa Fase 2: test komponen (Testing Library), halaman design system (`#/design-system`) + e2e,
-  skrip `check-design-tokens` (tolak warna/ukuran hard-coded, `alert/confirm/prompt`), test kontras WCAG token,
-  test katalog==demo, CSP `font-src`, dokumen fitur, lalu `bun run check` + push + CI.
+- [x] Token (warna dark/light/sistem, tipografi per variabel, ruang, radius, bayangan, `--ui-scale`) + font OFL dibundel
+- [x] 14 atoms + 10 molecules di atas Base UI (ADR-029)
+- [x] Sistem shortcut global + scoped (`@zandor/core`) + pengait React
+- [x] Halaman design system `#/design-system` (Tokens → Atoms → Molecules → Organisms → Panels → Menus → Modals → Pages)
+- [x] Test: komponen, shortcut, kontras WCAG token, katalog=demo=ekspor, aturan anti-hardcode, e2e Edge (15)
+- [x] `bun run design-tokens` masuk `bun run check`
+- [ ] CI GitHub hijau untuk commit Fase 2 (kriteria keluar)

@@ -6,6 +6,7 @@ import { Switch as BaseSwitch } from "@base-ui/react/switch";
 import { type ComponentPropsWithRef, type ReactNode, useId } from "react";
 import { cx } from "../cx";
 import { CheckIcon, ChevronDownIcon } from "../icons";
+import { OFFSET_TIGHT } from "../layout";
 import type { ControlSize } from "./Button";
 
 export type InputProps = Omit<ComponentPropsWithRef<"input">, "size"> & { invalid?: boolean; size?: ControlSize };
@@ -74,7 +75,7 @@ export function Select({
         </BaseSelect.Icon>
       </BaseSelect.Trigger>
       <BaseSelect.Portal>
-        <BaseSelect.Positioner sideOffset={4} className="z-popup-positioner">
+        <BaseSelect.Positioner sideOffset={OFFSET_TIGHT} className="z-popup-positioner">
           <BaseSelect.Popup className="z-popup z-select__popup">
             <BaseSelect.List className="z-select__list">
               {items.map((item) => (
@@ -103,7 +104,7 @@ export function Switch({ label, checked, onCheckedChange, disabled, className, .
     <span className={cx("z-choice", className)}>
       <BaseSwitch.Root
         checked={checked}
-        onCheckedChange={onCheckedChange}
+        onCheckedChange={(c) => onCheckedChange(c)}
         disabled={disabled}
         className="z-switch"
         aria-labelledby={aria["aria-label"] ? undefined : labelId}
@@ -139,7 +140,7 @@ export function Checkbox({
       <BaseCheckbox.Root
         checked={checked}
         indeterminate={indeterminate}
-        onCheckedChange={onCheckedChange}
+        onCheckedChange={(c) => onCheckedChange(c)}
         disabled={disabled}
         className="z-checkbox"
         aria-labelledby={aria["aria-label"] ? undefined : labelId}

@@ -500,7 +500,7 @@
 }
 .z-slider__thumb:has(:focus-visible) {
   outline: var(--z-focus-width) solid var(--z-color-focus);
-  outline-offset: 2px;
+  outline-offset: var(--z-focus-offset);
 }
 .z-slider[data-disabled] {
   opacity: 0.5;

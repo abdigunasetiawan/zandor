@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 30_000,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
-  use: { baseURL: "http://127.0.0.1:4173", channel: "msedge", trace: "retain-on-failure" },
+  use: { baseURL: "http://127.0.0.1:4173", channel: "msedge", locale: "id-ID", trace: "retain-on-failure" },
   webServer: {
     command: "bun run build && bun run preview",
     url: "http://127.0.0.1:4173",

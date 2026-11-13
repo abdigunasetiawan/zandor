@@ -5,6 +5,7 @@ export const id = {
   "app.version": "Versi {version}",
   "shell.emptyTitle": "Kerangka aplikasi",
   "shell.emptyBody": "Fitur belum tersedia. Panel akan muncul seiring fase pengembangan.",
+  "shell.designSystem": "Design system",
   "settings.language": "Bahasa",
   "language.id": "Indonesia",
   "language.en": "English",

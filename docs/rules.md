@@ -11,6 +11,7 @@
 | e2e                         | Playwright + Microsoft Edge (`channel: msedge`)                         | `bun run e2e`                                                |
 | Rust                        | toolchain di-pin (`rust-toolchain.toml`), rustfmt, Clippy `-D warnings` | `cargo fmt`, `cargo clippy`, `cargo test`                    |
 | Lisensi                     | `scripts/license-audit.ts`, `cargo-deny`                                | `bun run licenses`, `cargo deny check licenses bans sources` |
+| Token desain                | `scripts/check-design-tokens.ts`                                        | `bun run design-tokens`                                      |
 
 ## TypeScript & React
 

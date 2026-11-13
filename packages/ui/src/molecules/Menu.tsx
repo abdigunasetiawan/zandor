@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { Kbd } from "../atoms/Kbd";
 import { cx } from "../cx";
 import { CheckIcon } from "../icons";
+import { OFFSET_TIGHT } from "../layout";
 
 export type MenuEntry =
   | {
@@ -78,7 +79,7 @@ export function Menu({ trigger, entries }: MenuProps) {
     <BaseMenu.Root>
       <BaseMenu.Trigger render={trigger} />
       <BaseMenu.Portal>
-        <BaseMenu.Positioner sideOffset={4} align="start" className="z-popup-positioner">
+        <BaseMenu.Positioner sideOffset={OFFSET_TIGHT} align="start" className="z-popup-positioner">
           <BaseMenu.Popup className="z-popup" data-shortcut-scope="menu">
             <Entries parts={BaseMenu} entries={entries} />
           </BaseMenu.Popup>
