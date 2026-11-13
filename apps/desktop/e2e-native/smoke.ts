@@ -61,6 +61,10 @@ let app: ChildProcess | undefined;
 const registryFile = join(process.env.APPDATA ?? "", "id.web.zandor.app", "projects.json");
 const docDir = mkdtempSync(join(tmpdir(), "zandor-smoke-docs-"));
 const docProject = basename(docDir);
+const extraDirs = [
+  mkdtempSync(join(tmpdir(), "zandor-smoke-docs-b-")),
+  mkdtempSync(join(tmpdir(), "zandor-smoke-docs-c-")),
+];
 let originalRegistry: string | null = null;
 try {
   originalRegistry = readFileSync(registryFile, "utf8");
@@ -107,6 +111,13 @@ writeFileSync(join(docDir, "baru.txt"), "berkas baru\n");
   reg.projects = [
     ...(reg.projects ?? []),
     { id: "smoke-docs", path: docDir, name: docProject, color: null, addedAt: Date.now() },
+    ...extraDirs.map((d, i) => ({
+      id: `smoke-docs-${i}`,
+      path: d,
+      name: basename(d),
+      color: null,
+      addedAt: Date.now(),
+    })),
   ];
   mkdirSync(join(process.env.APPDATA ?? "", "id.web.zandor.app"), { recursive: true });
   writeFileSync(registryFile, JSON.stringify(reg));
@@ -357,6 +368,41 @@ try {
   }
   await toolsPanel.getByRole("tab", { name: "Terminal", exact: true }).click();
 
+  // 1b1c) PRD §13 butir 4: minimal 3 project dan 10 sesi tanpa crash (engine nyata).
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(e.message));
+  await page.getByRole("tab", { name: "Sesi", exact: true }).click();
+  const groups: Array<[string, number]> = [
+    [docProject, 4],
+    [basename(extraDirs[0] as string), 3],
+    [basename(extraDirs[1] as string), 3],
+  ];
+  for (const [name, count] of groups) {
+    for (let i = 0; i < count; i++) {
+      await page.getByRole("button", { name: `Sesi baru di ${name}` }).click();
+      await page.getByRole("log").waitFor({ timeout: 15000 });
+    }
+  }
+  const sessionRows = page.locator(".tree__children .tree__session");
+  await waitFor(
+    "10 sesi terdaftar",
+    () => sessionRows.count(),
+    (n) => n >= 10,
+    20000,
+  );
+  for (let round = 0; round < 2; round++) {
+    const n = await sessionRows.count();
+    for (let i = 0; i < n; i++) {
+      await sessionRows.nth(i).click();
+      await page.getByRole("log").waitFor({ timeout: 10000 });
+    }
+  }
+  check(
+    "3 project dan ≥10 sesi (engine nyata): dibuat dan dilewati dua putaran tanpa galat halaman",
+    pageErrors.length === 0,
+    `${await sessionRows.count()} sesi; ${pageErrors.slice(0, 2).join(" | ")}`,
+  );
+
   let providerHealthy = false;
   // 1b2) Provider (Fase 6): kunci di keychain, ping nyata lewat Rust. Hanya bila mesin ini punya koneksi terkonfigurasi.
   await page.evaluate(() => {
@@ -395,6 +441,8 @@ try {
       if (!providerHealthy) await new Promise((r) => setTimeout(r, 5000));
     }
     check("ping model nyata lewat Rust (kunci dari keychain) berakhir dengan status jujur", true, text.slice(0, 90));
+    // Upstream pengembang tidak stabil: ZANDOR_SMOKE_FORCE_CHAT=1 menjalankan fase chat nyata walau ping gagal.
+    if (process.env.ZANDOR_SMOKE_FORCE_CHAT === "1") providerHealthy = true;
     // berkas provider tidak boleh memuat kunci (migrasi v1 → v2)
     const file = join(process.env.APPDATA ?? "", "id.web.zandor.app", "providers.json");
     try {
@@ -454,6 +502,45 @@ try {
     await page.locator(".fold--tool[data-status='completed']").first().waitFor({ timeout: 180000 });
     check("setelah Izinkan sekali, tool call selesai dijalankan engine", true);
     await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
+
+    // PRD §13 butir 3: terminal (shell) dan web juga lewat persetujuan izin, dengan engine + model nyata.
+    await box.fill("Jalankan perintah shell ini dengan tool bash: echo zandor-bash-ok. Jawab singkat.");
+    await box.press("Enter");
+    const bashCard = page.getByRole("alertdialog", { name: /Izin diperlukan: bash/ });
+    await bashCard.waitFor({ timeout: 180000 });
+    check("tool shell (bash) meminta izin", true);
+    await bashCard.getByRole("button", { name: "Izinkan sekali" }).click();
+    await page
+      .locator(".fold--tool[data-status='completed']")
+      .filter({ hasText: "bash" })
+      .first()
+      .waitFor({ timeout: 180000 });
+    check("tool shell (bash) dijalankan setelah izin", true);
+    await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
+
+    const webServer = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("ISI-HALAMAN-WEB-ZANDOR");
+    });
+    await new Promise<void>((r) => webServer.listen(0, "127.0.0.1", () => r()));
+    const webPort = (webServer.address() as AddressInfo).port;
+    try {
+      await box.fill(`Ambil isi http://127.0.0.1:${webPort}/ dengan tool webfetch lalu kutip isinya.`);
+      await box.press("Enter");
+      const webCard = page.getByRole("alertdialog", { name: /Izin diperlukan: webfetch/ });
+      await webCard.waitFor({ timeout: 180000 });
+      check("tool web (webfetch) meminta izin", true);
+      await webCard.getByRole("button", { name: "Izinkan sekali" }).click();
+      await page
+        .locator(".fold--tool[data-status='completed']")
+        .filter({ hasText: /Pencarian web/ })
+        .first()
+        .waitFor({ timeout: 180000 });
+      check("tool web (webfetch) dijalankan setelah izin", true);
+      await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 60000 });
+    } finally {
+      webServer.close();
+    }
   }
 
   // 2) Jendela asli tanpa title bar sistem (frameless) — bit WS_CAPTION bisa tetap menyala pada jendela
@@ -520,6 +607,7 @@ try {
   const second = await launch();
   const rows = second.page.locator(".tree__children .tree__session");
   await rows.first().waitFor({ timeout: 40000 });
+  await new Promise((r) => setTimeout(r, 4000)); // daftar sesi tiap project dimuat bertahap
   check("restart aplikasi → sesi tetap ada (persisten di engine)", true, `${await rows.count()} sesi`);
   while ((await rows.count()) > 0) {
     await second.page.locator(".tree__children .tree__row button[aria-haspopup='menu']").first().click({ force: true });
@@ -533,6 +621,12 @@ try {
     );
     await new Promise((r) => setTimeout(r, 400));
   }
+  await new Promise((r) => setTimeout(r, 2500));
+  check(
+    "tidak ada sesi tersisa setelah pembersihan akhir",
+    (await rows.count()) === 0,
+    `${await rows.count()} tersisa`,
+  );
   check("sesi uji dihapus (tidak meninggalkan sampah)", true);
   // berkas yang ditulis agent saat uji izin (best effort)
   const junk = join(process.env.APPDATA ?? "", "id.web.zandor.app", "chats", "zandor-smoke.txt");
@@ -558,6 +652,7 @@ try {
     if (originalRegistry === null) rmSync(registryFile, { force: true });
     else writeFileSync(registryFile, originalRegistry);
     rmSync(docDir, { recursive: true, force: true });
+    for (const d of extraDirs) rmSync(d, { recursive: true, force: true });
   } catch {
     // best effort
   }

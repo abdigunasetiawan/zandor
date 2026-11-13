@@ -3,7 +3,6 @@
 import { desiredCollapsed, formatCombo, type PanelSpec, remToPx } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
-  Badge,
   ErrorBoundary,
   GitIcon,
   GlobeIcon,
@@ -54,7 +53,6 @@ function PanelEmpty({ title, body }: { title: string; body: string }) {
   const { t } = useI18n();
   return (
     <div className="shell-empty">
-      <Badge tone="outline">{t("empty.soon")}</Badge>
       <h2 className="z-h4">{title}</h2>
       <p className="z-p shell-empty__body">{body}</p>
     </div>

@@ -12,7 +12,8 @@
 - **Fase 5 — Chat Inti:** lulus (CI hijau), pelengkap selesai.
 - **Fase 6 — Provider & Model:** selesai dengan batasan (CI hijau).
 - **Fase 7 — Panel 3 Viewer Dokumen:** selesai (CI hijau).
-- **Fase aktif: Fase 8 — Panel 4 Tools** (selesai di lokal; belum di-push).
+- **Fase 8 — Panel 4 Tools:** selesai (CI hijau).
+- **Status MVP:** audit PRD §13 selesai — kelima kriteria terpenuhi (`docs/features/mvp.md`); menunggu keputusan rilis `0.1.0`.
 
 ## Checklist Fase 1
 
@@ -105,5 +106,5 @@
 - [x] Info sesi (token, konteks, biaya bila dilaporkan, tool call) dan Log aktivitas (ring buffer, filter)
 - [x] Tes: 466 unit, 95 e2e, 45 Rust, smoke native 30/30 (terminal & git nyata, browser, isolasi IPC)
 - [ ] Belum: airspace diuji otomatis, tab browser, Git lanjutan (push/pull/stash/discard), Git Bash di terminal
-- [ ] **MVP belum dinyatakan selesai**: periksa PRD §13 butir demi butir sebelum versi 0.1.0
+- [x] Audit PRD §13: 5/5 terpenuhi; smoke native 40/40 dengan model nyata (chat, tulis file, bash, webfetch + izin; 3 project/10 sesi)
 - Temuan: perintah Tauri yang membuat webview wajib `async` (jika tidak, child webview macet di about:blank).

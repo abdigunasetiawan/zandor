@@ -22,7 +22,7 @@ test("beranda: lima panel + rel, empty state jujur, tanpa galat konsol", async (
     await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
   }
   await expect(page.getByRole("navigation", { name: "Rel alat" })).toBeVisible();
-  await expect(page.getByText("Segera hadir")).toHaveCount(2); // chat dan dokumen; panel Tools sudah berisi fitur nyata (terminal)
+  await expect(page.getByText("Segera hadir")).toHaveCount(0); // semua panel berfitur nyata
   await expect(page.getByRole("button", { name: "Tambah project (pilih folder)" })).toBeVisible();
   expect(errors).toEqual([]);
 });
