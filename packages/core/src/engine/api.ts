@@ -73,6 +73,8 @@ export interface EngineApi {
   renameSession(directory: string, sessionId: string, title: string): Promise<SessionInfo>;
   deleteSession(directory: string, sessionId: string): Promise<void>;
   listFiles(directory: string, path: string): Promise<FileNode[]>;
+  /** Isi berkas lewat engine (cadangan di luar Tauri; teks bisa terpotong spasi akhir oleh engine). */
+  readFile(directory: string, path: string): Promise<Uint8Array>;
   listModels(): Promise<ModelOption[]>;
   listMessages(directory: string, sessionId: string): Promise<ChatMessage[]>;
   listPermissions(directory: string): Promise<PermissionRequest[]>;
@@ -153,6 +155,17 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
     },
     async deleteSession(directory, sessionId) {
       await client.session.delete({ sessionID: sessionId, directory });
+    },
+    async readFile(directory, path) {
+      const r = await client.file.read({ directory, path });
+      const d = body(r, "file.read") as { type: string; content: string; encoding?: string };
+      if (d.encoding === "base64") {
+        const bin = atob(d.content);
+        const out = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+        return out;
+      }
+      return new TextEncoder().encode(d.content);
     },
     async listModels() {
       const r = await client.config.providers();

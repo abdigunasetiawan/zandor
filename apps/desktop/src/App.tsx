@@ -32,7 +32,7 @@ export function hashToPath(hash: string): string {
 
 /** Terapkan pengaturan ke DOM (tema, skala, bahasa) dan sinkronkan riwayat navigasi dengan hash URL. */
 function Effects() {
-  const { nav, host, connection, projects, chat, providers, logger } = useServices();
+  const { nav, host, connection, projects, chat, providers, docs, logger } = useServices();
   const settings = useSettings();
   const { current } = useNavState();
 
@@ -59,6 +59,8 @@ function Effects() {
       projects.setApi(api);
       chat.setApi(api);
       providers.setApi(api);
+      // tab dokumen dipulihkan setelah engine siap; di Tauri membaca lewat Rust sehingga tidak butuh engine
+      if (api || host.native) docs.restore();
     };
     void (async () => {
       try {
@@ -78,7 +80,7 @@ function Effects() {
       alive = false;
       stop?.();
     };
-  }, [host, connection, projects, chat, providers, logger]);
+  }, [host, connection, projects, chat, providers, docs, logger]);
 
   useEffect(() => {
     const onHash = () => nav.push(hashToPath(window.location.hash));

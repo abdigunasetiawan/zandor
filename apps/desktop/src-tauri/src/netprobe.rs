@@ -356,6 +356,33 @@ mod tests {
     }
 
     #[test]
+    fn hanging_server_ends_with_a_timeout_error_not_a_hang() {
+        // Server yang menerima koneksi tetapi tidak pernah membalas (mirip proxy yang macet).
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let held: Vec<_> = listener.incoming().take(2).filter_map(Result::ok).collect();
+            std::thread::sleep(Duration::from_secs(10));
+            drop(held);
+        });
+        let url = format!("http://{addr}/v1");
+        let t0 = Instant::now();
+        let r = ping_model(&url, None, "m", Duration::from_millis(700));
+        assert!(!r.ok);
+        assert_eq!(r.kind, "network");
+        assert!(
+            r.error.unwrap().contains("timeout"),
+            "pesan harus menyebut timeout"
+        );
+        assert!(
+            t0.elapsed() < Duration::from_secs(4),
+            "harus berakhir mendekati batas waktu"
+        );
+        let p = probe(&url, None, Duration::from_millis(700));
+        assert_eq!(p.kind, "network");
+    }
+
+    #[test]
     fn parse_models_accepts_plain_arrays_and_garbage() {
         assert_eq!(parse_models(r#"["x","y"]"#), vec!["x", "y"]);
         assert!(parse_models("bukan json").is_empty());

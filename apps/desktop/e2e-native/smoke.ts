@@ -4,9 +4,11 @@
 // Pemakaian (Windows): bun e2e-native/smoke.ts <path zandor-desktop.exe>
 // Build dengan UI tertanam: `bun run tauri build --debug --no-bundle` (cargo build biasa memuat devUrl).
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { chromium } from "@playwright/test";
+import { makePdf, makePng, SAMPLE_MD } from "../e2e/fixtures";
 
 const exe = process.argv[2];
 if (!exe) {
@@ -52,6 +54,41 @@ const check = (name: string, pass: boolean, detail = "") => {
 };
 
 let app: ChildProcess | undefined;
+
+// Project uji untuk Panel 3: folder sementara didaftarkan ke registry aplikasi, lalu registry asli dipulihkan di akhir.
+const registryFile = join(process.env.APPDATA ?? "", "id.web.zandor.app", "projects.json");
+const docDir = mkdtempSync(join(tmpdir(), "zandor-smoke-docs-"));
+const docProject = basename(docDir);
+let originalRegistry: string | null = null;
+try {
+  originalRegistry = readFileSync(registryFile, "utf8");
+} catch {
+  originalRegistry = null;
+}
+writeFileSync(join(docDir, "README.md"), SAMPLE_MD);
+writeFileSync(join(docDir, "kode.ts"), "export const nilai: number = 42;\n");
+writeFileSync(join(docDir, "data.csv"), "id,nama\n1,satu\n2,dua\n");
+writeFileSync(join(docDir, "laporan.pdf"), makePdf(["HALO PDF", "HALAMAN DUA"]));
+writeFileSync(join(docDir, "gambar.png"), makePng(8, 8));
+mkdirSync(join(docDir, "sub"));
+{
+  let reg: { projects?: unknown[]; [k: string]: unknown } = {
+    version: 1,
+    projects: [],
+    selection: { key: null, sessionId: null },
+  };
+  try {
+    if (originalRegistry) reg = JSON.parse(originalRegistry);
+  } catch {
+    // registry rusak: pakai yang kosong; yang asli dipulihkan persis di akhir
+  }
+  reg.projects = [
+    ...(reg.projects ?? []),
+    { id: "smoke-docs", path: docDir, name: docProject, color: null, addedAt: Date.now() },
+  ];
+  mkdirSync(join(process.env.APPDATA ?? "", "id.web.zandor.app"), { recursive: true });
+  writeFileSync(registryFile, JSON.stringify(reg));
+}
 
 /** Jalankan aplikasi, sambungkan Playwright ke WebView2, kembalikan halaman utamanya. */
 async function launch() {
@@ -111,6 +148,68 @@ try {
     40000,
   );
   check("engine opencode siap (supervisor + plugin guard)", true, (await status.textContent())?.trim());
+  // 1b1) Panel 3 (Fase 7): berkas project dibaca lewat Rust (fs_read), dirender, dan akses di luar project ditolak.
+  await page.getByRole("button", { name: docProject, exact: true }).first().click();
+  await page.getByRole("tab", { name: "Files" }).click();
+  const docsPanel = page.getByRole("region", { name: "Dokumen", exact: true });
+  await page.locator('.tree__file[title="README.md"]').click();
+  await docsPanel.getByRole("heading", { name: "Judul Dokumen" }).waitFor({ timeout: 30000 });
+  check("Panel 3: Markdown dari disk dirender (fs_read lewat Rust)", true);
+  await page.locator('.tree__file[title="kode.ts"]').click();
+  await docsPanel
+    .getByTestId("monaco")
+    .locator(".view-lines")
+    .getByText("export const nilai")
+    .waitFor({ timeout: 30000 });
+  check("Panel 3: kode tampil di Monaco (worker lokal, CSP)", true);
+  await page.locator('.tree__file[title="data.csv"]').click();
+  await docsPanel.getByTestId("table").getByText("satu").waitFor({ timeout: 15000 });
+  check("Panel 3: CSV menjadi tabel", true);
+  await page.locator('.tree__file[title="gambar.png"]').click();
+  await docsPanel.getByTestId("image").waitFor({ timeout: 15000 });
+  const imgOk = await docsPanel.getByTestId("image").evaluate((el) => (el as HTMLImageElement).naturalWidth === 8);
+  check("Panel 3: gambar PNG dari disk (blob) tampil", imgOk);
+  await page.locator('.tree__file[title="laporan.pdf"]').click();
+  await docsPanel.getByTestId("pdf-pages").getByText("Halaman 1 dari 2").waitFor({ timeout: 30000 });
+  const canvasOk = await docsPanel
+    .locator(".pdfpage canvas")
+    .first()
+    .evaluate((el) => {
+      const c = el as HTMLCanvasElement;
+      const d = c.getContext("2d")?.getImageData(0, 0, c.width, c.height).data;
+      if (!d) return false;
+      let dark = 0;
+      for (let i = 0; i < d.length; i += 4) if ((d[i] ?? 255) < 128 && (d[i + 3] ?? 0) > 0) dark++;
+      return dark > 20;
+    });
+  check("Panel 3: PDF dirender ke canvas (pdf.js worker, CSP)", canvasOk);
+  const denied = await page.evaluate(async (root) => {
+    const inv = (window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a: unknown) => Promise<unknown> } })
+      .__TAURI_INTERNALS__.invoke;
+    const attempt = async (args: Record<string, unknown>) => {
+      try {
+        await inv("fs_read", args);
+        return "DIBACA";
+      } catch (e) {
+        return String(e);
+      }
+    };
+    return {
+      traversal: await attempt({ root, path: "../../../Windows/win.ini" }),
+      absolute: await attempt({ root, path: "C:\\Windows\\win.ini" }),
+      unregistered: await attempt({ root: "C:\\Windows", path: "win.ini" }),
+    };
+  }, docDir);
+  check(
+    "keamanan fs_read: '..', path absolut, dan folder tak terdaftar ditolak",
+    Object.values(denied).every((v) => v !== "DIBACA"),
+    JSON.stringify(denied).slice(0, 160),
+  );
+  await page.getByRole("tab", { name: "Sesi", exact: true }).click();
+  await page.evaluate(() => {
+    window.location.hash = "";
+  });
+
   let providerHealthy = false;
   // 1b2) Provider (Fase 6): kunci di keychain, ping nyata lewat Rust. Hanya bila mesin ini punya koneksi terkonfigurasi.
   await page.evaluate(() => {
@@ -143,7 +242,7 @@ try {
     // Upstream pengembang bergantian 200/500: beri hingga 3 percobaan. Yang diuji: selalu berakhir dan jujur.
     for (let attempt = 1; attempt <= 3 && !providerHealthy; attempt++) {
       await ping.click();
-      await status.waitFor({ timeout: 120000 });
+      await status.waitFor({ timeout: 150000 });
       text = (await status.textContent())?.trim() ?? "";
       providerHealthy = (await status.getAttribute("data-tone")) === "ok";
       if (!providerHealthy) await new Promise((r) => setTimeout(r, 5000));
@@ -307,6 +406,14 @@ try {
   check("smoke test selesai tanpa galat", false, String(e));
 } finally {
   if (app && app.exitCode === null) app.kill();
+  // pulihkan registry asli dan bersihkan folder uji dokumen
+  try {
+    if (originalRegistry === null) rmSync(registryFile, { force: true });
+    else writeFileSync(registryFile, originalRegistry);
+    rmSync(docDir, { recursive: true, force: true });
+  } catch {
+    // best effort
+  }
   // pastikan tidak ada sisa proses engine/webview milik aplikasi
   spawnSync("taskkill", ["/F", "/IM", "zandor-desktop.exe"], { stdio: "ignore" });
 }

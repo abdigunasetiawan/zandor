@@ -10,7 +10,7 @@ type Listing = { status: "loading" | "ready" | "error"; nodes: FileNode[]; error
 
 export function FilesTree({ project }: { project: Project | null }) {
   const { t } = useI18n();
-  const { projects } = useServices();
+  const { projects, docs, panels } = useServices();
   const { engineReady } = useProjects();
   const [listings, setListings] = useState<Record<string, Listing>>({});
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -79,10 +79,18 @@ export function FilesTree({ project }: { project: Project | null }) {
                   <span className="tree__label">{n.name}</span>
                 </button>
               ) : (
-                <span className="tree__file">
+                <button
+                  type="button"
+                  className="tree__file"
+                  title={n.path}
+                  onClick={() => {
+                    docs.open(project.path, n.path);
+                    panels.actions?.reveal("docs");
+                  }}
+                >
                   <FileTypeIcon name={n.name} type="file" />
                   <span className="tree__label">{n.name}</span>
-                </span>
+                </button>
               )}
               {n.type === "directory" && isOpen && renderDir(n.path, depth + 1)}
             </li>

@@ -39,6 +39,7 @@ export type FakeEngine = EngineApi & {
   /** Dipanggil saat prompt diterima; test memakainya untuk menjalankan skenario respons lewat `emit`. */
   onPrompt: ((directory: string, sessionId: string, text: string) => void) | null;
   catalog: CatalogProvider[];
+  fileContents: Map<string, Uint8Array>;
   authMethods: Record<string, AuthMethod[]>;
   oauth: {
     starts: Array<{ providerId: string; method: number; inputs?: Record<string, string> }>;
@@ -70,6 +71,7 @@ export function createFakeEngine(): FakeEngine {
     aborted: [],
     onPrompt: null,
     catalog: [],
+    fileContents: new Map(),
     authMethods: {},
     oauth: {
       starts: [],
@@ -102,6 +104,13 @@ export function createFakeEngine(): FakeEngine {
         h.onState("reconnecting");
         h.onState("connected");
       }
+    },
+    async readFile(directory, path) {
+      e.calls.push(`read:${directory}:${path}`);
+      if (e.failWith) throw new Error(e.failWith);
+      const f = e.fileContents.get(`${directory}|${path}`);
+      if (!f) throw new Error("berkas tidak ditemukan");
+      return f;
     },
     async listModels() {
       if (e.failWith) throw new Error(e.failWith);

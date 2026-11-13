@@ -10,7 +10,8 @@
 - **Fase 3 — App Shell:** lulus (CI hijau).
 - **Fase 4 — Engine & Project:** lulus (CI hijau).
 - **Fase 5 — Chat Inti:** lulus (CI hijau), pelengkap selesai.
-- **Fase aktif: Fase 6 — Provider & Model** (selesai di lokal dengan batasan; belum di-push).
+- **Fase 6 — Provider & Model:** selesai dengan batasan (CI hijau).
+- **Fase aktif: Fase 7 — Panel 3 Viewer Dokumen** (selesai di lokal; belum di-push).
 
 ## Checklist Fase 1
 
@@ -84,3 +85,13 @@
 - [ ] Belum terbukti: chat nyata setelah migrasi keychain (upstream proxy Antigravity sedang HTTP 500), model lokal sungguhan, login OAuth sungguhan
 - [ ] Belum: provider katalog yang butuh data tambahan, macOS/Linux
 - Catatan: kunci Anda sekarang di Windows Credential Manager (`id.web.zandor`); `providers.json` tidak lagi memuatnya.
+
+## Fase 7 — Panel 3 Viewer Dokumen: selesai di lokal (belum di-push)
+
+- [x] Tab dokumen, path, toolbar lengkap (render/mentah, cari, bungkus, salin isi/path, simpan salinan, buka di aplikasi lain, muat ulang, tutup)
+- [x] Monaco, Markdown + KaTeX + Mermaid, SVG/gambar, PDF (pdf.js), CSV/TSV, JSON, HTML sandbox, audio, video
+- [x] Klik berkas di Files atau kartu tool di chat membuka Panel 3
+- [x] Rust `fs_read` byte-persis dengan akses terbatas (traversal/absolut/root tak terdaftar ditolak; terbukti di aplikasi asli)
+- [x] Tes: 439 unit, 75 e2e (15 dokumen + snapshot ARIA), 36 Rust, smoke native 22/22
+- [ ] Belum: edit berkas, teks/seleksi PDF, DOCX/XLSX/PPTX/ipynb (Fase 11), pewarnaan kode di Markdown
+- Catatan: `elkjs` (EPL/GPL) di-stub; Mermaid memakai dagre. `dist` ±17 MB.

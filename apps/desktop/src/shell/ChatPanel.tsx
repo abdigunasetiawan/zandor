@@ -44,7 +44,7 @@ import {
 } from "react";
 import { Markdown } from "./Markdown";
 import { ModelPicker } from "./ModelPicker";
-import { useChat, useEngineState, useProjects, useServices } from "./services";
+import { useChat, useEngineState, useOpenDoc, useProjects, useServices } from "./services";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -396,6 +396,7 @@ function Reasoning({ text, label }: { text: string; label: string }) {
 }
 
 const WEB_TOOLS = new Set(["websearch", "webfetch", "codesearch"]);
+const FILE_TOOLS = new Set(["read", "edit", "write", "patch", "multiedit"]);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /** Ringkasan satu baris per jenis tool (pencarian web → kueri/URL; shell → perintah; file → path; dst). */
@@ -436,6 +437,12 @@ function ToolCard({ part }: { part: ToolPart }) {
   const body = state.status === "error" ? (state.error ?? "") : (state.output ?? "");
   const diff = typeof state.metadata?.diff === "string" ? state.metadata.diff : "";
   const web = WEB_TOOLS.has(part.tool);
+  const openDoc = useOpenDoc();
+  const toast = useToast();
+  const file = FILE_TOOLS.has(part.tool) ? str(state.input.filePath) || str(state.input.path) : "";
+  const openFile = () => {
+    if (!openDoc(file)) toast.show({ title: t("doc.outside"), tone: "warning" });
+  };
   return (
     <div className="fold fold--tool" data-status={state.status}>
       <button type="button" className="fold__head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -445,6 +452,11 @@ function ToolCard({ part }: { part: ToolPart }) {
         <span className="fold__summary z-small">{toolSummary(part.tool, state.input, state.title)}</span>
         <Badge tone={tone}>{t(`chat.tool.${state.status}` as never)}</Badge>
       </button>
+      {file && (
+        <Button size="sm" onClick={openFile} aria-label={t("doc.open", { name: file.split(/[\\/]/).at(-1) ?? file })}>
+          {t("doc.openShort")}
+        </Button>
+      )}
       {open && (
         <div className="fold__body">
           {diff && (

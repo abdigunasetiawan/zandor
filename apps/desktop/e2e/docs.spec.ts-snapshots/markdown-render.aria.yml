@@ -1,0 +1,27 @@
+- article:
+    - heading "Judul Dokumen" [level=1]
+    - paragraph:
+        - text: Paragraf dengan
+        - strong: tebal
+        - text: ","
+        - emphasis: miring
+        - text: ", dan"
+        - link "tautan":
+            - /url: https://example.com
+        - text: .
+    - list:
+        - listitem: butir satu
+        - listitem: butir dua
+    - table:
+        - rowgroup:
+            - row "nama nilai":
+                - columnheader "nama"
+                - columnheader "nilai"
+        - rowgroup:
+            - row "a 1":
+                - cell "a"
+                - cell "1"
+            - row "b 2":
+                - cell "b"
+                - cell "2"
+    - code: "const x: number = 1;"

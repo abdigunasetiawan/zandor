@@ -17,6 +17,8 @@ export type MockEngine = {
   /** Isi file yang dikirim bersama prompt (lampiran). */
   files: Array<{ mime: string; url: string; filename?: string }>;
   variants: Array<string | undefined>;
+  /** Isi berkas project untuk /file dan /file/content (kunci = path relatif). */
+  project: Map<string, { text?: string; base64?: string }>;
   oauth: {
     authorizes: Array<{ id: string; method: number; inputs?: unknown }>;
     callbacks: Array<{ id: string; method: number; code?: string }>;
@@ -46,6 +48,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     files: [],
     variants: [],
     oauth: { authorizes: [], callbacks: [] },
+    project: new Map(),
   };
   const revertOf = new Map<string, string>();
   const messages = new Map<string, Msg[]>();
@@ -423,6 +426,35 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         emit("session.status", { sessionID: sid, status: { type: "idle" } });
         return json(true);
       }
+    }
+    if (p === "/file/content") {
+      const f = state.project.get(url.searchParams.get("path") ?? "");
+      if (!f) return json({ name: "NotFoundError", data: { message: "tidak ada" } }, 404);
+      if (f.base64 !== undefined) {
+        return json({ type: "binary", content: f.base64, encoding: "base64", mimeType: "application/octet-stream" });
+      }
+      return json({ type: "text", content: f.text ?? "" });
+    }
+    if (p === "/file" && state.project.size > 0) {
+      const path = url.searchParams.get("path") ?? ".";
+      const prefix = path === "." ? "" : `${path}/`;
+      const seen = new Map<string, boolean>();
+      for (const key of state.project.keys()) {
+        if (!key.startsWith(prefix)) continue;
+        const rest = key.slice(prefix.length);
+        const slash = rest.indexOf("/");
+        const name = slash === -1 ? rest : rest.slice(0, slash);
+        seen.set(name, slash !== -1);
+      }
+      return json(
+        [...seen.entries()].map(([name, isDir]) => ({
+          name,
+          path: `${prefix}${name}`,
+          absolute: `${dir}\\${prefix}${name}`.replace(/\//g, "\\"),
+          type: isDir ? "directory" : "file",
+          ignored: false,
+        })),
+      );
     }
     if (p === "/file") {
       const path = url.searchParams.get("path") ?? ".";

@@ -1,6 +1,7 @@
 //! Zandor desktop — titik masuk Tauri: engine opencode (sidecar), registry project, pemilih folder.
 
 mod engine;
+mod files;
 mod netprobe;
 mod providers;
 mod registry;
@@ -168,6 +169,65 @@ fn open_external(url: String) -> Result<(), String> {
     }
 }
 
+// ---------- Berkas untuk Panel 3 (Fase 7) ----------
+
+fn resolve_file(app: &tauri::AppHandle, root: &str, path: &str) -> Result<PathBuf, String> {
+    let roots = files::allowed_roots(&app_data(app)?);
+    files::resolve_in_root(&roots, root, path)
+}
+
+/// Baca byte persis sebuah berkas di dalam project terdaftar (maks 100 MB).
+#[tauri::command]
+fn fs_read(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+) -> Result<tauri::ipc::Response, String> {
+    let file = resolve_file(&app, &root, &path)?;
+    Ok(tauri::ipc::Response::new(files::read_limited(
+        &file,
+        files::MAX_READ_BYTES,
+    )?))
+}
+
+/// Salin berkas project ke lokasi yang dipilih pengguna lewat dialog "Simpan sebagai".
+#[tauri::command]
+fn fs_copy_to(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    dest: String,
+) -> Result<(), String> {
+    let file = resolve_file(&app, &root, &path)?;
+    files::read_limited(&file, files::MAX_READ_BYTES)?; // validasi jenis dan ukuran
+    std::fs::copy(&file, &dest).map_err(|e| format!("gagal menyalin: {e}"))?;
+    Ok(())
+}
+
+/// Buka berkas dengan aplikasi bawaan sistem. Berkas yang dapat dieksekusi ditolak.
+#[tauri::command]
+fn fs_open_external(app: tauri::AppHandle, root: String, path: String) -> Result<(), String> {
+    let file = resolve_file(&app, &root, &path)?;
+    if files::is_executable_ext(&file) {
+        return Err("berkas yang dapat dieksekusi tidak dibuka dari Zandor".into());
+    }
+    #[cfg(windows)]
+    {
+        // rundll32 dengan argumen terpisah (bukan lewat shell) → tidak ada penafsiran karakter khusus.
+        std::process::Command::new("rundll32")
+            .arg("url.dll,FileProtocolHandler")
+            .arg(&file)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = file;
+        Err("belum didukung di platform ini (ADR-027)".into())
+    }
+}
+
 fn sidecar_path() -> PathBuf {
     let dir = std::env::current_exe()
         .ok()
@@ -222,7 +282,10 @@ pub fn run() {
             provider_probe,
             provider_ping,
             providers_detect_local,
-            open_external
+            open_external,
+            fs_read,
+            fs_copy_to,
+            fs_open_external
         ])
         .build(tauri::generate_context!())
         .expect("gagal membangun Zandor");

@@ -58,7 +58,7 @@ test("tool call tampil sebagai kartu yang bisa dibuka", async ({ page }) => {
   const card = page.locator(".fold--tool");
   await expect(card).toContainText("read", { timeout: 10_000 });
   await expect(card).toContainText("Selesai");
-  await card.getByRole("button").click();
+  await card.locator(".fold__head").click();
   await expect(card).toContainText("halo dunia");
   await expect(page.getByRole("article", { name: "Asisten" })).toContainText("Isinya halo dunia.");
 });

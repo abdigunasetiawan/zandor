@@ -17,6 +17,7 @@ import {
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { Group, Panel, Separator, useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-panels";
 import { ChatPanel } from "./ChatPanel";
+import { DocPanel } from "./docs/DocPanel";
 import { Sidebar } from "./Sidebar";
 import { PANEL_IDS, type PanelId, TOOL_IDS, type ToolId, usePanelState, useServices, useSetting } from "./services";
 
@@ -179,6 +180,14 @@ export function ShellLayout() {
     [apply, persistCollapsed],
   );
 
+  /** Tampilkan panel bila sedang terlipat (tanpa menutupnya bila sudah terbuka). */
+  const reveal = useCallback(
+    (id: PanelId) => {
+      if (lastApplied.current.has(id)) toggle(id);
+    },
+    [toggle],
+  );
+
   const openTool = useCallback(
     (tool: ToolId) => {
       const sameAndOpen = bridge.state().activeTool === tool && !lastApplied.current.has("tools");
@@ -202,7 +211,7 @@ export function ShellLayout() {
 
   // Pasang aksi ke jembatan + daftarkan perintah panel selama tata letak terpasang.
   useEffect(() => {
-    bridge.setActions({ toggle, openTool, reset });
+    bridge.setActions({ toggle, openTool, reveal, reset });
     const defs = [
       { id: "view.toggleSidebar", titleKey: "cmd.toggleSidebar", shortcut: "Ctrl+B", run: () => toggle("sidebar") },
       { id: "view.toggleDocs", titleKey: "cmd.toggleDocs", shortcut: "Ctrl+Alt+B", run: () => toggle("docs") },
@@ -214,7 +223,7 @@ export function ShellLayout() {
       for (const off of offs) off();
       bridge.setActions(null);
     };
-  }, [bridge, commands, toggle, openTool, reset]);
+  }, [bridge, commands, toggle, openTool, reveal, reset]);
 
   // Hitung ulang saat ukuran grup berubah, skala UI berubah, atau saat pertama muncul.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `scale` memicu perhitungan ulang (rem berubah)
@@ -312,7 +321,11 @@ export function ShellLayout() {
           className="shell-panel"
         >
           <section aria-label={t("panel.docs")} className="shell-panel__inner">
-            {guarded("docs", "panel.docs", <PanelEmpty title={t("empty.p3.title")} body={t("empty.p3.body")} />)}
+            {guarded(
+              "docs",
+              "panel.docs",
+              <DocPanel empty={<PanelEmpty title={t("empty.p3.title")} body={t("empty.p3.body")} />} />,
+            )}
           </section>
         </Panel>
         <Separator id="sep-3" className="shell-sep" />

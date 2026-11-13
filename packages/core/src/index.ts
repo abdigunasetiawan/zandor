@@ -2,6 +2,7 @@ export * from "./attachments";
 export * from "./build-info";
 export * from "./chat";
 export * from "./commands";
+export * from "./docs";
 export * from "./engine";
 export * from "./file-icons";
 export * from "./layout-plan";

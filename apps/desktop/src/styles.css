@@ -1062,3 +1062,230 @@
 .mrow button[aria-pressed="true"] {
   color: var(--z-color-warning);
 }
+
+/* ---------- Panel 3: penampil dokumen ---------- */
+.shell-panel__inner:has(> .docs) {
+  padding: 0;
+  overflow: hidden;
+}
+.docs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.docs__path {
+  flex: none;
+  padding: var(--z-space-1) var(--z-space-3);
+  overflow: hidden;
+  color: var(--z-color-fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.docs__toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-1);
+  padding: var(--z-space-1) var(--z-space-2);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.docs__modes {
+  display: inline-flex;
+  gap: var(--z-space-1);
+  margin-right: var(--z-space-2);
+}
+.docs__toolbar button[aria-pressed="true"] {
+  background: var(--z-color-active);
+}
+.docs__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.docview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+.docview__note {
+  margin: 0;
+  padding: var(--z-space-2) var(--z-space-3);
+  color: var(--z-color-fg-muted);
+}
+.docview__note--error {
+  color: var(--z-color-danger);
+}
+.docview--code {
+  overflow: hidden;
+}
+.docview__editor {
+  flex: 1;
+  min-height: 12rem;
+}
+.docview--md {
+  padding: var(--z-space-3);
+}
+.md--doc img {
+  max-width: 100%;
+}
+.docview__mermaid {
+  overflow-x: auto;
+}
+.docview__error {
+  padding: var(--z-space-3);
+  border: var(--z-border-width) solid var(--z-color-danger);
+  border-radius: var(--z-radius-md);
+}
+.docview--error,
+.docview--binary {
+  align-items: flex-start;
+  gap: var(--z-space-2);
+  padding: var(--z-space-4);
+}
+.docview--image {
+  align-items: center;
+  justify-content: center;
+  padding: var(--z-space-3);
+}
+.docview--image img {
+  cursor: zoom-in;
+}
+.docview--image[data-fit] img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+.docview--media {
+  align-items: center;
+  justify-content: center;
+  padding: var(--z-space-3);
+}
+.docview--media video {
+  max-width: 100%;
+  max-height: 100%;
+}
+.docview__frame {
+  flex: 1;
+  width: 100%;
+  min-height: 12rem;
+  border: 0;
+  background: var(--z-color-raised);
+}
+.docview--table {
+  overflow: hidden;
+}
+.dtable {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-size: var(--z-type-small-size);
+}
+.dtable__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: grid;
+  min-width: max-content;
+  background: var(--z-color-raised);
+}
+.dtable__body {
+  position: relative;
+  min-width: max-content;
+}
+.dtable__row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  width: 100%;
+  height: var(--z-control-md);
+}
+.dtable__cell {
+  padding: var(--z-space-1) var(--z-space-2);
+  overflow: hidden;
+  border-right: var(--z-border-width) solid var(--z-color-border);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dtable__cell--head {
+  font-weight: 600;
+}
+.docview--json {
+  padding: var(--z-space-3);
+  font-family: var(--z-font-code);
+  font-size: var(--z-type-code-size);
+}
+.jtree__children {
+  padding-left: var(--z-space-4);
+}
+.jtree__toggle,
+.jtree__more {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.jtree__key {
+  color: var(--z-color-fg-muted);
+}
+.jtree__sum {
+  color: var(--z-color-fg-subtle);
+}
+.jtree__val--string {
+  color: var(--z-color-success);
+}
+.jtree__val--number,
+.jtree__val--boolean {
+  color: var(--z-color-warning);
+}
+.jtree__val--null {
+  color: var(--z-color-fg-subtle);
+}
+.docview--pdf {
+  overflow: hidden;
+}
+.pdfbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--z-space-2);
+  padding: var(--z-space-1) var(--z-space-3);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.pdfpages {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--z-space-3);
+  min-height: 0;
+  padding: var(--z-space-3);
+  overflow: auto;
+  background: var(--z-color-surface);
+}
+.pdfpage {
+  flex: none;
+  background: var(--z-color-raised);
+}
+.pdfpage canvas {
+  display: block;
+}
+.docview__imgbtn {
+  display: inline-flex;
+  max-width: 100%;
+  max-height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}

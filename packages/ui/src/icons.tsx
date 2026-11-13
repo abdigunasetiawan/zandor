@@ -7,8 +7,12 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Code,
   Copy,
+  Download,
   Ellipsis,
+  ExternalLink,
+  Eye,
   File,
   FileText,
   Folder,
@@ -32,6 +36,7 @@ import {
   Terminal,
   Trash2,
   Undo2,
+  WrapText,
   X,
   Zap,
 } from "lucide-react";
@@ -89,3 +94,8 @@ export const PaperclipIcon = icon(Paperclip, "PaperclipIcon");
 export const PinIcon = icon(Pin, "PinIcon");
 export const TrashIcon = icon(Trash2, "TrashIcon");
 export const PingIcon = icon(Zap, "PingIcon");
+export const CodeIcon = icon(Code, "CodeIcon");
+export const DownloadIcon = icon(Download, "DownloadIcon");
+export const ExternalLinkIcon = icon(ExternalLink, "ExternalLinkIcon");
+export const EyeIcon = icon(Eye, "EyeIcon");
+export const WrapIcon = icon(WrapText, "WrapIcon");

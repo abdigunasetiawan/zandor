@@ -7,8 +7,12 @@ import {
   type CommandDef,
   CommandRegistry,
   ConnectionStore,
+  DocStore,
+  type DocsState,
   type EngineState,
+  isAbsolutePath,
   type Logger,
+  locateInRoots,
   NavigationHistory,
   ProjectStore,
   type ProjectsState,
@@ -27,6 +31,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type { DocHost } from "./doc-host";
 import type { EngineHost } from "./engine-host";
 import { loadWindowApi, type WindowApi } from "./window-api";
 
@@ -43,6 +48,8 @@ export type PanelState = {
 export type PanelActions = {
   toggle: (id: PanelId) => void;
   openTool: (tool: ToolId) => void;
+  /** Buka panel bila terlipat. */
+  reveal: (id: PanelId) => void;
   reset: () => void;
 };
 
@@ -96,6 +103,8 @@ export type Services = {
   projects: ProjectStore;
   chat: ChatStore;
   providers: ProviderStore;
+  docs: DocStore;
+  docHost: DocHost;
 };
 
 export function createServices(options: {
@@ -104,6 +113,7 @@ export function createServices(options: {
   logger: Logger;
   host: EngineHost;
   providerHost: ProviderHost;
+  docHost: DocHost;
 }): Services {
   const chat = new ChatStore({
     prefs: {
@@ -140,6 +150,26 @@ export function createServices(options: {
       onWarning: (m) => options.logger.warn(m),
     }),
     chat,
+    docHost: options.docHost,
+    docs: new DocStore({
+      source: options.docHost.source,
+      prefs: {
+        get: (k) => {
+          try {
+            return localStorage.getItem(k);
+          } catch {
+            return null;
+          }
+        },
+        set: (k, v) => {
+          try {
+            localStorage.setItem(k, v);
+          } catch {
+            // sengaja diabaikan
+          }
+        },
+      },
+    }),
     providers: new ProviderStore({
       host: options.providerHost,
       onChanged: () => void chat.refreshModels(),
@@ -248,5 +278,40 @@ export function useProviders(): ProvidersState {
     (cb) => providers.subscribe(cb),
     () => providers.state(),
     () => providers.state(),
+  );
+}
+
+export function useDocs(): DocsState {
+  const { docs } = useServices();
+  return useSyncExternalStore(
+    (cb) => docs.subscribe(cb),
+    () => docs.state(),
+    () => docs.state(),
+  );
+}
+
+/**
+ * Buka berkas di Panel 3. `path` boleh relatif (terhadap direktori sesi terpilih) atau absolut (harus berada di salah
+ * satu project/folder Chat). Mengembalikan false bila berada di luar project (tidak dibuka).
+ */
+export function useOpenDoc(): (path: string, root?: string) => boolean {
+  const { docs, panels, projects } = useServices();
+  return useCallback(
+    (path: string, root?: string) => {
+      const state = projects.state();
+      const roots = [...state.projects.map((p) => p.path), ...(state.chatDir ? [state.chatDir] : [])];
+      let target: { root: string; path: string } | null = null;
+      if (isAbsolutePath(path)) target = locateInRoots(roots, path);
+      else {
+        const base = root ?? projects.selected()?.session.directory ?? null;
+        if (base && roots.some((r) => r.toLowerCase() === base.toLowerCase())) target = { root: base, path };
+        else if (base) target = locateInRoots(roots, `${base.replace(/[\\/]+$/, "")}/${path}`);
+      }
+      if (!target) return false;
+      docs.open(target.root, target.path);
+      panels.actions?.reveal("docs");
+      return true;
+    },
+    [docs, panels, projects],
   );
 }

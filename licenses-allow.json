@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "package": "khroma",
+    "license": "TIDAK ADA",
+    "reason": "package.json tidak mengisi field license, tetapi berkas LICENSE paket adalah MIT (Fabio Spampinato). Dependensi mermaid. Diverifikasi 14-11-2026."
+  },
+  {
+    "package": "elkjs",
+    "license": "EPL-2.0 OR GPL-3.0-or-later",
+    "reason": "Dependensi mermaid untuk tata letak ELK (opsional). TIDAK dibundel: Vite meng-alias 'elkjs/lib/elk.bundled.js' ke stub (apps/desktop/src/shell/stubs/elk-stub.ts), dan test memastikan dist tidak memuatnya. Hanya hadir di node_modules. ADR-035."
+  }
+]
