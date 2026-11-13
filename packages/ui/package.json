@@ -11,11 +11,12 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@base-ui/react": "1.9.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
     "@zandor/core": "workspace:*",
     "@zandor/i18n": "workspace:*",
-    "@base-ui/react": "1.9.0",
-    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
-    "@fontsource-variable/jetbrains-mono": "5.3.0"
+    "lucide-react": "1.72.0"
   },
   "peerDependencies": {
     "react": "19.3.1"
