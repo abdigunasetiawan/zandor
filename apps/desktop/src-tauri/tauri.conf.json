@@ -11,7 +11,18 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Zandor", "width": 1366, "height": 768, "minWidth": 800, "minHeight": 500 }
+      {
+        "label": "main",
+        "title": "Zandor",
+        "width": 1366,
+        "height": 768,
+        "minWidth": 800,
+        "minHeight": 500,
+        "decorations": false,
+        "shadow": true,
+        "center": true,
+        "resizable": true
+      }
     ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"

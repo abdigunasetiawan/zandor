@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://zandor.web.id/schemas/settings.schema.json",
+  "title": "Pengaturan Zandor",
+  "description": "Pengaturan aplikasi Zandor. Semua properti opsional; nilai yang tidak ada memakai default.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "language": {
+      "type": "string",
+      "title": "Bahasa",
+      "description": "Bahasa antarmuka. Pada pemakaian pertama mengikuti bahasa sistem bila didukung.",
+      "enum": [
+        "id",
+        "en"
+      ],
+      "default": "id",
+      "x-zandor": {
+        "titleKey": "settings.language",
+        "group": "general",
+        "enumLabelKeys": {
+          "id": "language.id",
+          "en": "language.en"
+        }
+      }
+    },
+    "theme": {
+      "type": "string",
+      "title": "Tema",
+      "description": "Tema warna. `system` mengikuti preferensi sistem operasi.",
+      "enum": [
+        "dark",
+        "light",
+        "system"
+      ],
+      "default": "system",
+      "x-zandor": {
+        "titleKey": "theme.label",
+        "group": "appearance",
+        "enumLabelKeys": {
+          "dark": "theme.dark",
+          "light": "theme.light",
+          "system": "theme.system"
+        }
+      }
+    },
+    "uiScale": {
+      "type": "number",
+      "title": "Skala UI",
+      "description": "Skala antarmuka (token --ui-scale). Tidak memengaruhi isi browser bawaan.",
+      "enum": [
+        0.75,
+        0.875,
+        1,
+        1.125,
+        1.25,
+        1.375,
+        1.5
+      ],
+      "default": 1,
+      "x-zandor": {
+        "titleKey": "scale.label",
+        "group": "appearance"
+      }
+    },
+    "rememberLayout": {
+      "type": "boolean",
+      "title": "Ingat tata letak panel",
+      "description": "Menyimpan ukuran dan keadaan lipat panel antar sesi aplikasi.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.rememberLayout",
+        "descriptionKey": "settings.rememberLayoutHelp",
+        "group": "layout"
+      }
+    }
+  }
+}

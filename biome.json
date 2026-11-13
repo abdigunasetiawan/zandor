@@ -15,7 +15,9 @@
       "!**/gen",
       "!**/*.gen.ts",
       "!**/test-results",
-      "!**/playwright-report"
+      "!**/playwright-report",
+      "!docs/manual/settings.md",
+      "!docs/manual/settings.schema.json"
     ]
   },
   "formatter": {
