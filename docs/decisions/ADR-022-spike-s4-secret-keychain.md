@@ -8,12 +8,14 @@
 - **Memperbarui:** ADR-019 (risiko baru pada token server engine)
 
 ## Pertanyaan
+
 Bagaimana menyimpan secret di keychain OS (crate `keyring`), dan bagaimana memberikan kredensial ke
 OpenCode tanpa file plaintext dari pihak kita?
 
 ## Keputusan
 
 ### 1. Penyimpanan
+
 - Crate **`keyring` `=4.2.0`** (MIT/Apache-2.0), mode `v1`: Windows Credential Manager, macOS
   Keychain, Linux Secret Service.
 - Service `id.web.zandor`, account `provider:<id>`. Zandor tidak pernah menulis secret ke file,
@@ -24,6 +26,7 @@ OpenCode tanpa file plaintext dari pihak kita?
   saat nilai diganti.
 
 ### 2. Penyuntikan ke engine (API key & custom endpoint)
+
 - Saat spawn engine, Zandor membaca secret dari keychain dan memberikannya **hanya lewat env proses**:
   `ZANDOR_SECRET_<ID>=<secret>`.
 - Config provider dikirim lewat env `OPENCODE_CONFIG_CONTENT` dengan **placeholder**
@@ -33,6 +36,7 @@ OpenCode tanpa file plaintext dari pihak kita?
   sama; pola placeholder dipakai untuk custom endpoint OpenAI-compatible.
 
 ### 3. Wajib: plugin `zandor-env-guard` (hook `shell.env`)
+
 Opencode 1.19.5 menjalankan tool shell/bash dan PTY dengan env = `{...process.env, ...hook.env}`.
 Tanpa guard, **semua proses anak mewarisi secret dan token server**. Plugin Zandor mengosongkan
 `ZANDOR_SECRET_*`, `ZANDOR_PROXY_TOKEN`, `OPENCODE_SERVER_PASSWORD`, `OPENCODE_CONFIG_CONTENT`, dan
@@ -41,17 +45,20 @@ Tanpa guard, **semua proses anak mewarisi secret dan token server**. Plugin Zand
 `packages/plugin` (Fase 1/9).
 
 ### 4. Ditolak: `OPENCODE_AUTH_CONTENT`
+
 Env ini membuat opencode membaca semua kredensial dari env. Namun setiap operasi tulis auth (login
 provider, `PUT /auth/:id`, kemungkinan juga refresh OAuth) **menulis gabungan kredensial, termasuk
 yang dari env, ke `auth.json` plaintext**. Terbukti di test. Jangan dipakai.
 
 ### 5. Sign-in provider (OAuth) lewat OpenCode
+
 Token OAuth disimpan oleh OpenCode sendiri (`auth.json` / tabel `credential` di SQLite, plaintext,
 izin file 0600). Ini file milik OpenCode, bukan milik kita, jadi sesuai kriteria S4. Zandor tidak
 menyalin token itu. Memindahkannya ke keychain tidak dilakukan sekarang, karena refresh token akan
 menulis ulang file tersebut (lihat poin 4).
 
 ## Bukti (Windows 11, opencode 1.19.5, keychain asli)
+
 `cargo test -p zandor-spike-s4 -- --test-threads=1` → **6/6 lulus** (2 unit + 4 integrasi):
 
 - **Keychain:** simpan/baca/timpa/hapus, unicode, entri tidak ada → `None`, token 5000 karakter
@@ -64,20 +71,21 @@ menulis ulang file tersebut (lihat poin 4).
   (`node -p "JSON.stringify(process.env)"`), lalu output tool diperiksa. Data opencode diisolasi
   dengan `XDG_*_HOME` sementara (terbukti dihormati di Windows).
 
-| Pemeriksaan | Tanpa guard (kontrol) | Dengan `zandor-env-guard` |
-|---|---|---|
-| PTY mewarisi secret | **ya** | tidak |
-| PTY mewarisi `OPENCODE_SERVER_PASSWORD` | **ya** | tidak |
-| PTY mewarisi `OPENCODE_CONFIG_CONTENT` | **ya** | tidak |
-| Output tool bash memuat secret | **ya** | tidak |
-| Output tool bash memuat password server | **ya** | tidak |
-| Secret ikut terkirim ke model | **ya** | tidak |
-| File berisi secret (workspace + data/config/cache opencode) | **`opencode.db-wal`** (output tool) | tidak ada |
-| Secret terlihat lewat API engine | `/config`, `/config/providers`, `/provider` | **masih terlihat** |
+| Pemeriksaan                                                 | Tanpa guard (kontrol)                       | Dengan `zandor-env-guard` |
+| ----------------------------------------------------------- | ------------------------------------------- | ------------------------- |
+| PTY mewarisi secret                                         | **ya**                                      | tidak                     |
+| PTY mewarisi `OPENCODE_SERVER_PASSWORD`                     | **ya**                                      | tidak                     |
+| PTY mewarisi `OPENCODE_CONFIG_CONTENT`                      | **ya**                                      | tidak                     |
+| Output tool bash memuat secret                              | **ya**                                      | tidak                     |
+| Output tool bash memuat password server                     | **ya**                                      | tidak                     |
+| Secret ikut terkirim ke model                               | **ya**                                      | tidak                     |
+| File berisi secret (workspace + data/config/cache opencode) | **`opencode.db-wal`** (output tool)         | tidak ada                 |
+| Secret terlihat lewat API engine                            | `/config`, `/config/providers`, `/provider` | **masih terlihat**        |
 
 - `OPENCODE_AUTH_CONTENT` + `PUT /auth/openai` → secret dari env muncul di `data/opencode/auth.json`.
 
 ## Risiko & yang belum terbukti (jujur)
+
 1. **Secret terlihat lewat API engine** (`GET /config`, `/config/providers`, `/provider`) bagi
    siapa pun yang memegang token server. Di mode lokal pemegangnya hanya UI Zandor, jadi diterima.
    Aturannya: UI tidak pernah menampilkan atau me-log respons mentah endpoint itu. Untuk engine
@@ -103,12 +111,14 @@ menulis ulang file tersebut (lihat poin 4).
    engine wajib menjalankan ulang test S4.
 
 ## Konsekuensi
+
 - Fase 4: supervisor menerima env secret dan selalu memuat `zandor-env-guard` (+ verifikasi saat start).
 - Fase 6: modul provider menyimpan key lewat `SecretStore` (dengan pemecahan) dan tidak pernah
   memakai `OPENCODE_AUTH_CONTENT` maupun `PUT /auth` untuk key milik Zandor.
 - `packages/plugin` dimulai dengan hook `shell.env` sebelum fitur memori (Fase 9).
 
 ## Cara mengulang
+
 ```
 cd spikes
 cargo build -p zandor-spike-s1                       # menyalin sidecar opencode ke target/debug

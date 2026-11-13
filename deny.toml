@@ -1,0 +1,46 @@
+# cargo-deny: audit lisensi & sumber crate Rust (PRD §4.8). Hanya lisensi permisif.
+[graph]
+targets = [{ triple = "x86_64-pc-windows-msvc" }]
+all-features = false
+
+[licenses]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+allow = [
+  "MIT", "MIT-0", "Apache-2.0", "Apache-2.0 WITH LLVM-exception", "BSD-2-Clause", "BSD-3-Clause",
+  "ISC", "Zlib", "Unicode-3.0", "Unicode-DFS-2016", "CC0-1.0", "0BSD", "BSL-1.0", "Unlicense", "CDLA-Permissive-2.0",
+]
+# Crate milik kita sendiri belum berlisensi publik.
+private = { ignore = true }
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+# ADR-028: MPL-2.0 hanya dikecualikan per crate untuk dependensi transitif Tauri yang tidak kita ubah.
+# Jangan menambah crate ke daftar ini tanpa ADR baru.
+[[licenses.exceptions]]
+crate = "cssparser"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "cssparser-macros"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "selectors"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "dtoa-short"
+allow = ["MPL-2.0"]
+
+[[licenses.exceptions]]
+crate = "option-ext"
+allow = ["MPL-2.0"]

@@ -1,0 +1,92 @@
+/* Gaya minimal Fase 1. Token design system lengkap dibuat di Fase 2 (ADR-014: semua ukuran rem). */
+:root {
+  --ui-scale: 1;
+  --bg: #121212;
+  --bg-2: #141414;
+  --bg-3: #1f1f1f;
+  --fg: #e6e6e6;
+  --muted: #8a8a8a;
+  --line: #262626;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fafafa;
+    --bg-2: #f4f4f4;
+    --bg-3: #e8e8e8;
+    --fg: #161616;
+    --muted: #666;
+    --line: #dcdcdc;
+    color-scheme: light;
+  }
+}
+html {
+  font-size: calc(16px * var(--ui-scale));
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, sans-serif;
+}
+.shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.shell__header h1 {
+  font-size: 1rem;
+  margin: 0;
+}
+.shell__lang {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.shell__lang select {
+  background: var(--bg-3);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+}
+.shell__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+}
+.shell__empty h2 {
+  font-size: 1.125rem;
+  margin: 0 0 0.5rem;
+}
+.shell__empty p {
+  color: var(--muted);
+  margin: 0;
+  max-width: 28rem;
+}
+.shell__footer {
+  padding: 0.5rem 1rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+.z-error-fallback {
+  padding: 1rem;
+}

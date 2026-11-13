@@ -1,0 +1,12 @@
+[workspace]
+resolver = "2"
+members = ["apps/desktop/src-tauri"]
+exclude = ["spikes", "reference"]
+
+[workspace.package]
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

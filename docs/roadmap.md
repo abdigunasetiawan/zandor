@@ -4,6 +4,7 @@
 > **MVP = Fase 0–8.** Fase 9 ke atas dikerjakan setelah MVP dipakai sendiri setiap hari.
 
 ## Definisi "Selesai" untuk setiap task (berlaku di semua fase)
+
 1. Kode lulus lint, typecheck, dan test (`bun test` / `vitest`, `cargo test`).
 2. Ada test otomatis baru yang menguji perilaku nyata: unit dan komponen; e2e untuk alur utama.
 3. Komponen UI baru terdaftar di halaman design system.
@@ -15,33 +16,36 @@
 ---
 
 ## Fase 0 — Spike Risiko (sebelum menulis fitur)
+
 Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat sebagai ADR.
 
 > **Diubah 13-11-2026 (ADR-027):** semua spike dinilai di **Windows** saja; macOS/Linux ditunda sampai
 > aplikasi selesai. S9 dibatalkan.
 
-| Spike | Pertanyaan | Lulus jika | Hasil (Windows) |
-|---|---|---|---|
-| S1 | Apakah binary `opencode` bisa dibundel sebagai sidecar lalu dijalankan, dipantau, dan dimatikan dengan bersih? | Tidak ada proses yatim; port loopback + token; versi di-pin | ✅ ADR-019 |
-| S2 | Event SSE `opencode serve`: bisakah semua part (thinking, tool, file, patch, permission) dipetakan? | Contoh transcript lengkap ter-render dari event nyata | ✅ ADR-021 |
-| S3 | Child webview untuk browser bawaan | Bisa membuka google.com dan login Google; posisinya mengikuti resize panel | ✅ ADR-020 (persistensi sesi Google belum konsisten) |
-| S4 | Secret: keychain OS (crate `keyring`) dan cara memberikan kredensial ke OpenCode tanpa file plaintext dari pihak kita | Rencana penyimpanan secret tertulis + PoC | ✅ ADR-022 |
-| S5 | Renderer Panel 3: pdf.js, docx-preview, SheetJS, kandidat PPTX — cek lisensi dan performa | Tabel lisensi + demo file 10 MB | ✅ ADR-026 (PPTX: keputusan MPL-2.0 tertunda sampai Fase 11) |
-| S6 | Plugin OpenCode untuk memori: hook untuk system prompt, compaction, dan tool kustom | Plugin bisa menyuntik blok memori dan menambah tool | ✅ ADR-023 |
-| S7 | Terminal: xterm.js + PTY | Shell interaktif berjalan, resize benar | ✅ ADR-024 (dipilih `/pty` engine, bukan `portable-pty`) |
-| S8 | Layout: `react-resizable-panels` + child webview + zoom `--ui-scale` | Lima panel bisa di-resize tanpa jank; zoom tidak merusak layout | ✅ ADR-025 |
-| S9 | ~~Kirim email ke OpenCode soal izin model gratis Zen~~ | — | ❌ Dibatalkan (ADR-027); ADR-008 tetap berlaku |
+| Spike | Pertanyaan                                                                                                            | Lulus jika                                                                 | Hasil (Windows)                                              |
+| ----- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| S1    | Apakah binary `opencode` bisa dibundel sebagai sidecar lalu dijalankan, dipantau, dan dimatikan dengan bersih?        | Tidak ada proses yatim; port loopback + token; versi di-pin                | ✅ ADR-019                                                   |
+| S2    | Event SSE `opencode serve`: bisakah semua part (thinking, tool, file, patch, permission) dipetakan?                   | Contoh transcript lengkap ter-render dari event nyata                      | ✅ ADR-021                                                   |
+| S3    | Child webview untuk browser bawaan                                                                                    | Bisa membuka google.com dan login Google; posisinya mengikuti resize panel | ✅ ADR-020 (persistensi sesi Google belum konsisten)         |
+| S4    | Secret: keychain OS (crate `keyring`) dan cara memberikan kredensial ke OpenCode tanpa file plaintext dari pihak kita | Rencana penyimpanan secret tertulis + PoC                                  | ✅ ADR-022                                                   |
+| S5    | Renderer Panel 3: pdf.js, docx-preview, SheetJS, kandidat PPTX — cek lisensi dan performa                             | Tabel lisensi + demo file 10 MB                                            | ✅ ADR-026 (PPTX: keputusan MPL-2.0 tertunda sampai Fase 11) |
+| S6    | Plugin OpenCode untuk memori: hook untuk system prompt, compaction, dan tool kustom                                   | Plugin bisa menyuntik blok memori dan menambah tool                        | ✅ ADR-023                                                   |
+| S7    | Terminal: xterm.js + PTY                                                                                              | Shell interaktif berjalan, resize benar                                    | ✅ ADR-024 (dipilih `/pty` engine, bukan `portable-pty`)     |
+| S8    | Layout: `react-resizable-panels` + child webview + zoom `--ui-scale`                                                  | Lima panel bisa di-resize tanpa jank; zoom tidak merusak layout            | ✅ ADR-025                                                   |
+| S9    | ~~Kirim email ke OpenCode soal izin model gratis Zen~~                                                                | —                                                                          | ❌ Dibatalkan (ADR-027); ADR-008 tetap berlaku               |
 
 **Kriteria keluar:** semua spike punya ADR. Kalau ada yang gagal, PRD direvisi dulu.
 **Status: LULUS (13-11-2026)** untuk Windows.
 
 **Bawaan wajib dari Fase 0 ke fase berikutnya:**
+
 - Plugin `zandor-env-guard` (hook `shell.env`) selalu dimuat sejak engine pertama kali jalan (ADR-022).
 - `SetConsoleCtrlHandler(NULL, FALSE)` saat app start di Windows (ADR-024).
 - Suite test kontrak S2, S4, S6, dan S7 wajib dijalankan setiap kali versi opencode di-pin ulang.
 - Build UI → build Tauri selalu berurutan; aset frontend ditanam ke binary (ADR-025).
 
 ## Fase 1 — Fondasi Repo, Docs, dan CI
+
 - Monorepo (Bun workspaces): `apps/desktop` (Tauri + React), `packages/ui`, `packages/core` (client engine dan state), `packages/plugin` (plugin OpenCode), `packages/i18n`.
 - Struktur docs ramping (lihat lampiran) + `AGENTS.md`.
 - Lint dan format (Biome atau ESLint + Prettier), TypeScript strict, Clippy.
@@ -52,6 +56,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 **Kriteria keluar:** aplikasi kosong bisa di-build di Windows lewat CI, dan test berjalan.
 
 ## Fase 2 — Design System
+
 - Token (warna, tipografi per variabel, spacing, radius, shadow, `--ui-scale`). Default monokrom dark + light.
 - Plus Jakarta Sans + font kode + font terminal.
 - Atoms: Button, IconButton, Input, Textarea, Select, Switch, Checkbox, Slider, Badge, Avatar, Kbd, Tooltip, Spinner, Skeleton.
@@ -62,6 +67,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 **Kriteria keluar:** semua komponen ada di halaman design system dengan test, dan tidak ada warna atau ukuran yang di-hardcode.
 
 ## Fase 3 — App Shell
+
 - Jendela frameless + kontrol jendela kustom; top bar (back/next, menu, input serba guna/command palette, toggle panel).
 - Lima panel: resize, lebar minimum, collapse, auto-collapse, layout tersimpan.
 - Zoom UI `Ctrl +/−/0`.
@@ -71,6 +77,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 **Kriteria keluar:** shell lengkap tanpa fitur palsu; panel yang belum punya isi menampilkan empty state yang jujur.
 
 ## Fase 4 — Engine & Project
+
 - Supervisor engine di Rust (start, health check, restart, mati bersama aplikasi).
 - Connection manager: lokal (default) + struktur untuk remote URL.
 - Project: tambah folder, daftar, hapus, kustomisasi dasar. Sesi: buat, rename, hapus, switch; sesi tanpa project.
@@ -80,6 +87,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 **Kriteria keluar:** project dan sesi persisten di engine; restart aplikasi tidak menghilangkan data.
 
 ## Fase 5 — Chat Inti
+
 - Streaming via SSE; transcript divirtualisasi.
 - Part ter-render: teks/markdown, thinking, tool call, file yang dibaca/diubah (diff), perintah terminal + output, web search.
 - Stop/abort, kartu izin (sekali / selalu / tolak), revert, regenerate, cabang sesi, copy.
@@ -90,6 +98,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 **Kriteria keluar:** tool call nyata (baca/tulis file, terminal) berjalan dari chat dengan persetujuan izin, dan ada test e2e-nya.
 
 ## Fase 6 — Provider & Model
+
 - Tambah koneksi: API key (daftar provider dari OpenCode), sign-in via OpenCode, custom endpoint OpenAI-compatible, lokal (Ollama, LM Studio, auto-detect).
 - Secret disimpan sesuai hasil S4.
 - Model picker penuh: autofocus ke pencarian, Semua provider, Disematkan, grouping nama/provider, ping model.
@@ -98,6 +107,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 **Kriteria keluar:** bisa chat dengan model lokal, model custom endpoint, dan model hasil sign-in.
 
 ## Fase 7 — Panel 3: Viewer Dokumen
+
 - Tab dokumen, path, toolbar lengkap (render/raw, cari, wrap, copy isi/path, unduh, buka di aplikasi lain, reload, tutup).
 - Monaco (read-only dulu; edit menyusul sebagai task terpisah), Markdown + Mermaid + KaTeX, gambar, PDF, CSV/JSON, HTML sandbox.
 - Klik file di chat atau di Files akan membuka file itu di Panel 3.
@@ -105,6 +115,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 **Kriteria keluar:** semua format "Penuh" di PRD ter-render dan ada test snapshot-nya.
 
 ## Fase 8 — Panel 4: Tools
+
 - Terminal (xterm + PTY, multi-tab, mengikuti project aktif).
 - Git: status, diff, stage, commit, branch.
 - Browser: child webview, default google.com, navigasi; fallback ke browser sistem.
@@ -116,6 +127,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 ---
 
 ## Fase 9 — Memori & Skill Creator
+
 - Opt-in saat membuat project atau sesi, dan bisa diubah di pengaturan.
 - `MemoryProvider` bawaan: blok Markdown (project + global) + pencarian SQLite FTS5 lewat plugin OpenCode.
 - Sematkan ke konteks (tahan kompaksi), simpan sebagai catatan.
@@ -124,12 +136,14 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Adapter opsional: Hindsight (MCP/REST), Graphify (`graph.json`).
 
 ## Fase 10 — Kustomisasi
+
 - Engine tema + preset (Gemini, Claude, ChatGPT, Discord, Vercel, Raycast, dll); impor/ekspor tema.
 - Tipografi per variabel; kustomisasi panel chat (opasitas, ketebalan, ukuran, spasi, font).
 - Kustomisasi section project di sidebar (border, logo, background).
 - Tema editor + paket ikon dari Open VSX; editor shortcut.
 
 ## Fase 11 — Panel 3 Lanjutan & Fitur Ekstra
+
 - DOCX, XLSX, ipynb, PPTX (best-effort); edit file di Monaco.
 - Saran prompt dinamis, save as (gambar/svg/md/txt), input suara.
 - Automasi terjadwal yang nyata, notifikasi.
@@ -138,11 +152,13 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Manual "agent bisa mengonfigurasi Zandor": skema pengaturan + skill bawaan.
 
 ## Fase 12 — Rilis Publik (Windows)
+
 - Code signing Windows (aplikasi + sidecar opencode).
 - Auto-updater (semver), Third-Party Notices otomatis, crash report opt-in.
 - Website `zandor.web.id`, akun opsional, persiapan paket berbayar.
 
 ## Fase 13 — Port macOS & Linux (setelah aplikasi selesai, ADR-027)
+
 - Jalankan ulang suite spike S1, S3, S4, S7, dan S8 di macOS dan Linux; tutup risiko yang sudah diketahui:
   proses yatim saat crash di macOS (ADR-019), WKWebView/WebKitGTK + fallback Wayland (ADR-020),
   Secret Service di Linux headless (ADR-022), PTY (ADR-024), HiDPI (ADR-025).
@@ -151,6 +167,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 ---
 
 ## Lampiran — Struktur docs yang lebih ramping
+
 ```
 AGENTS.md                 → pointer ke docs/agents.md
 docs/

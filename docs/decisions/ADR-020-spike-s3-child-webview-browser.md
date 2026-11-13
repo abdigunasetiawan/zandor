@@ -10,10 +10,12 @@
 - **Memperjelas:** ADR-012
 
 ## Pertanyaan
+
 Apakah child webview bisa dipakai untuk browser bawaan di Win/mac/Linux X11 (fallback di Wayland)?
 Lulus jika: bisa membuka google.com dan login Google; posisinya mengikuti resize panel.
 
 ## Keputusan
+
 1. **Tauri `=2.12.5` dengan feature `unstable`** (multiwebview), versi di-pin persis.
 2. Satu `Window`, dua webview anak:
    - `ui` — UI lokal, `auto_resize()` memenuhi jendela, satu-satunya yang punya IPC.
@@ -31,25 +33,27 @@ Lulus jika: bisa membuka google.com dan login Google; posisinya mengikuti resize
    dibuat; panel menampilkan keterangan jujur dan tautan dibuka di browser sistem (`xdg-open`).
 
 ## Bukti (Windows 11, skala layar 100%)
+
 Self-test otomatis (`ZANDOR_SELFTEST=<file>`), dijalankan 5x: 4x lulus penuh, 1x (run pertama,
 cold-start) `bounds_initial` gagal — lihat temuan 1. Setelah mitigasi + 3 run ulang: lulus semua.
 
-| Cek | Hasil |
-|---|---|
-| google.com termuat | 0,6–1,2 dtk, `document.title = "Google"` (tidak diblokir X-Frame-Options) |
-| bounds awal / splitter 300px / splitter 800px / jendela 1000×650 | selisih panel ↔ webview **0 px** |
-| navigasi ke example.com lalu back | ✓ |
-| sembunyikan / tampilkan | ✓ |
-| **login Google (manual, pemilik)** | **berhasil** — tidak diblokir "browser may not be secure" |
-| sesi Google setelah app ditutup & dibuka lagi | pemilik: **tidak bertahan** pada buka-ulang pertama · self-test berikutnya (4 run): **masih login** (`google_session_state.signedIn = true`, `accounts.google.com` → `myaccount.google.com`) |
-| halaman login `accounts.google.com` | termuat (`/v3/signin/identifier`), teks "Sign in · Use your Google Account · Email or phone"; tidak ada pesan "browser may not be secure" di tahap ini |
-| global IPC di halaman remote | `__TAURI_INTERNALS__`, `__TAURI__`, `ipc` **ada** (diinjeksi Tauri) |
-| `invoke` dari google.com: perintah app (`get_browser_mode`, `browser_set_visible`) | **ditolak**: "not allowed. Plugin not found" |
-| `invoke` dari google.com: `plugin:event\|emit`, `plugin:webview\|get_all_webviews` | **ditolak**: "not allowed on … webview \"browser\" … allowed on: [webviews: \"ui\", URL: local]" |
+| Cek                                                                                | Hasil                                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| google.com termuat                                                                 | 0,6–1,2 dtk, `document.title = "Google"` (tidak diblokir X-Frame-Options)                                                                                                                    |
+| bounds awal / splitter 300px / splitter 800px / jendela 1000×650                   | selisih panel ↔ webview **0 px**                                                                                                                                                             |
+| navigasi ke example.com lalu back                                                  | ✓                                                                                                                                                                                            |
+| sembunyikan / tampilkan                                                            | ✓                                                                                                                                                                                            |
+| **login Google (manual, pemilik)**                                                 | **berhasil** — tidak diblokir "browser may not be secure"                                                                                                                                    |
+| sesi Google setelah app ditutup & dibuka lagi                                      | pemilik: **tidak bertahan** pada buka-ulang pertama · self-test berikutnya (4 run): **masih login** (`google_session_state.signedIn = true`, `accounts.google.com` → `myaccount.google.com`) |
+| halaman login `accounts.google.com`                                                | termuat (`/v3/signin/identifier`), teks "Sign in · Use your Google Account · Email or phone"; tidak ada pesan "browser may not be secure" di tahap ini                                       |
+| global IPC di halaman remote                                                       | `__TAURI_INTERNALS__`, `__TAURI__`, `ipc` **ada** (diinjeksi Tauri)                                                                                                                          |
+| `invoke` dari google.com: perintah app (`get_browser_mode`, `browser_set_visible`) | **ditolak**: "not allowed. Plugin not found"                                                                                                                                                 |
+| `invoke` dari google.com: `plugin:event\|emit`, `plugin:webview\|get_all_webviews` | **ditolak**: "not allowed on … webview \"browser\" … allowed on: [webviews: \"ui\", URL: local]"                                                                                             |
 
 Screenshot manual: webview Google pas di panel kanan, di bawah header panel, tanpa celah.
 
 ## Temuan & risiko (jujur)
+
 1. **Race bounds saat cold-start** (1 dari 5 run): sinkron pertama dari UI tidak berefek, webview
    tetap di posisi awal dari Rust. Mitigasi: sinkron ulang di setiap event load browser, setelah itu
    4 run lulus. Di produk: Rust sebaiknya mengirim event `browser-ready` dan UI selalu sinkron ulang.
@@ -87,11 +91,13 @@ Screenshot manual: webview Google pas di panel kanan, di bawah header panel, tan
    harus melalui test S3.
 
 ## Konsekuensi
+
 - Fase 8 (Browser) memakai pola ini. Komponen panel browser wajib mengirim bounds lewat satu
   jalur (ResizeObserver) dan menyembunyikan webview saat panel collapse atau ada overlay.
 - Design system (Fase 2) harus punya aturan "overlay di atas Panel 4 → browser disembunyikan".
 
 ## Cara mengulang
+
 ```
 cd spikes
 cargo build -p zandor-spike-s3

@@ -23,3 +23,8 @@ dist/
 Thumbs.db
 .vscode/
 .idea/
+
+# Fase 1
+test-results/
+playwright-report/
+*.tsbuildinfo

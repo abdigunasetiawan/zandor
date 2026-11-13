@@ -7,11 +7,13 @@
 - **Kode:** `spikes/s1-sidecar/` (crate `supervisor` + app Tauri `src-tauri`), `spikes/tools/fetch-opencode.mjs`
 
 ## Pertanyaan
+
 Apakah binary `opencode` bisa dibundel sebagai sidecar di Windows/macOS/Linux, lalu dijalankan,
 dipantau, dan dimatikan dengan bersih?
 Kriteria lulus (roadmap): tidak ada proses yatim; port loopback + token; versi di-pin.
 
 ## Keputusan
+
 1. **Sumber binary:** paket npm resmi `opencode-<os>-<arch>` (MIT), versi di-pin di
    `spikes/tools/opencode-version.json` (saat ini **1.19.5**). Skrip `fetch-opencode.mjs` mengunduh lewat
    `npm pack` (integritas tarball dicek npm), menaruhnya sebagai `binaries/opencode-<target-triple>`,
@@ -23,8 +25,8 @@ Kriteria lulus (roadmap): tidak ada proses yatim; port loopback + token; versi d
 3. **Start:** `opencode serve --hostname 127.0.0.1 --port 0`, dengan env:
    - `OPENCODE_SERVER_PASSWORD=<64 hex acak per start>` → HTTP Basic `opencode:<token>`.
    - `OPENCODE_DISABLE_AUTOUPDATE=1` → engine tidak mengganti versinya sendiri.
-   URL dibaca dari baris stdout `opencode server listening on http://…`, lalu `GET /global/health`
-   wajib 200 dan versi wajib sama dengan pin. stdout/stderr terus dikuras ke ring buffer 500 baris.
+     URL dibaca dari baris stdout `opencode server listening on http://…`, lalu `GET /global/health`
+     wajib 200 dan versi wajib sama dengan pin. stdout/stderr terus dikuras ke ring buffer 500 baris.
 4. **Monitor & restart:** thread monitor (`try_wait` tiap 250 ms) memanggil callback bila engine mati
    tanpa diminta. App merestart maksimal 3x dengan backoff; setelah itu error ditampilkan apa adanya.
    Semua start/restart lewat **satu thread supervisor yang hidup sepanjang app** (wajib di Linux,
@@ -43,19 +45,20 @@ Kriteria lulus (roadmap): tidak ada proses yatim; port loopback + token; versi d
    `EventSource` tidak bisa mengirim header `Authorization` (penting untuk S2).
 
 ## Bukti (Windows 11 x64, Rust 1.99.1, Tauri 2.12.5, opencode 1.19.5)
+
 `cargo test -p zandor-engine-supervisor -- --test-threads=1` → **10/10 lulus** (3 unit + 7 integrasi
 memakai binary asli):
 
-| Test | Hasil |
-|---|---|
-| start + health + versi di-pin | engine siap **1,1 dtk**; URL `127.0.0.1` |
-| tanpa token / token salah / `/session` tanpa token | 401 |
-| pin versi dipaksakan (`expected_version` salah) | start ditolak `VersionMismatch` |
-| dua engine bersamaan | port & token berbeda |
-| `stop()` dengan proses cucu (`POST /pty` → `ping.exe` + `conhost.exe`) | semua mati, stop **82 ms** |
-| engine mati tak terduga | callback dipanggil (code 1) |
-| `stop()` tidak memicu callback "mati tak terduga" | ✓ |
-| **parent di-kill paksa** (TerminateProcess) saat engine + cucu hidup | engine & semua cucu mati |
+| Test                                                                   | Hasil                                    |
+| ---------------------------------------------------------------------- | ---------------------------------------- |
+| start + health + versi di-pin                                          | engine siap **1,1 dtk**; URL `127.0.0.1` |
+| tanpa token / token salah / `/session` tanpa token                     | 401                                      |
+| pin versi dipaksakan (`expected_version` salah)                        | start ditolak `VersionMismatch`          |
+| dua engine bersamaan                                                   | port & token berbeda                     |
+| `stop()` dengan proses cucu (`POST /pty` → `ping.exe` + `conhost.exe`) | semua mati, stop **82 ms**               |
+| engine mati tak terduga                                                | callback dipanggil (code 1)              |
+| `stop()` tidak memicu callback "mati tak terduga"                      | ✓                                        |
+| **parent di-kill paksa** (TerminateProcess) saat engine + cucu hidup   | engine & semua cucu mati                 |
 
 App Tauri (`ZANDOR_SELFTEST=<file>`), debug **dan** release → 6/6 lulus:
 engine siap ±1,0 dtk; `fetch` health dari webview 200; tanpa token 401; daftar sesi 200;
@@ -67,6 +70,7 @@ Bundel: `tauri build` → installer NSIS **58,5 MiB**; `installer.nsi` memuat
 (tidak ingin mengubah sistem), jadi jalur "setelah instal" belum diuji.
 
 ## Yang belum terbukti / risiko (jujur)
+
 1. **macOS & Linux belum dijalankan sama sekali.** Kode unix hanya lolos `cargo check` untuk
    `x86_64-unknown-linux-gnu` dan `aarch64-apple-darwin`. Kriteria S1 menyebut tiga OS, jadi
    **S1 belum boleh dianggap lulus penuh** sampai test yang sama jalan di mac dan Linux (rencana: job CI
@@ -101,12 +105,14 @@ Bundel: `tauri build` → installer NSIS **58,5 MiB**; `installer.nsi` memuat
     (notarisasi macOS wajib menandatangani sidecar juga).
 
 ## Konsekuensi
+
 - Fase 4 (supervisor engine) memakai desain crate `zandor-engine-supervisor` ini sebagai dasar.
 - S2 harus memakai SSE via `fetch` stream, bukan `EventSource`.
 - Fase 1 CI wajib menjalankan test S1 di matrix Windows/macOS/Linux sebelum Fase 0 dinyatakan
   lulus penuh, atau PRD direvisi untuk risiko macOS.
 
 ## Cara mengulang
+
 ```
 node spikes/tools/fetch-opencode.mjs
 cd spikes

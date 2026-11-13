@@ -5,12 +5,14 @@
 - **Mengubah:** ADR-005 (target OS), roadmap Fase 0 (kriteria S1/S3 tiga OS), roadmap S9
 
 ## Konteks
+
 - Spike S1, S3, S4, S7, dan S8 lulus di Windows 11, tetapi belum pernah dijalankan di macOS/Linux
   (ADR-019–025). Pemilik tidak punya perangkat macOS/Linux.
 - Kriteria Fase 0 di roadmap menuntut tiga OS, sehingga Fase 0 tidak akan pernah bisa lulus.
 - S9 (meminta izin tertulis OpenCode untuk model gratis Zen) adalah tugas pemilik, bukan teknis.
 
 ## Keputusan
+
 1. **Fokus Windows (x64) sampai aplikasi benar-benar selesai** (MVP Fase 0–8 dan fitur
    setelahnya yang direncanakan). macOS dan Linux **ditunda**, bukan dibatalkan.
 2. Kode tetap ditulis lintas platform bila tidak menambah biaya berarti (Rust `cfg(unix)`, path
@@ -27,6 +29,7 @@
    Zandor memperlakukannya seperti provider lain.
 
 ## Konsekuensi
+
 - Fase 0 dinilai lulus berdasarkan hasil Windows (lihat roadmap).
 - PRD §6 dan roadmap diperbarui.
 - Risiko spike yang khusus macOS/Linux dipindahkan ke fase port dan tidak menghalangi fase lain.

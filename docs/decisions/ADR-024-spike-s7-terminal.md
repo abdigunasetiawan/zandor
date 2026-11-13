@@ -6,11 +6,13 @@
 - **Kode:** `spikes/s7-terminal/` (app Tauri: `src-tauri/src/main.rs`, `ui/index.html`)
 
 ## Pertanyaan
+
 Apakah xterm.js + PTY menghasilkan shell interaktif yang berjalan dengan resize yang benar di tiga OS?
 Roadmap menyebut `portable-pty`, padahal ternyata `opencode serve` juga punya API `/pty`. Mana yang
 dipakai?
 
 ## Opsi yang diuji (UI xterm.js 6.0.0 + addon fit + unicode11 yang sama)
+
 - **A — `portable-pty =0.9.0` di Rust Zandor.** Byte output dialirkan ke UI lewat
   `tauri::ipc::Channel` (raw, tanpa JSON). Shell dimasukkan ke Job Object Zandor.
 - **B — API `/pty` milik `opencode serve` 1.19.5.** UI langsung memanggil `POST /pty` lalu
@@ -24,6 +26,7 @@ dipakai?
   - Tiket diperlukan karena WebSocket di browser tidak bisa mengirim header `Authorization`.
 
 ## Keputusan
+
 1. **Backend utama: B (`opencode /pty`).**
    - Terminal berada di **mesin engine**, jadi otomatis benar untuk engine remote (Fase 11) tanpa
      kode tambahan.
@@ -43,21 +46,22 @@ dipakai?
 
 ## Bukti (Windows 11, PowerShell 5.1 `-NoProfile`, 2 run berturut-turut, semua lulus)
 
-| Skenario | A portable-pty | B opencode /pty |
-|---|---|---|
-| Prompt siap sejak terminal dibuka | 0,9 dtk | 1,7 dtk |
-| Echo perintah | ✓ | ✓ |
-| Unicode `héllo 你好 🚀 ✓`, sel CJK lebar 2 | ✓ | ✓ |
-| Resize 420×260 / 900×520 / 600×360 → `[Console]::WindowWidth/Height` = cols/rows xterm | ✓ | ✓ |
-| Resize lalu langsung mengetik 5x → tidak ada input hilang | ✓ | ✓ |
-| stdin interaktif (`Read-Host`) | ✓ | ✓ |
-| Ctrl+C menghentikan `ping -t` (dengan reset poin 3) | ✓ | ✓ |
-| 20.000 baris output | 4,3 dtk, jeda frame maks 13–14 ms | 2,8–3,2 dtk, jeda frame maks 12 ms |
-| Reconnect WebSocket baru (`cursor=0`) → riwayat kembali, input lanjut | — | ✓ |
-| Tutup terminal → proses shell mati | ✓ | ✓ |
-| **App di-kill paksa** dengan dua shell terbuka → tidak ada proses tersisa (shell, conhost, engine, WebView2) | ✓ | ✓ |
+| Skenario                                                                                                     | A portable-pty                    | B opencode /pty                    |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------- | ---------------------------------- |
+| Prompt siap sejak terminal dibuka                                                                            | 0,9 dtk                           | 1,7 dtk                            |
+| Echo perintah                                                                                                | ✓                                 | ✓                                  |
+| Unicode `héllo 你好 🚀 ✓`, sel CJK lebar 2                                                                   | ✓                                 | ✓                                  |
+| Resize 420×260 / 900×520 / 600×360 → `[Console]::WindowWidth/Height` = cols/rows xterm                       | ✓                                 | ✓                                  |
+| Resize lalu langsung mengetik 5x → tidak ada input hilang                                                    | ✓                                 | ✓                                  |
+| stdin interaktif (`Read-Host`)                                                                               | ✓                                 | ✓                                  |
+| Ctrl+C menghentikan `ping -t` (dengan reset poin 3)                                                          | ✓                                 | ✓                                  |
+| 20.000 baris output                                                                                          | 4,3 dtk, jeda frame maks 13–14 ms | 2,8–3,2 dtk, jeda frame maks 12 ms |
+| Reconnect WebSocket baru (`cursor=0`) → riwayat kembali, input lanjut                                        | —                                 | ✓                                  |
+| Tutup terminal → proses shell mati                                                                           | ✓                                 | ✓                                  |
+| **App di-kill paksa** dengan dua shell terbuka → tidak ada proses tersisa (shell, conhost, engine, WebView2) | ✓                                 | ✓                                  |
 
 ## Temuan & risiko (jujur)
+
 1. **B: tampilan echo rusak setelah resize** (konsisten di salah satu ukuran). Ini hanya masalah
    redraw tampilan, inputnya tetap utuh (diuji terpisah). Pada eksperimen awal dengan Git Bash, satu
    karakter ketikan sempat benar-benar hilang (`mode con` → `ode con`) setelah resize. Hal itu tidak
@@ -79,6 +83,7 @@ dipakai?
    (spike memakai `-NoProfile`).
 
 ## Konsekuensi
+
 - Fase 8: Panel 4 Terminal = xterm.js + `/pty` engine (B), multi-tab, mengikuti `directory` project
   aktif.
 - Fase 3/4: app memanggil `SetConsoleCtrlHandler(NULL, FALSE)` saat start (Windows), dan supervisor
@@ -87,6 +92,7 @@ dipakai?
   Fase 0.
 
 ## Cara mengulang
+
 ```
 cd spikes
 cargo build -p zandor-spike-s1            # menyalin sidecar opencode ke target/debug

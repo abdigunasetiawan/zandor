@@ -1,0 +1,17 @@
+{
+  "name": "@zandor/plugin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Plugin opencode milik Zandor (dimuat engine lewat OPENCODE_CONFIG_CONTENT).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "build": "bun build src/index.ts --target bun --outfile dist/zandor-plugin.js --minify"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "1.19.5"
+  }
+}

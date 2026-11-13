@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# ADR-027: Windows dulu. macOS/Linux ditambahkan di Fase 13.
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # nomor build dev = jumlah commit (ADR-016)
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Rust toolchain (dipin di rust-toolchain.toml)
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependensi JS
+        run: bun install --frozen-lockfile
+
+      - name: Lint & format (Biome)
+        run: bun x biome ci .
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test unit & komponen (Vitest)
+        run: bun run test
+
+      - name: Audit lisensi JS
+        run: bun run licenses
+
+      - name: Build UI
+        working-directory: apps/desktop
+        run: bun run build
+
+      - name: Rust fmt
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust test
+        run: cargo test --workspace
+
+      # cargo-deny-action berbasis Docker dan tidak jalan di runner Windows → pasang binary prebuilt.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Audit lisensi Rust (cargo-deny)
+        run: cargo deny check licenses bans sources
+
+      - name: e2e (Playwright + Edge)
+        working-directory: apps/desktop
+        run: bun x playwright test
+        env:
+          CI: "1"
+
+      - name: Build aplikasi (NSIS)
+        working-directory: apps/desktop
+        run: bun run tauri build --ci
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zandor-windows
+          path: |
+            target/release/bundle/nsis/*.exe
+            apps/desktop/playwright-report
+          if-no-files-found: ignore
