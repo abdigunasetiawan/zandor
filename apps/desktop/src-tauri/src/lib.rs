@@ -2,6 +2,7 @@
 
 mod engine;
 mod files;
+mod git;
 mod netprobe;
 mod providers;
 mod registry;
@@ -228,6 +229,97 @@ fn fs_open_external(app: tauri::AppHandle, root: String, path: String) -> Result
     }
 }
 
+// ---------- Git (Fase 8) ----------
+
+fn git_dir(app: &tauri::AppHandle, root: &str) -> Result<PathBuf, String> {
+    let roots = files::allowed_roots(&app_data(app)?);
+    files::resolve_dir(&roots, root)
+}
+
+async fn git_blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn git_status(app: tauri::AppHandle, root: String) -> Result<git::GitStatus, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::status(&dir)).await
+}
+
+#[tauri::command]
+async fn git_diff(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    staged: bool,
+    untracked: bool,
+) -> Result<String, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::diff(&dir, &path, staged, untracked)).await
+}
+
+#[tauri::command]
+async fn git_stage(app: tauri::AppHandle, root: String, paths: Vec<String>) -> Result<(), String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::stage(&dir, &paths)).await
+}
+
+#[tauri::command]
+async fn git_unstage(
+    app: tauri::AppHandle,
+    root: String,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::unstage(&dir, &paths)).await
+}
+
+#[tauri::command]
+async fn git_commit(
+    app: tauri::AppHandle,
+    root: String,
+    message: String,
+) -> Result<String, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::commit(&dir, &message)).await
+}
+
+#[tauri::command]
+async fn git_branches(app: tauri::AppHandle, root: String) -> Result<Vec<git::Branch>, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::branches(&dir)).await
+}
+
+#[tauri::command]
+async fn git_switch(app: tauri::AppHandle, root: String, name: String) -> Result<(), String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::switch(&dir, &name)).await
+}
+
+#[tauri::command]
+async fn git_create_branch(
+    app: tauri::AppHandle,
+    root: String,
+    name: String,
+) -> Result<(), String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::create_branch(&dir, &name)).await
+}
+
+#[tauri::command]
+async fn git_log(
+    app: tauri::AppHandle,
+    root: String,
+    count: usize,
+) -> Result<Vec<git::CommitInfo>, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::log(&dir, count)).await
+}
+
 fn sidecar_path() -> PathBuf {
     let dir = std::env::current_exe()
         .ok()
@@ -285,7 +377,16 @@ pub fn run() {
             open_external,
             fs_read,
             fs_copy_to,
-            fs_open_external
+            fs_open_external,
+            git_status,
+            git_diff,
+            git_stage,
+            git_unstage,
+            git_commit,
+            git_branches,
+            git_switch,
+            git_create_branch,
+            git_log
         ])
         .build(tauri::generate_context!())
         .expect("gagal membangun Zandor");

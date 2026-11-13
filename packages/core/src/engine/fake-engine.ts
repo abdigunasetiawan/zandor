@@ -1,6 +1,8 @@
 // Engine palsu di memori untuk test (core dan UI). Meniru perilaku yang terbukti pada engine asli:
 // sesi terikat direktori, judul bawaan "New session - <ISO>", daftar berkas menurut path relatif.
+
 import type { ChatMessage, EngineEvent, PermissionReply, PermissionRequest } from "../chat/types";
+import { createFakePty, type FakePty } from "../terminal/fake-pty";
 import type {
   AuthMethod,
   CatalogProvider,
@@ -38,6 +40,7 @@ export type FakeEngine = EngineApi & {
   aborted: string[];
   /** Dipanggil saat prompt diterima; test memakainya untuk menjalankan skenario respons lewat `emit`. */
   onPrompt: ((directory: string, sessionId: string, text: string) => void) | null;
+  pty: FakePty;
   catalog: CatalogProvider[];
   fileContents: Map<string, Uint8Array>;
   authMethods: Record<string, AuthMethod[]>;
@@ -70,6 +73,7 @@ export function createFakeEngine(): FakeEngine {
     replies: [],
     aborted: [],
     onPrompt: null,
+    pty: createFakePty(),
     catalog: [],
     fileContents: new Map(),
     authMethods: {},

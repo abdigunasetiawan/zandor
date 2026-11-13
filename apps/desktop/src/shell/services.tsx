@@ -1,7 +1,9 @@
 // Layanan bersama aplikasi (satu instance per aplikasi, dibuat di main.tsx). Komponen mengaksesnya lewat hook.
 
-import type { ProviderHost } from "@zandor/core";
+import type { GitHost, ProviderHost } from "@zandor/core";
 import {
+  type ActivityEntry,
+  type ActivityLog,
   ChatStore,
   type ChatStoreState,
   type CommandDef,
@@ -10,6 +12,8 @@ import {
   DocStore,
   type DocsState,
   type EngineState,
+  type GitState,
+  GitStore,
   isAbsolutePath,
   type Logger,
   locateInRoots,
@@ -21,6 +25,8 @@ import {
   type SettingKey,
   type Settings,
   SettingsStore,
+  type TerminalState,
+  TerminalStore,
 } from "@zandor/core";
 import {
   createContext,
@@ -105,6 +111,9 @@ export type Services = {
   providers: ProviderStore;
   docs: DocStore;
   docHost: DocHost;
+  terminals: TerminalStore;
+  git: GitStore;
+  activity: ActivityLog;
 };
 
 export function createServices(options: {
@@ -114,6 +123,9 @@ export function createServices(options: {
   host: EngineHost;
   providerHost: ProviderHost;
   docHost: DocHost;
+  gitHost: GitHost;
+  /** Log aktivitas bersama; dibuat di main.tsx supaya sink logger sudah terpasang sejak awal. */
+  activity: ActivityLog;
 }): Services {
   const chat = new ChatStore({
     prefs: {
@@ -133,6 +145,7 @@ export function createServices(options: {
       },
     },
     onWarning: (m) => options.logger.warn(m),
+    onEvent: (ev) => options.activity.fromEngineEvent(ev),
   });
   return {
     settings: new SettingsStore({
@@ -151,6 +164,9 @@ export function createServices(options: {
     }),
     chat,
     docHost: options.docHost,
+    terminals: new TerminalStore(),
+    git: new GitStore(options.gitHost),
+    activity: options.activity,
     docs: new DocStore({
       source: options.docHost.source,
       prefs: {
@@ -313,5 +329,32 @@ export function useOpenDoc(): (path: string, root?: string) => boolean {
       return true;
     },
     [docs, panels, projects],
+  );
+}
+
+export function useTerminals(): TerminalState {
+  const { terminals } = useServices();
+  return useSyncExternalStore(
+    (cb) => terminals.subscribe(cb),
+    () => terminals.state(),
+    () => terminals.state(),
+  );
+}
+
+export function useGit(): GitState {
+  const { git } = useServices();
+  return useSyncExternalStore(
+    (cb) => git.subscribe(cb),
+    () => git.state(),
+    () => git.state(),
+  );
+}
+
+export function useActivity(): readonly ActivityEntry[] {
+  const { activity } = useServices();
+  return useSyncExternalStore(
+    (cb) => activity.subscribe(cb),
+    () => activity.list(),
+    () => activity.list(),
   );
 }

@@ -2,13 +2,14 @@
 // Penjaga kriteria keluar Fase 2: setiap komponen terdaftar di katalog, punya demo di halaman design system,
 // dan halaman memuat semua bagian sesuai urutan roadmap.
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { createLogger } from "@zandor/core";
+import { ActivityLog, createLogger } from "@zandor/core";
 import * as ui from "@zandor/ui";
 import { ATOMS, INFRASTRUCTURE, MOLECULES } from "@zandor/ui";
 import { afterEach, describe, expect, test } from "vitest";
 import { App, hashToPath, parseRoute } from "../App";
 import { createBrowserDocHost } from "../shell/doc-host";
 import { createBrowserHost } from "../shell/engine-host";
+import { createUnavailableGitHost } from "../shell/git-host";
 import { createBrowserProviderHost } from "../shell/provider-host";
 import { createServices } from "../shell/services";
 import { SECTIONS } from "./DesignSystemPage";
@@ -60,6 +61,8 @@ describe("halaman design system", () => {
       host: createBrowserHost(),
       providerHost: createBrowserProviderHost(),
       docHost: createBrowserDocHost(() => null),
+      gitHost: createUnavailableGitHost(),
+      activity: new ActivityLog(),
       storage: { get: () => null, set: () => {} },
     });
     return render(<App services={services} />);

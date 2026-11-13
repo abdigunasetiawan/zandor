@@ -11,3 +11,5 @@ export * from "./navigation";
 export * from "./providers";
 export * from "./settings";
 export * from "./shortcuts";
+export * from "./terminal";
+export * from "./tools";

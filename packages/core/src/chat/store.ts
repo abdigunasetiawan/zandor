@@ -32,7 +32,12 @@ export type PermissionMode = "ask" | "auto-edit" | "auto-all";
 export const PERMISSION_MODES: readonly PermissionMode[] = ["ask", "auto-edit", "auto-all"];
 
 export type ChatPrefs = { get(key: string): string | null; set(key: string, value: string): void };
-export type ChatStoreOptions = { prefs: ChatPrefs; onWarning?: (message: string) => void };
+export type ChatStoreOptions = {
+  prefs: ChatPrefs;
+  onWarning?: (message: string) => void;
+  /** Dipanggil untuk setiap event engine yang diterima (mis. untuk Log aktivitas). */
+  onEvent?: (event: EngineEvent) => void;
+};
 
 const MODEL_PREF = "zandor.model";
 const MODE_PREF = "zandor.permissionMode";
@@ -278,6 +283,11 @@ export class ChatStore {
   }
 
   private onEvent(directory: string, ev: EngineEvent) {
+    try {
+      this.options.onEvent?.(ev);
+    } catch {
+      // pengamat tidak boleh mengganggu aliran event
+    }
     if (ev.type === "permission.asked") this.maybeAutoReply(directory, ev.request);
     const isMessageEvent = MESSAGE_EVENTS.has(ev.type);
     for (const id of this.sessionsOf(directory)) {

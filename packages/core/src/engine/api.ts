@@ -10,6 +10,7 @@ import {
   toMessage,
   toPermission,
 } from "../chat/types";
+import { createPtyClient, type PtyClient } from "../terminal/pty";
 
 export type EngineConnectionInfo = { url: string; username: string; password: string };
 
@@ -36,6 +37,8 @@ export type ModelOption = {
   name: string;
   /** Varian reasoning yang diterima model (kosong bila tidak ada). */
   variants: string[];
+  /** Batas jendela konteks model (token), bila diketahui. */
+  contextLimit?: number;
 };
 export type FileAttachment = { mime: string; url: string; filename?: string };
 export type ModelRef = { providerID: string; modelID: string };
@@ -67,6 +70,8 @@ export type AuthMethod = { type: "oauth" | "api"; label: string; prompts: AuthPr
 export type OAuthStart = { url: string; method: "auto" | "code"; instructions: string };
 
 export interface EngineApi {
+  /** Terminal (PTY) di mesin engine. */
+  pty: PtyClient;
   health(): Promise<{ version: string }>;
   listSessions(directory: string): Promise<SessionInfo[]>;
   createSession(directory: string, title?: string): Promise<SessionInfo>;
@@ -137,6 +142,7 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
     ...(fetchImpl ? { fetch: fetchImpl as never } : {}),
   });
   return {
+    pty: createPtyClient(info, fetchImpl),
     async health() {
       const r = await client.global.health();
       return { version: body(r, "global.health").version };
@@ -178,6 +184,7 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
             modelID: m.id,
             name: m.name,
             variants: Object.keys(m.variants ?? {}),
+            ...(m.limit?.context ? { contextLimit: m.limit.context } : {}),
           });
         }
       }

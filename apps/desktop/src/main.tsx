@@ -1,10 +1,11 @@
-import { consoleSink, createLogger } from "@zandor/core";
+import { ActivityLog, consoleSink, createLogger } from "@zandor/core";
 import { detectLocale } from "@zandor/i18n";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, hashToPath } from "./App";
 import { loadDocHost } from "./shell/doc-host";
 import { loadEngineHost } from "./shell/engine-host";
+import { loadGitHost } from "./shell/git-host";
 import { loadProviderHost } from "./shell/provider-host";
 import { createServices } from "./shell/services";
 import "@zandor/ui";
@@ -12,7 +13,11 @@ import "./styles.css";
 
 const SETTINGS_KEY = "zandor.settings";
 
-const logger = createLogger("app", { level: import.meta.env.DEV ? "debug" : "info", sinks: [consoleSink] });
+const activity = new ActivityLog();
+const logger = createLogger("app", {
+  level: import.meta.env.DEV ? "debug" : "info",
+  sinks: [consoleSink, activity.sink],
+});
 
 const host = await loadEngineHost();
 const providerHost = await loadProviderHost();
@@ -23,6 +28,8 @@ const services = createServices({
   host,
   providerHost,
   docHost,
+  gitHost: await loadGitHost(),
+  activity,
   initialPath: hashToPath(window.location.hash),
   storage: {
     get: () => {

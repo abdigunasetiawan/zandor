@@ -103,6 +103,15 @@ pub fn resolve_in_root(allowed: &[PathBuf], root: &str, rel: &str) -> Result<Pat
     Ok(full)
 }
 
+/// Root terdaftar → path folder yang sudah dikanonisasi (untuk perintah yang bekerja di dalam folder, mis. git).
+pub fn resolve_dir(allowed: &[PathBuf], root: &str) -> Result<PathBuf, String> {
+    let root_path = PathBuf::from(root);
+    if !allowed.iter().any(|a| same_dir(a, &root_path)) {
+        return Err("folder ini bukan project yang terdaftar".into());
+    }
+    dunce(&root_path).ok_or_else(|| "folder project tidak ditemukan".to_string())
+}
+
 pub fn read_limited(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("tidak bisa membaca berkas: {e}"))?;
     if !meta.is_file() {
@@ -176,6 +185,15 @@ mod tests {
             let shouty = format!("{}\\", root.to_string_lossy().to_uppercase());
             assert!(resolve_in_root(&allowed, &shouty, "a.txt").is_ok());
         }
+    }
+
+    #[test]
+    fn resolve_dir_requires_a_registered_root() {
+        let (base, root) = setup("dir");
+        let allowed = vec![root.clone()];
+        assert!(resolve_dir(&allowed, root.to_str().unwrap()).is_ok());
+        assert!(resolve_dir(&allowed, base.to_str().unwrap()).is_err());
+        assert!(resolve_dir(&[], root.to_str().unwrap()).is_err());
     }
 
     #[test]
