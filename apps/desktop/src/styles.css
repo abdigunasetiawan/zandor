@@ -179,7 +179,11 @@
   flex: none;
   flex-direction: column;
   gap: var(--z-space-3);
-  width: calc(var(--z-space-7) * 4);
+  margin: var(--z-space-2) 0 var(--z-space-2) var(--z-space-2);
+  border-radius: var(--z-radius-lg);
+  background: var(--z-color-bg);
+  box-shadow: var(--z-shadow-panel);
+  width: calc(var(--z-space-7) * 4.5);
   padding: var(--z-space-4) var(--z-space-3);
   overflow-y: auto;
 }
@@ -269,7 +273,9 @@
   color: var(--z-color-fg-muted);
 }
 .settings__control {
+  display: flex;
   flex: none;
+  justify-content: flex-end;
   min-width: calc(var(--z-space-7) * 4);
 }
 .settings__actions {
