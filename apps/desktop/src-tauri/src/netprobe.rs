@@ -37,6 +37,7 @@ fn agent(timeout: Duration) -> ureq::Agent {
         .tls_config(
             ureq::tls::TlsConfig::builder()
                 .provider(ureq::tls::TlsProvider::NativeTls)
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
                 .build(),
         )
         .build()

@@ -56,6 +56,29 @@ export type PermissionRequest = {
 
 export type PermissionReply = "once" | "always" | "reject";
 
+/** Pertanyaan dari agent (tool `question`): pengguna menjawab lewat formulir. */
+export type QuestionOption = { label: string; description: string };
+export type QuestionItem = {
+  question: string;
+  /** Label pendek (maks 30 karakter). */
+  header: string;
+  options: QuestionOption[];
+  /** Boleh memilih lebih dari satu. */
+  multiple: boolean;
+  /** Boleh mengetik jawaban sendiri (bawaan engine: ya). */
+  custom: boolean;
+};
+export type QuestionRequest = {
+  id: string;
+  sessionID: string;
+  questions: QuestionItem[];
+  tool?: { messageID: string; callID: string };
+};
+
+/** Item daftar tugas agent (tool `todowrite`). */
+export type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
+export type Todo = { content: string; status: TodoStatus; priority: "high" | "medium" | "low" };
+
 export type SessionRunStatus =
   | { type: "idle" }
   | { type: "busy" }
@@ -72,7 +95,10 @@ export type EngineEvent =
   | { type: "session.revert"; sessionID: string; revert: string | null }
   | { type: "session.error"; sessionID: string | null; error: MessageError }
   | { type: "permission.asked"; request: PermissionRequest }
-  | { type: "permission.replied"; sessionID: string; requestID: string; reply: PermissionReply };
+  | { type: "permission.replied"; sessionID: string; requestID: string; reply: PermissionReply }
+  | { type: "question.asked"; request: QuestionRequest }
+  | { type: "question.closed"; sessionID: string; requestID: string; answered: boolean }
+  | { type: "todo.updated"; sessionID: string; todos: Todo[] };
 
 // ---------- normalisasi (defensif: input tak tepercaya, bentuk bisa berubah antar versi engine) ----------
 
@@ -214,6 +240,50 @@ export function toPermission(raw: unknown): PermissionRequest | null {
   return req;
 }
 
+export function toQuestion(raw: unknown): QuestionRequest | null {
+  if (!isObj(raw)) return null;
+  const id = str(raw.id);
+  const sessionID = str(raw.sessionID);
+  if (!id || !sessionID || !Array.isArray(raw.questions)) return null;
+  const questions: QuestionItem[] = [];
+  for (const q of raw.questions) {
+    if (!isObj(q)) continue;
+    const text = str(q.question);
+    if (!text) continue;
+    const options: QuestionOption[] = Array.isArray(q.options)
+      ? q.options.flatMap((o) =>
+          isObj(o) && str(o.label) ? [{ label: o.label as string, description: str(o.description) ?? "" }] : [],
+        )
+      : [];
+    questions.push({
+      question: text,
+      header: (str(q.header) ?? "").slice(0, 60),
+      options,
+      multiple: q.multiple === true,
+      custom: q.custom !== false,
+    });
+  }
+  if (questions.length === 0) return null;
+  const req: QuestionRequest = { id, sessionID, questions };
+  if (isObj(raw.tool) && str(raw.tool.messageID) && str(raw.tool.callID)) {
+    req.tool = { messageID: raw.tool.messageID as string, callID: raw.tool.callID as string };
+  }
+  return req;
+}
+
+const TODO_STATUS = new Set(["pending", "in_progress", "completed", "cancelled"]);
+export function toTodos(raw: unknown): Todo[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Todo[] = [];
+  for (const t of raw) {
+    if (!isObj(t) || !str(t.content)) continue;
+    const status = TODO_STATUS.has(String(t.status)) ? (t.status as TodoStatus) : "pending";
+    const priority = t.priority === "high" || t.priority === "low" ? t.priority : "medium";
+    out.push({ content: (t.content as string).slice(0, 500), status, priority });
+  }
+  return out.slice(0, 100);
+}
+
 /** Event SSE mentah → EngineEvent. Event yang tidak relevan/tidak dikenal → null (diabaikan). */
 export function toEngineEvent(raw: unknown): EngineEvent | null {
   if (!isObj(raw)) return null;
@@ -283,6 +353,22 @@ export function toEngineEvent(raw: unknown): EngineEvent | null {
       const requestID = str(p.requestID);
       const reply = p.reply === "once" || p.reply === "always" || p.reply === "reject" ? p.reply : null;
       return sessionID && requestID && reply ? { type, sessionID, requestID, reply } : null;
+    }
+    case "question.asked": {
+      const request = toQuestion({ ...p, id: p.id });
+      return request ? { type, request } : null;
+    }
+    case "question.replied":
+    case "question.rejected": {
+      const sessionID = str(p.sessionID);
+      const requestID = str(p.requestID);
+      return sessionID && requestID
+        ? { type: "question.closed", sessionID, requestID, answered: type === "question.replied" }
+        : null;
+    }
+    case "todo.updated": {
+      const sessionID = str(p.sessionID);
+      return sessionID ? { type, sessionID, todos: toTodos(p.todos) } : null;
     }
     default:
       return null;

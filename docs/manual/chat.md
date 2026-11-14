@@ -10,3 +10,12 @@
   memulihkan), **Ulangi jawaban** (regenerate).
 - **Kartu tool:** klik untuk melihat masukan/keluaran/diff; tombol **Buka** membuka berkas di panel Dokumen.
 - Sesi sangat panjang divirtualisasi otomatis (≥ 40 pesan).
+
+## Respons kaya, pertanyaan agent, dan info pemakaian
+
+- Jawaban model dirender sebagai Markdown lengkap: tabel, daftar tugas, rumus (KaTeX), **blok kode berwarna** dengan tombol
+  **Salin** (blok panjang diciutkan), dan **diagram Mermaid** (muncul setelah jawaban selesai). Gambar dari luar tidak dimuat.
+- Bila agent perlu bertanya, muncul **form pertanyaan**: pilih jawaban (atau ketik sendiri) lalu **Kirim jawaban**, atau **Lewati**.
+- **Rencana agent** (daftar tugas) tampil di atas kotak pesan.
+- Di bawah kotak pesan ada bar info: model, **konteks terpakai/batas**, token, dan biaya. Klik untuk rincian. Bar berubah warna
+  saat konteks hampir penuh (≥ 80%). Kuota/limit tarif provider tidak tersedia dari engine, jadi tidak ditampilkan.

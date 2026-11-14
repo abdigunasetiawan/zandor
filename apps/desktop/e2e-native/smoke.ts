@@ -621,7 +621,7 @@ try {
   check("editor shortcut: combo baru tampil dan tersimpan di WebView asli", true);
   await page.getByRole("tab", { name: "Editor" }).click();
   await page.getByText(/hanya tersedia di aplikasi desktop/).waitFor({ state: "detached", timeout: 3000 });
-  await page.getByRole("textbox", { name: "Cari tema di Open VSX" }).fill("Dracula Theme Official");
+  await page.getByRole("textbox", { name: "Cari tema di Open VSX" }).fill("dracula");
   await page.getByRole("button", { name: "Cari", exact: true }).click();
   const hit = page.getByRole("list", { name: "Hasil pencarian" }).getByRole("listitem").first();
   const vsx = await Promise.race([
@@ -646,10 +646,10 @@ try {
       true,
       (await hit.getAttribute("aria-label")) ?? "",
     );
-    // Hasil teratas bisa saja ekstensi tanpa tema warna: coba sampai 3 hasil pertama.
+    // Hasil bisa berupa paket ikon/ekstensi tanpa tema warna: coba sampai 8 hasil pertama.
     let installed = 0;
     const hits = page.getByRole("list", { name: "Hasil pencarian" }).getByRole("listitem");
-    for (let i = 0; i < Math.min(3, await hits.count()) && installed === 0; i++) {
+    for (let i = 0; i < Math.min(8, await hits.count()) && installed === 0; i++) {
       await hits
         .nth(i)
         .getByRole("button", { name: /^Pasang / })
@@ -812,6 +812,98 @@ try {
       .waitFor({ timeout: 180000 });
     check("memori nyata: model menjawab dari memori global yang disuntik plugin (BIRU-77)", true);
     await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 120000 });
+
+    // Fase 12: info pemakaian di composer dari data nyata sesi
+    const cinfo = page.getByTestId("composer-info");
+    const ctxText = (await cinfo.getByTestId("cinfo-context").textContent()) ?? "";
+    check(
+      "composer: info konteks/token dari pesan nyata (bukan 'belum ada pemakaian')",
+      !/belum ada pemakaian/.test(ctxText) && (await cinfo.getByTestId("cinfo-tokens").count()) === 1,
+      ctxText.trim(),
+    );
+
+    // Fase 12: render kaya dari model nyata (tabel, blok kode berwarna, diagram)
+    await box.fill(
+      "Jawab HANYA dengan Markdown ini tanpa teks lain: satu tabel 2 kolom (Nama, Nilai) dengan 2 baris, lalu satu blok kode python berisi print('halo'), lalu satu blok mermaid berisi graph TD dengan A --> B.",
+    );
+    await box.press("Enter");
+    const richMsg = page.getByRole("article", { name: "Asisten" }).last();
+    await richMsg.getByTestId("code-block").first().waitFor({ timeout: 180000 });
+    await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 120000 });
+    check(
+      "render kaya nyata: blok kode berlabel bahasa dengan tombol salin",
+      (await richMsg.getByRole("button", { name: "Salin kode" }).count()) >= 1,
+    );
+    check(
+      "render kaya nyata: tabel Markdown dirender di area gulir",
+      (await richMsg.locator(".md__table table").count()) >= 1,
+    );
+    const hl = await richMsg.locator("[class*='hljs-']").count();
+    check("render kaya nyata: sintaks kode diwarnai (token hljs)", hl > 0, `${hl} token`);
+    const mer = await richMsg
+      .getByTestId("mermaid")
+      .locator("svg")
+      .waitFor({ timeout: 30000 })
+      .then(() => true)
+      .catch(() => false);
+    if (mer) check("render kaya nyata: diagram Mermaid dirender menjadi SVG", true);
+    else console.log("      (info) model tidak menghasilkan diagram Mermaid yang valid kali ini");
+
+    // Fase 12: form pertanyaan agent (tool question diaktifkan engine); bergantung pada kepatuhan model
+    await box.fill("Gunakan tool question untuk menanyakan kepada saya: pilih A atau B. Tunggu jawaban saya.");
+    await box.press("Enter");
+    const qcard = page.getByTestId("question-card");
+    const asked = await qcard
+      .waitFor({ timeout: 150000 })
+      .then(() => true)
+      .catch(() => false);
+    if (asked) {
+      check("form pertanyaan nyata: agent bertanya lewat tool question dan kartu form tampil", true);
+      await qcard
+        .getByRole("radio")
+        .first()
+        .check({ timeout: 5000 })
+        .catch(() => qcard.getByRole("checkbox").first().check());
+      await qcard.getByRole("button", { name: "Kirim jawaban" }).click();
+      await qcard.waitFor({ state: "detached", timeout: 30000 });
+      check("form pertanyaan nyata: jawaban terkirim ke engine dan kartu hilang", true);
+    } else {
+      console.log("      (info) model tidak memanggil tool question kali ini; form diuji lewat e2e");
+    }
+    await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 180000 });
+
+    // Fase 12: Masuk dengan OpenWork — langkah pertama alur device-code ke server OpenWork nyata (tanpa login)
+    await page.evaluate(() => {
+      window.location.hash = "#/providers";
+    });
+    await page.getByRole("heading", { name: "Provider & model" }).waitFor({ timeout: 10000 });
+    await page.getByRole("button", { name: "Masuk dengan OpenWork" }).click();
+    const owCode = page.getByTestId("openwork-code");
+    const gotCode = await owCode
+      .waitFor({ timeout: 30000 })
+      .then(() => true)
+      .catch(() => false);
+    if (gotCode) {
+      const codeText = ((await owCode.textContent()) ?? "").trim();
+      check(
+        "OpenWork: kode perangkat diterima dari server nyata dan tampil",
+        /^[A-Z0-9]{4}-[A-Z0-9]{4}$|^[A-Z0-9]{4,12}$/.test(codeText),
+        codeText,
+      );
+    } else {
+      console.log(
+        `      (info) OpenWork tidak terjangkau dari mesin ini: ${await page
+          .getByRole("alert")
+          .first()
+          .textContent()
+          .catch(() => "")}`,
+      );
+    }
+    await page.getByRole("button", { name: "Batal" }).click();
+    await page.evaluate(() => {
+      window.location.hash = "";
+    });
+    await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).first().waitFor({ timeout: 10000 });
 
     // Fase 11: automasi terjadwal nyata — "Jalankan sekarang" membuat sesi, mengirim prompt ke model nyata, memberi tahu.
     originalAutomation = await page.evaluate(() => localStorage.getItem("zandor.automation"));

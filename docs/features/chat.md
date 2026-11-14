@@ -42,3 +42,15 @@ Di sesi kosong, composer menampilkan hingga 4 chip saran yang dihitung dari kont
 ("Tinjau N perubahan", "Tulis pesan commit"), berkas yang sedang dibuka ("Jelaskan x", "Tulis tes untuk x"), isi akar project
 ("Buat README" bila README hilang, "Jalankan tes" bila ada manifes), dan saran umum bila tanpa project. Klik mengisi kotak
 pesan (tidak langsung terkirim); chip hilang saat mulai mengetik. Tes: `suggestions.test.ts`, `e2e/suggest.spec.ts`.
+
+## Render kaya, pertanyaan agent, info pemakaian (Fase 12, ADR-040)
+
+- **Render respons:** Markdown GFM, KaTeX, blok kode berwarna (label bahasa, Salin, ciut > 30 baris), Mermaid (setelah jawaban
+  selesai), tabel yang bisa digulir. HTML mentah/skrip/gambar luar tidak aktif.
+- **Form pertanyaan agent** (tool `question`): kartu dengan pilihan tunggal/jamak dan jawaban sendiri; Kirim/Lewati. **Rencana
+  agent** (todo) tampil di atas composer.
+- **Info pemakaian** di composer: model, konteks terpakai vs batas (peringatan hampir penuh), token, biaya, rincian.
+- **Batas:** kuota/limit tarif provider tidak tersedia dari engine; gambar dalam jawaban tidak dimuat; kepatuhan model pada
+  tool `question` bergantung model.
+- **Tes:** `bun x vitest run packages/core/src/chat packages/core/src/tools`, `bun x playwright test e2e/rich e2e/questions
+  e2e/composer-info`, smoke native (render dari model nyata, info composer, form pertanyaan bila model memakai tool).

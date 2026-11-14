@@ -1,29 +1,19 @@
-// Render Markdown jawaban asisten. Aman secara bawaan: react-markdown tidak merender HTML mentah; tautan dibuka
-// di jendela terpisah tanpa referrer (sumbernya model, jadi tidak dipercaya).
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+// Markdown respons model di chat (Fase 12): renderer kaya (kode berwarna, Mermaid, KaTeX, tabel) dimuat malas agar bundel
+// awal ringan; selama dimuat teks ditampilkan apa adanya. Detail keamanan ada di rich/RichMarkdown.tsx.
+import { lazy, Suspense } from "react";
 
-const SAFE_LINK = /^(https?:|mailto:)/i;
+const Rich = lazy(() => import("./rich/RichMarkdown"));
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   return (
-    <div className="md">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) =>
-            href && SAFE_LINK.test(href) ? (
-              <a href={href} target="_blank" rel="noreferrer noopener">
-                {children}
-              </a>
-            ) : (
-              <span>{children}</span>
-            ),
-          img: ({ alt }) => <span className="md__img">{alt ?? ""}</span>,
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
+    <Suspense
+      fallback={
+        <div className="md">
+          <p className="msg__text">{text}</p>
+        </div>
+      }
+    >
+      <Rich text={text} streaming={streaming} />
+    </Suspense>
   );
 }

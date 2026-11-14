@@ -5,7 +5,9 @@ import {
   type EngineEvent,
   type MessagePart,
   type PermissionRequest,
+  type QuestionRequest,
   type SessionRunStatus,
+  type Todo,
 } from "./types";
 
 export type ChatState = {
@@ -17,6 +19,10 @@ export type ChatState = {
   /** Pesan tujuan revert aktif; pesan sejak id ini disembunyikan. */
   revert: string | null;
   permissions: PermissionRequest[];
+  /** Pertanyaan agent yang menunggu jawaban pengguna. */
+  questions: QuestionRequest[];
+  /** Daftar tugas agent terbaru. */
+  todos: Todo[];
   /** Galat tingkat sesi terakhir (mis. provider gagal); dihapus saat prompt baru dikirim. */
   error: string | null;
   /** Delta yang tiba sebelum part-nya dikenal; diterapkan saat part muncul. */
@@ -30,6 +36,8 @@ export const initialChatState = (sessionID: string): ChatState => ({
   status: { type: "idle" },
   revert: null,
   permissions: [],
+  questions: [],
+  todos: [],
   error: null,
   pending: {},
 });
@@ -56,6 +64,7 @@ export function loadMessages(
   messages: ChatMessage[],
   permissions: PermissionRequest[],
   revert: string | null = state.revert,
+  extra: { questions?: QuestionRequest[]; todos?: Todo[] } = {},
 ): ChatState {
   const sorted = [...messages].sort((a, b) => byId(a.info, b.info));
   const last = sorted.at(-1);
@@ -67,6 +76,8 @@ export function loadMessages(
     revert,
     messages: sorted,
     permissions,
+    questions: extra.questions ?? state.questions,
+    todos: extra.todos ?? state.todos,
     pending: {},
     status: running && state.status.type === "idle" ? { type: "busy" } : state.status,
   };
@@ -157,6 +168,20 @@ export function applyEvent(state: ChatState, ev: EngineEvent): ChatState {
       if (ev.request.sessionID !== state.sessionID) return state;
       if (state.permissions.some((p) => p.id === ev.request.id)) return state;
       return { ...state, permissions: [...state.permissions, ev.request] };
+    }
+    case "question.asked": {
+      if (ev.request.sessionID !== state.sessionID) return state;
+      if (state.questions.some((q) => q.id === ev.request.id)) return state;
+      return { ...state, questions: [...state.questions, ev.request] };
+    }
+    case "question.closed": {
+      if (ev.sessionID !== state.sessionID) return state;
+      if (!state.questions.some((q) => q.id === ev.requestID)) return state;
+      return { ...state, questions: state.questions.filter((q) => q.id !== ev.requestID) };
+    }
+    case "todo.updated": {
+      if (ev.sessionID !== state.sessionID) return state;
+      return { ...state, todos: ev.todos };
     }
     case "permission.replied": {
       if (ev.sessionID !== state.sessionID) return state;

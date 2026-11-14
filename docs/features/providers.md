@@ -38,3 +38,10 @@ sungguhan belum diuji (tak ada Ollama/LM Studio di mesin pengembang), macOS/Linu
   smoke native.
 - Manual: tambah endpoint (mis. `http://localhost:8045/v1`) → Ambil daftar model → Simpan → Uji model → buka
   Windows "Credential Manager" dan lihat entri `id.web.zandor`; pastikan `providers.json` tidak berisi kunci.
+
+## Masuk dengan OpenWork (Fase 12, ADR-040)
+
+Tombol **Masuk dengan OpenWork** di halaman Provider (aplikasi desktop): OAuth device flow → kunci AI Gateway di keychain →
+provider `openwork` dengan model dari gateway. Token/kunci tidak pernah sampai ke UI. Tes: `cargo test --lib openwork`
+(+ `-- --ignored` untuk kode perangkat dari server nyata), `OpenWorkLogin.test.tsx`, `openwork.test.ts`. **Belum diuji:**
+login penuh dengan akun sungguhan (butuh persetujuan manusia); akun tanpa kredensial gateway dilaporkan sebagai galat jelas.

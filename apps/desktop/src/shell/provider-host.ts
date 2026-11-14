@@ -1,7 +1,15 @@
 // Adapter ProviderHost. Di Tauri: perintah Rust (kunci di keychain OS, probe/ping dari Rust agar kunci tidak menyentuh
 // JS). Di luar Tauri (dev browser/e2e): fallback sementara — daftar di localStorage, kunci HANYA di memori, probe/ping
 // lewat fetch. `secure=false` membuat UI memberi tahu bahwa kunci tidak disimpan permanen.
-import type { LocalFound, ProbeResult, ProviderHost, ProviderSpec, ProviderView } from "@zandor/core";
+import type {
+  LocalFound,
+  OpenWorkDevice,
+  OpenWorkPoll,
+  ProbeResult,
+  ProviderHost,
+  ProviderSpec,
+  ProviderView,
+} from "@zandor/core";
 
 const DEV_KEY = "zandor.providers.dev";
 
@@ -124,6 +132,13 @@ export async function loadProviderHost(): Promise<ProviderHost> {
   if (!isTauri()) return createBrowserProviderHost();
   return {
     secure: true,
+    openwork: {
+      start: () => invoke<OpenWorkDevice>("openwork_start"),
+      poll: () => invoke<OpenWorkPoll>("openwork_poll"),
+      async cancel() {
+        await invoke("openwork_cancel");
+      },
+    },
     list: () => invoke<ProviderView[]>("providers_list"),
     async save(provider, apiKey) {
       await invoke("provider_save", { provider, apiKey: apiKey ?? null });

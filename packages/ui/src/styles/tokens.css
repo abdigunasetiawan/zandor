@@ -77,6 +77,17 @@
   --z-type-code-lh: 1.5;
   --z-type-code-tracking: 0;
 
+  /* Pewarnaan sintaks blok kode di chat (kontras ≥ 4.5:1 di atas --z-color-raised) */
+  --z-code-keyword: #79b8ff;
+  --z-code-string: #9ecb7a;
+  --z-code-number: #e6a95e;
+  --z-code-comment: #8a8a8a;
+  --z-code-function: #d2a8ff;
+  --z-code-type: #ffab70;
+  --z-code-attr: #85e89d;
+  --z-code-add: #9ecb7a;
+  --z-code-del: #ff7b72;
+
   /* Panel chat (Fase 10): bisa diubah dari halaman Tampilan. */
   --z-chat-opacity: 1;
   --z-chat-weight: var(--z-type-p-weight);
@@ -145,6 +156,15 @@
   --z-color-success: #1b7a43;
   --z-color-warning: #8a6100;
   --z-shadow-color: rgb(0 0 0 / 0.16);
+  --z-code-keyword: #0b5cad;
+  --z-code-string: #1a7f37;
+  --z-code-number: #a35200;
+  --z-code-comment: #6b6b6b;
+  --z-code-function: #7f3fbf;
+  --z-code-type: #9a4a00;
+  --z-code-attr: #116329;
+  --z-code-add: #1a7f37;
+  --z-code-del: #c62828;
   color-scheme: light;
 }
 
@@ -168,6 +188,15 @@
     --z-color-success: #1b7a43;
     --z-color-warning: #8a6100;
     --z-shadow-color: rgb(0 0 0 / 0.16);
+    --z-code-keyword: #0b5cad;
+    --z-code-string: #1a7f37;
+    --z-code-number: #a35200;
+    --z-code-comment: #6b6b6b;
+    --z-code-function: #7f3fbf;
+    --z-code-type: #9a4a00;
+    --z-code-attr: #116329;
+    --z-code-add: #1a7f37;
+    --z-code-del: #c62828;
     color-scheme: light;
   }
 }

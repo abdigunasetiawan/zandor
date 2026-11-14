@@ -1,7 +1,14 @@
 // Engine palsu di memori untuk test (core dan UI). Meniru perilaku yang terbukti pada engine asli:
 // sesi terikat direktori, judul bawaan "New session - <ISO>", daftar berkas menurut path relatif.
 
-import type { ChatMessage, EngineEvent, PermissionReply, PermissionRequest } from "../chat/types";
+import type {
+  ChatMessage,
+  EngineEvent,
+  PermissionReply,
+  PermissionRequest,
+  QuestionRequest,
+  Todo,
+} from "../chat/types";
 import { createFakePty, type FakePty } from "../terminal/fake-pty";
 import type {
   AuthMethod,
@@ -26,6 +33,9 @@ export type FakeEngine = EngineApi & {
   models: ModelOption[];
   messages: Map<string, ChatMessage[]>;
   permissions: PermissionRequest[];
+  questions: QuestionRequest[];
+  todos: Map<string, Todo[]>;
+  questionReplies: Array<{ requestId: string; answers: string[][] | null }>;
   prompts: Array<{
     directory: string;
     sessionId: string;
@@ -67,6 +77,9 @@ export function createFakeEngine(): FakeEngine {
     models: [],
     messages: new Map(),
     permissions: [],
+    questions: [],
+    todos: new Map(),
+    questionReplies: [],
     prompts: [],
     reverts: new Map(),
     forks: [],
@@ -128,6 +141,22 @@ export function createFakeEngine(): FakeEngine {
     async listPermissions() {
       if (e.failWith) throw new Error(e.failWith);
       return [...e.permissions];
+    },
+    async listQuestions() {
+      if (e.failWith) throw new Error(e.failWith);
+      return [...e.questions];
+    },
+    async listTodos(_dir, sessionId) {
+      if (e.failWith) throw new Error(e.failWith);
+      return [...(e.todos.get(sessionId) ?? [])];
+    },
+    async replyQuestion(_dir, requestId, answers) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.questionReplies.push({ requestId, answers });
+    },
+    async rejectQuestion(_dir, requestId) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.questionReplies.push({ requestId, answers: null });
     },
     async sendPrompt(directory, sessionId, input) {
       if (e.failWith) throw new Error(e.failWith);

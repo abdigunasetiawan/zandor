@@ -2,7 +2,7 @@
 // model. Semua logika di sini murni terhadap `EngineApi` (diuji dengan engine palsu).
 import type { EngineApi, FileAttachment, ModelOption, ModelRef, SessionInfo } from "../engine/api";
 import { applyEvent, type ChatState, clearError, initialChatState, loadMessages } from "./reducer";
-import type { EngineEvent, PermissionReply, PermissionRequest } from "./types";
+import type { EngineEvent, PermissionReply, PermissionRequest, QuestionRequest, Todo } from "./types";
 
 export type SessionChat = ChatState & {
   directory: string;
@@ -309,14 +309,21 @@ export class ChatStore {
     try {
       for (let attempt = 0; attempt < MAX_RELOADS; attempt++) {
         this.dirty.delete(sessionId);
-        const [messages, permissions, revert] = await Promise.all([
+        const [messages, permissions, revert, questions, todos] = await Promise.all([
           api.listMessages(start.directory, sessionId),
           api.listPermissions(start.directory).catch(() => []),
           api.getRevert(start.directory, sessionId).catch(() => null),
+          api.listQuestions(start.directory).catch((): QuestionRequest[] => []),
+          api.listTodos(start.directory, sessionId).catch((): Todo[] => []),
         ]);
         if (api !== this.api || !this.snap.sessions[sessionId]) return;
         const mine = permissions.filter((p) => p.sessionID === sessionId);
-        this.patchSession(sessionId, (s) => ({ ...s, ...loadMessages(s, messages, mine, revert), error: s.error }));
+        const myQuestions = questions.filter((q) => q.sessionID === sessionId);
+        this.patchSession(sessionId, (s) => ({
+          ...s,
+          ...loadMessages(s, messages, mine, revert, { questions: myQuestions, todos }),
+          error: s.error,
+        }));
         if (!this.dirty.has(sessionId)) break;
       }
     } catch (e) {
@@ -402,6 +409,22 @@ export class ChatStore {
     const s = this.snap.sessions[sessionId];
     if (!this.api || !s) return;
     await this.api.abort(s.directory, sessionId);
+  }
+
+  /** Jawab pertanyaan agent. `answers[i]` = pilihan/teks untuk pertanyaan ke-i. */
+  async answerQuestion(sessionId: string, requestId: string, answers: string[][]): Promise<void> {
+    const s = this.snap.sessions[sessionId];
+    if (!this.api || !s) throw new Error("engine belum siap");
+    await this.api.replyQuestion(s.directory, requestId, answers);
+    this.patchSession(sessionId, (x) => ({ ...x, questions: x.questions.filter((q) => q.id !== requestId) }));
+  }
+
+  /** Lewati/tolak pertanyaan agent (agent melanjutkan tanpa jawaban). */
+  async rejectQuestion(sessionId: string, requestId: string): Promise<void> {
+    const s = this.snap.sessions[sessionId];
+    if (!this.api || !s) throw new Error("engine belum siap");
+    await this.api.rejectQuestion(s.directory, requestId);
+    this.patchSession(sessionId, (x) => ({ ...x, questions: x.questions.filter((q) => q.id !== requestId) }));
   }
 
   async reply(sessionId: string, requestId: string, reply: PermissionReply): Promise<void> {

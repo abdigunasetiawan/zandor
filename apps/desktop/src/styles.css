@@ -1849,3 +1849,223 @@
   grid-column: 1 / -1;
   color: var(--z-color-fg-subtle);
 }
+
+/* ---------- Render kaya di chat (Fase 12) ---------- */
+.cblock {
+  margin: var(--z-space-2) 0;
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-raised);
+  overflow: hidden;
+}
+.cblock__head {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  padding: 0 var(--z-space-1) 0 var(--z-space-3);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+  color: var(--z-color-fg-muted);
+}
+.cblock__lang {
+  font-family: var(--z-font-code);
+}
+.md .cblock__pre {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.cblock__pre[data-collapsed] {
+  max-height: calc(var(--z-space-7) * 4);
+  overflow-y: hidden;
+}
+.cblock__more {
+  display: block;
+  width: 100%;
+  padding: var(--z-space-1);
+  border: 0;
+  border-top: var(--z-border-width) solid var(--z-color-border);
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.cblock__more:hover {
+  background: var(--z-color-hover);
+}
+.md__table {
+  max-width: 100%;
+  margin: var(--z-space-2) 0;
+  overflow-x: auto;
+}
+.md thead th {
+  background: var(--z-color-raised);
+  text-align: left;
+}
+.md blockquote {
+  margin: var(--z-space-2) 0;
+  padding-left: var(--z-space-3);
+  border-left: var(--z-focus-width) solid var(--z-color-border-strong);
+  color: var(--z-color-fg-muted);
+}
+.md hr {
+  border: 0;
+  border-top: var(--z-border-width) solid var(--z-color-border);
+}
+.md .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.mermaid--pending pre {
+  opacity: 0.8;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag {
+  color: var(--z-code-keyword);
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-symbol,
+.hljs-template-variable {
+  color: var(--z-code-string);
+}
+.hljs-number,
+.hljs-meta,
+.hljs-bullet {
+  color: var(--z-code-number);
+}
+.hljs-comment,
+.hljs-quote {
+  color: var(--z-code-comment);
+  font-style: italic;
+}
+.hljs-title,
+.hljs-section,
+.hljs-title.function_ {
+  color: var(--z-code-function);
+}
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: var(--z-code-type);
+}
+.hljs-attr,
+.hljs-attribute,
+.hljs-property,
+.hljs-name,
+.hljs-tag,
+.hljs-variable {
+  color: var(--z-code-attr);
+}
+.hljs-addition {
+  color: var(--z-code-add);
+}
+.hljs-deletion {
+  color: var(--z-code-del);
+}
+.hljs-emphasis {
+  font-style: italic;
+}
+.hljs-strong {
+  font-weight: var(--z-type-h4-weight);
+}
+
+/* ---------- Form pertanyaan agent & daftar tugas (Fase 12) ---------- */
+.qcard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+  padding: var(--z-space-3);
+  border: var(--z-border-width) solid var(--z-color-border-strong);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-raised);
+}
+.qcard__q {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.qcard__q legend {
+  padding: 0;
+}
+.qcard__hint,
+.qcard__desc {
+  color: var(--z-color-fg-muted);
+}
+.qcard__opts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qcard__opt {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--z-space-2);
+  padding: var(--z-space-1) var(--z-space-2);
+  border-radius: var(--z-radius-md);
+  cursor: pointer;
+}
+.qcard__opt:hover {
+  background: var(--z-color-hover);
+}
+.todos {
+  flex: none;
+  margin: 0 var(--z-space-3);
+  padding: var(--z-space-1) var(--z-space-2);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+}
+.todos summary {
+  cursor: pointer;
+}
+.todos__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  max-height: calc(var(--z-space-7) * 3);
+  margin: var(--z-space-1) 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.todos__item {
+  display: flex;
+  gap: var(--z-space-2);
+}
+.todos__item[data-status="completed"] .todos__text,
+.todos__item[data-status="cancelled"] .todos__text {
+  color: var(--z-color-fg-muted);
+  text-decoration: line-through;
+}
+.todos__item[data-status="in_progress"] .todos__mark {
+  color: var(--z-color-warning);
+}
+
+/* ---------- Masuk dengan OpenWork (Fase 12) ---------- */
+.owlogin {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+}
+.owlogin__code {
+  margin: 0;
+  padding: var(--z-space-3);
+  border: var(--z-border-width) solid var(--z-color-border-strong);
+  border-radius: var(--z-radius-md);
+  font-family: var(--z-font-code);
+  text-align: center;
+  letter-spacing: 0.1em;
+  user-select: all;
+}
+.owlogin__ok {
+  color: var(--z-color-success);
+}

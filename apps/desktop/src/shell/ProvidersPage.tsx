@@ -29,6 +29,7 @@ import {
   useToast,
 } from "@zandor/ui";
 import { type FormEvent, useMemo, useState } from "react";
+import { OpenWorkLogin } from "./OpenWorkLogin";
 import { useEngineState, useProviders, useServices } from "./services";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -53,6 +54,7 @@ export function ProvidersPage() {
   const confirm = useConfirm();
   const fail = useFail();
   const [dialog, setDialog] = useState<{ open: boolean; editing: ProviderView | null }>({ open: false, editing: null });
+  const [openwork, setOpenwork] = useState(false);
 
   const remove = async (p: ProviderView) => {
     const ok = await confirm({
@@ -69,10 +71,16 @@ export function ProvidersPage() {
       <header className="providers__head">
         <IconButton label={t("pv.back")} icon={<ArrowLeftIcon />} onClick={() => nav.push("/")} />
         <h1 className="z-h3 providers__title">{t("pv.title")}</h1>
+        {store.openworkAvailable && (
+          <Button variant="outline" onClick={() => setOpenwork(true)}>
+            {t("ow.signIn")}
+          </Button>
+        )}
         <Button variant="solid" onClick={() => setDialog({ open: true, editing: null })}>
           <PlusIcon size="sm" /> {t("pv.add")}
         </Button>
       </header>
+      {openwork && <OpenWorkLogin onClose={() => setOpenwork(false)} />}
       <p className="z-small providers__secure">{store.secure ? t("pv.secure.yes") : t("pv.secure.no")}</p>
       {state.error && (
         <p className="chat__note chat__note--error z-small" role="alert">

@@ -172,6 +172,10 @@ fn engine_config(paths: &EnginePaths) -> EngineConfig {
     );
     cfg.env.extend(secret_env.iter().cloned());
     cfg.env.push(("OPENCODE_CONFIG_CONTENT".into(), content));
+    // Tool `question`: agent bisa bertanya lewat formulir di chat (Fase 12). Tanpa ini engine hanya mengaktifkannya untuk
+    // klien resmi (app/cli/desktop).
+    cfg.env
+        .push(("OPENCODE_ENABLE_QUESTION_TOOL".into(), "true".into()));
     cfg
 }
 
@@ -465,6 +469,12 @@ mod tests {
         }
         assert_eq!(cfg.expected_version.as_deref(), Some(PINNED_ENGINE_VERSION));
         assert!(cfg.env.iter().any(|(n, _)| n == "OPENCODE_CONFIG_CONTENT"));
+        assert!(
+            cfg.env
+                .iter()
+                .any(|(n, v)| n == "OPENCODE_ENABLE_QUESTION_TOOL" && v == "true"),
+            "tool question harus aktif"
+        );
     }
 
     #[test]

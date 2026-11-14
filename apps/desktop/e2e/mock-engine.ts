@@ -11,6 +11,8 @@ export type MockEngine = {
   prompts: Array<{ text: string; model?: { providerID: string; modelID: string } }>;
   aborted: string[];
   permissionReplies: Array<{ id: string; reply: string }>;
+  /** Jawaban pertanyaan agent (answers null = ditolak/dilewati). */
+  questionReplies: Array<{ id: string; answers: string[][] | null }>;
   reverts: string[];
   unreverts: number;
   forks: string[];
@@ -46,12 +48,50 @@ export type MockOptions = {
   oauthMethod?: "auto" | "code";
 };
 
+/** Respons Markdown kaya untuk uji render (tabel, kode, Mermaid, matematika, daftar tugas, dan konten berbahaya). */
+export const RICH_MD = [
+  "## Ringkasan",
+  "",
+  "Contoh **tebal**, _miring_, dan `kode inline`.",
+  "",
+  "| Nama | Nilai |",
+  "| --- | ---: |",
+  "| Apel | 3 |",
+  "| Jeruk | 10 |",
+  "",
+  "```ts",
+  "const a: number = 1;",
+  "function hitung(x: number) { return x * 2; } // komentar",
+  "```",
+  "",
+  "```mermaid",
+  "graph TD",
+  "  A[Mulai] --> B[Selesai]",
+  "```",
+  "",
+  "Rumus: $E = mc^2$",
+  "",
+  "- [x] tugas selesai",
+  "- [ ] tugas belum",
+  "",
+  "[aman](https://example.com) dan [jahat](javascript:alert(1))",
+  "",
+  "<script>window.__pwned = 1</script>",
+  "",
+  "![gambar luar](https://evil.example/pixel.png)",
+  "",
+  "```ts",
+  ...Array.from({ length: 40 }, (_, i) => `const baris${i} = ${i};`),
+  "```",
+].join("\n");
+
 export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<MockEngine> {
   const state: MockEngine = {
     sessions: [],
     prompts: [],
     aborted: [],
     permissionReplies: [],
+    questionReplies: [],
     reverts: [],
     unreverts: 0,
     forks: [],
@@ -78,6 +118,8 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
   const messages = new Map<string, Msg[]>();
   const queue: unknown[] = [];
   const permissions: Array<Record<string, unknown>> = [];
+  const questions: Array<Record<string, unknown>> = [];
+  const todos = new Map<string, unknown[]>();
   let n = 0;
   let clock = Date.now();
   const id = (p: string) => `${p}_${String(++n).padStart(6, "0")}`;
@@ -155,6 +197,43 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     };
 
     if (text.includes("lambat")) return; // tetap sibuk sampai di-abort
+    if (text.includes("pertanyaan")) {
+      const req = {
+        id: id("que"),
+        sessionID,
+        questions: [
+          {
+            header: "Framework",
+            question: "Framework mana yang dipakai?",
+            options: [
+              { label: "React", description: "Pustaka UI" },
+              { label: "Svelte", description: "Kompiler UI" },
+            ],
+          },
+          {
+            header: "Fitur",
+            question: "Fitur tambahan apa?",
+            multiple: true,
+            options: [
+              { label: "Tes", description: "Tulis tes" },
+              { label: "Lint", description: "Aktifkan lint" },
+            ],
+          },
+        ],
+      };
+      questions.push(req);
+      emit("question.asked", req);
+      return;
+    }
+    if (text.includes("rencana")) {
+      const list = [
+        { content: "Baca kode", status: "completed", priority: "high" },
+        { content: "Tulis tes", status: "in_progress", priority: "medium" },
+        { content: "Rilis", status: "pending", priority: "low" },
+      ];
+      todos.set(sessionID, list);
+      emit("todo.updated", { sessionID, todos: list });
+    }
     if (text.includes("izin")) {
       const req = {
         id: id("per"),
@@ -207,6 +286,11 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         state: { status: "completed", input, output: "ok", title: "", metadata, time: { start: 1, end: 2 } },
       });
       emit("message.part.updated", { sessionID, part: asst.parts.at(-1) });
+    }
+    if (text.includes("tampilkan kaya")) {
+      say(RICH_MD);
+      finish();
+      return;
     }
     say(text.includes("baca") ? "Isinya halo dunia." : "Halo, ada yang bisa dibantu?");
     finish();
@@ -354,6 +438,44 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         return json(true);
       }
     }
+    if (p === "/question" && req.method() === "GET") return json(questions);
+    const que = p.match(/^\/question\/([^/]+)\/(reply|reject)$/);
+    if (que?.[1] && req.method() === "POST") {
+      const body = req.postDataJSON() ?? {};
+      const isReply = que[2] === "reply";
+      state.questionReplies.push({ id: que[1], answers: isReply ? (body.answers ?? []) : null });
+      const i = questions.findIndex((x) => x.id === que[1]);
+      const asked = questions[i];
+      if (i >= 0) questions.splice(i, 1);
+      if (asked) {
+        const sessionID = asked.sessionID as string;
+        emit(isReply ? "question.replied" : "question.rejected", {
+          sessionID,
+          requestID: que[1],
+          answers: body.answers,
+        });
+        const last = (messages.get(sessionID) ?? []).at(-1);
+        if (last && isReply) {
+          const part: Part = {
+            id: id("prt"),
+            messageID: last.info.id,
+            sessionID,
+            type: "text",
+            text: `Terima kasih, jawaban: ${JSON.stringify(body.answers)}`,
+          };
+          last.parts.push(part);
+          emit("message.part.updated", { sessionID, part });
+        }
+        if (last) {
+          last.info.time = { ...(last.info.time as object), completed: ++clock } as never;
+          emit("message.updated", { sessionID, info: last.info });
+        }
+        emit("session.status", { sessionID, status: { type: "idle" } });
+      }
+      return json(true);
+    }
+    const todoGet = p.match(/^\/session\/([^/]+)\/todo$/);
+    if (todoGet?.[1] && req.method() === "GET") return json(todos.get(todoGet[1]) ?? []);
     if (p === "/permission" && req.method() === "GET") return json(permissions);
     const perm = p.match(/^\/permission\/([^/]+)\/reply$/);
     if (perm?.[1] && req.method() === "POST") {

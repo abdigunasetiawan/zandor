@@ -7,6 +7,7 @@ mod git;
 mod memory;
 mod netprobe;
 mod openvsx;
+mod openwork;
 mod providers;
 mod registry;
 mod secrets;
@@ -63,6 +64,135 @@ fn provider_store(app: &tauri::AppHandle) -> Result<providers::ProviderStore, St
         &app_data(app)?.join("providers.json"),
         Box::new(secrets::Keychain::new(secrets::SERVICE)),
     ))
+}
+
+// ---------- Masuk dengan OpenWork (Fase 12) ----------
+
+/// Alur device-code yang sedang berjalan (token/kode perangkat tidak pernah keluar dari Rust).
+#[derive(Default)]
+struct OpenWorkFlow(std::sync::Mutex<Option<openwork::Flow>>);
+
+#[derive(serde::Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+enum OpenWorkPoll {
+    Pending,
+    SlowDown { interval: u64 },
+    Denied { message: String },
+    Expired,
+    Error { message: String },
+    Connected { account: String, models: usize },
+}
+
+#[tauri::command]
+async fn openwork_start(flow: State<'_, OpenWorkFlow>) -> Result<openwork::DeviceInfo, String> {
+    let (info, f) =
+        tauri::async_runtime::spawn_blocking(|| openwork::start(&openwork::Endpoints::default()))
+            .await
+            .map_err(|e| e.to_string())??;
+    *flow.0.lock().map_err(|_| "state rusak")? = Some(f);
+    Ok(info)
+}
+
+#[tauri::command]
+fn openwork_cancel(flow: State<'_, OpenWorkFlow>) {
+    if let Ok(mut g) = flow.0.lock() {
+        *g = None;
+    }
+}
+
+/// Satu kali tanya. Saat disetujui: tukar token → kunci gateway → simpan provider "openwork" (kunci di keychain) →
+/// mulai ulang engine. UI hanya menerima ringkasan akun (tanpa token/kunci).
+#[tauri::command]
+async fn openwork_poll(
+    app: tauri::AppHandle,
+    manager: State<'_, EngineManager>,
+    flow: State<'_, OpenWorkFlow>,
+) -> Result<OpenWorkPoll, String> {
+    let current = flow.0.lock().map_err(|_| "state rusak")?.clone();
+    let Some(current) = current else {
+        return Ok(OpenWorkPoll::Error {
+            message: "tidak ada proses masuk yang berjalan".into(),
+        });
+    };
+    let store = provider_store(&app)?;
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        use openwork::Poll;
+        let ep = openwork::Endpoints::default();
+        match openwork::poll(&ep, &current) {
+            Poll::Pending => (OpenWorkPoll::Pending, false, None),
+            Poll::SlowDown(i) => (OpenWorkPoll::SlowDown { interval: i }, false, Some(i)),
+            Poll::Denied(m) => (OpenWorkPoll::Denied { message: m }, true, None),
+            Poll::Expired => (OpenWorkPoll::Expired, true, None),
+            Poll::Error(m) => (OpenWorkPoll::Error { message: m }, true, None),
+            Poll::Token(token) => match connect_openwork(&ep, &store, &token) {
+                Ok(done) => (done, true, None),
+                Err(m) => (OpenWorkPoll::Error { message: m }, true, None),
+            },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    let (out, finished, new_interval) = outcome;
+    if let Ok(mut g) = flow.0.lock() {
+        if finished {
+            *g = None;
+        } else if let (Some(f), Some(i)) = (g.as_mut(), new_interval) {
+            f.interval = i;
+        }
+    }
+    if matches!(out, OpenWorkPoll::Connected { .. }) {
+        manager.restart();
+    }
+    Ok(out)
+}
+
+fn connect_openwork(
+    ep: &openwork::Endpoints,
+    store: &providers::ProviderStore,
+    token: &str,
+) -> Result<OpenWorkPoll, String> {
+    let gw = openwork::resolve_gateway(ep, token)?;
+    let Some(key) = gw.api_key else {
+        return Err("Akun OpenWork tersambung, tetapi organisasi ini belum punya kredensial AI Gateway (org_credential_missing). Minta admin mengaktifkan inferensi atau coba akun lain.".into());
+    };
+    // daftar model: dari gateway, atau dari endpoint /models bila gateway tidak menyebutkannya
+    let mut ids = gw.models;
+    if ids.is_empty() {
+        let probed = netprobe::probe(
+            &ep.inference,
+            Some(&key),
+            std::time::Duration::from_secs(10),
+        );
+        ids = probed.models;
+    }
+    if ids.is_empty() {
+        return Err("Tidak ada model yang tersedia untuk akun ini.".into());
+    }
+    let provider = providers::Provider {
+        id: "openwork".into(),
+        name: "OpenWork Cloud".into(),
+        kind: providers::Kind::Custom,
+        base_url: Some(ep.inference.clone()),
+        models: ids
+            .iter()
+            .map(|id| providers::ProviderModel {
+                id: id.clone(),
+                name: None,
+            })
+            .collect(),
+        api_key: None,
+    };
+    store.save(provider, Some(key))?;
+    let account = match (gw.email.is_empty(), gw.org_name) {
+        (false, Some(org)) => format!("{} · {org}", gw.email),
+        (false, None) => gw.email,
+        (true, Some(org)) => org,
+        (true, None) => "Akun OpenWork".into(),
+    };
+    Ok(OpenWorkPoll::Connected {
+        account,
+        models: ids.len(),
+    })
 }
 
 #[tauri::command]
@@ -477,6 +607,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .manage(EngineManager::default())
+        .manage(OpenWorkFlow::default())
         .setup(|app| {
             let handle = app.handle().clone();
             let data = app_data(&handle)?;
@@ -493,6 +624,9 @@ pub fn run() {
             chats_dir,
             registry_load,
             registry_save,
+            openwork_start,
+            openwork_poll,
+            openwork_cancel,
             providers_list,
             provider_save,
             provider_delete,

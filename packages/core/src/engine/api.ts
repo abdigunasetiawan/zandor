@@ -6,9 +6,13 @@ import {
   type EngineEvent,
   type PermissionReply,
   type PermissionRequest,
+  type QuestionRequest,
+  type Todo,
   toEngineEvent,
   toMessage,
   toPermission,
+  toQuestion,
+  toTodos,
 } from "../chat/types";
 import { createPtyClient, type PtyClient } from "../terminal/pty";
 
@@ -85,6 +89,12 @@ export interface EngineApi {
   listModels(): Promise<ModelOption[]>;
   listMessages(directory: string, sessionId: string): Promise<ChatMessage[]>;
   listPermissions(directory: string): Promise<PermissionRequest[]>;
+  /** Pertanyaan agent yang menunggu jawaban (semua sesi di direktori). */
+  listQuestions(directory: string): Promise<QuestionRequest[]>;
+  listTodos(directory: string, sessionId: string): Promise<Todo[]>;
+  /** `answers[i]` = label yang dipilih (atau teks bebas) untuk pertanyaan ke-i. */
+  replyQuestion(directory: string, requestId: string, answers: string[][]): Promise<void>;
+  rejectQuestion(directory: string, requestId: string): Promise<void>;
   /** Kirim prompt tanpa menunggu jawaban; hasilnya mengalir lewat `subscribe`. */
   sendPrompt(
     directory: string,
@@ -204,6 +214,22 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
       return body(r, "permission.list")
         .map(toPermission)
         .filter((p): p is PermissionRequest => p !== null);
+    },
+    async listQuestions(directory) {
+      const r = await client.question.list({ directory });
+      return body(r, "question.list")
+        .map(toQuestion)
+        .filter((q): q is QuestionRequest => q !== null);
+    },
+    async listTodos(directory, sessionId) {
+      const r = await client.session.todo({ sessionID: sessionId, directory });
+      return toTodos(body(r, "session.todo"));
+    },
+    async replyQuestion(directory, requestId, answers) {
+      await client.question.reply({ requestID: requestId, directory, answers });
+    },
+    async rejectQuestion(directory, requestId) {
+      await client.question.reject({ requestID: requestId, directory });
     },
     async sendPrompt(directory, sessionId, input) {
       await client.session.promptAsync({

@@ -26,7 +26,31 @@ export type ProbeResult = {
 export type LocalFound = { id: string; name: string; baseUrl: string; models: string[] };
 
 /** Akses ke sisi native (Tauri): keychain, berkas provider, dan probe jaringan. */
+/** Masuk dengan OpenWork (OAuth device flow, ADR-040). Token/kunci tidak pernah sampai ke UI. */
+export type OpenWorkDevice = { userCode: string; verificationUri: string; interval: number; expiresIn: number };
+export type OpenWorkPoll =
+  | { status: "pending" }
+  | { status: "slowDown"; interval: number }
+  | { status: "denied"; message: string }
+  | { status: "expired" }
+  | { status: "error"; message: string }
+  | { status: "connected"; account: string; models: number };
+export interface OpenWorkHost {
+  start(): Promise<OpenWorkDevice>;
+  poll(): Promise<OpenWorkPoll>;
+  cancel(): Promise<void>;
+}
+
+export type OpenWorkState =
+  | { status: "idle" }
+  | { status: "starting" }
+  | { status: "waiting"; userCode: string; verificationUri: string; expiresAt: number }
+  | { status: "connected"; account: string; models: number }
+  | { status: "error"; message: string };
+
 export interface ProviderHost {
+  /** Hanya aplikasi desktop: masuk dengan akun OpenWork. */
+  openwork?: OpenWorkHost;
   /** true bila kunci disimpan di keychain OS. Di luar Tauri (dev/e2e) kunci hanya disimpan sementara. */
   secure: boolean;
   list(): Promise<ProviderView[]>;
@@ -53,6 +77,7 @@ export type ProvidersState = {
   pings: Record<string, PingState>;
   /** Id provider yang dianggap tersambung oleh engine (dari katalog). */
   connected: string[];
+  openwork: OpenWorkState;
 };
 
 export type ProviderStoreOptions = {
@@ -62,6 +87,8 @@ export type ProviderStoreOptions = {
   now?: () => number;
   /** Batas tunggu ping di sisi UI (detik); host juga punya batas sendiri. */
   pingWatchdogMs?: number;
+  /** Penjadwal untuk polling OpenWork (bisa diganti pada tes). */
+  schedule?: (fn: () => void, ms: number) => () => void;
 };
 
 export const pingKey = (providerId: string, modelId: string) => `${providerId}/${modelId}`;
@@ -107,6 +134,7 @@ export class ProviderStore {
     authMethods: {},
     pings: {},
     connected: [],
+    openwork: { status: "idle" },
   };
   private listeners = new Set<() => void>();
   private api: EngineApi | null = null;
@@ -150,6 +178,103 @@ export class ProviderStore {
     this.api = api;
     if (api) void this.refreshCatalog();
     else this.update({ catalogStatus: "idle", connected: [] });
+  }
+
+  // ---------- Masuk dengan OpenWork ----------
+
+  private owCancel: (() => void) | null = null;
+  private owRun = 0;
+  private owInterval = 5000;
+
+  /** Buka URL di browser sistem (dipakai halaman verifikasi OpenWork). */
+  openExternal(url: string): Promise<void> {
+    return this.options.host.openExternal(url);
+  }
+
+  get openworkAvailable(): boolean {
+    return this.options.host.openwork !== undefined;
+  }
+
+  /** Mulai alur device-code: tampilkan kode, lalu tanya periodik sampai disetujui/ditolak/kedaluwarsa. */
+  async startOpenWork(): Promise<void> {
+    const ow = this.options.host.openwork;
+    if (!ow) {
+      this.update({
+        openwork: { status: "error", message: "Masuk dengan OpenWork hanya tersedia di aplikasi desktop" },
+      });
+      return;
+    }
+    this.stopOpenWorkTimer();
+    const run = ++this.owRun;
+    this.update({ openwork: { status: "starting" } });
+    let device: OpenWorkDevice;
+    try {
+      device = await ow.start();
+    } catch (e) {
+      if (run === this.owRun) this.update({ openwork: { status: "error", message: errMsg(e) } });
+      return;
+    }
+    if (run !== this.owRun) return; // dibatalkan saat menunggu
+    const expiresAt = this.now() + device.expiresIn * 1000;
+    this.update({
+      openwork: { status: "waiting", userCode: device.userCode, verificationUri: device.verificationUri, expiresAt },
+    });
+    this.owInterval = Math.max(3, device.interval) * 1000;
+    this.scheduleOpenWorkPoll(ow, run, this.owInterval);
+  }
+
+  private scheduleOpenWorkPoll(ow: OpenWorkHost, run: number, ms: number) {
+    const schedule =
+      this.options.schedule ??
+      ((fn, t) => {
+        const id = setTimeout(fn, t);
+        return () => clearTimeout(id);
+      });
+    this.owCancel = schedule(() => void this.pollOpenWork(ow, run), ms);
+  }
+
+  private async pollOpenWork(ow: OpenWorkHost, run: number) {
+    if (run !== this.owRun) return;
+    let r: OpenWorkPoll;
+    try {
+      r = await ow.poll();
+    } catch (e) {
+      if (run === this.owRun) this.update({ openwork: { status: "error", message: errMsg(e) } });
+      return;
+    }
+    if (run !== this.owRun) return;
+    switch (r.status) {
+      case "pending":
+        return this.scheduleOpenWorkPoll(ow, run, this.owInterval);
+      case "slowDown":
+        this.owInterval = Math.max(3, r.interval) * 1000;
+        return this.scheduleOpenWorkPoll(ow, run, this.owInterval);
+      case "connected":
+        this.update({ openwork: { status: "connected", account: r.account, models: r.models } });
+        await this.refresh().catch(() => undefined);
+        this.options.onChanged?.();
+        return;
+      case "denied":
+        return this.update({ openwork: { status: "error", message: r.message } });
+      case "expired":
+        return this.update({
+          openwork: { status: "error", message: "Kode kedaluwarsa. Mulai lagi untuk mendapat kode baru." },
+        });
+      case "error":
+        return this.update({ openwork: { status: "error", message: r.message } });
+    }
+  }
+
+  private stopOpenWorkTimer() {
+    this.owCancel?.();
+    this.owCancel = null;
+  }
+
+  async cancelOpenWork(): Promise<void> {
+    this.owRun++;
+    this.stopOpenWorkTimer();
+    await this.options.host.openwork?.cancel().catch(() => undefined);
+    this.update({ openwork: { status: "idle" } });
   }
 
   async refreshCatalog(): Promise<void> {

@@ -47,6 +47,7 @@ import {
 import { ComposerInfo } from "./ComposerInfo";
 import { Markdown } from "./Markdown";
 import { ModelPicker } from "./ModelPicker";
+import { QuestionCard, TodoList } from "./QuestionCard";
 import { useChat, useDocs, useEngineState, useGit, useOpenDoc, useProjects, useServices } from "./services";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -91,6 +92,7 @@ export function ChatPanel({ empty }: { empty: ReactNode }) {
         <ModelPicker />
       </header>
       {session ? <Transcript session={session} /> : <p className="sidebar__note z-small">{t("chat.loading")}</p>}
+      {session && <TodoList todos={session.todos} />}
       {session && <Composer session={session} />}
     </div>
   );
@@ -172,7 +174,13 @@ function Transcript({ session }: { session: SessionChat }) {
     getItemKey: (i) => messages[i]?.info.id ?? i,
   });
   const total = virtual ? rows.getTotalSize() : 0;
-  const { ref, onScroll } = useStickToBottom([session.messages, total, session.permissions.length, busy]);
+  const { ref, onScroll } = useStickToBottom([
+    session.messages,
+    total,
+    session.permissions.length,
+    session.questions.length,
+    busy,
+  ]);
   const setRefs = (el: HTMLDivElement | null) => {
     ref.current = el;
     scrollRef.current = el;
@@ -204,7 +212,12 @@ function Transcript({ session }: { session: SessionChat }) {
                 ref={rows.measureElement}
                 style={{ transform: `translateY(${item.start}px)` }}
               >
-                <Message message={m} sessionId={session.sessionID} isLastAssistant={m === lastAssistant && !busy} />
+                <Message
+                  message={m}
+                  sessionId={session.sessionID}
+                  isLastAssistant={m === lastAssistant && !busy}
+                  streaming={m === lastAssistant && busy}
+                />
               </div>
             );
           })}
@@ -216,6 +229,7 @@ function Transcript({ session }: { session: SessionChat }) {
             message={m}
             sessionId={session.sessionID}
             isLastAssistant={m === lastAssistant && !busy}
+            streaming={m === lastAssistant && busy}
           />
         ))
       )}
@@ -227,6 +241,9 @@ function Transcript({ session }: { session: SessionChat }) {
           </Button>
         </div>
       )}
+      {session.questions.map((q) => (
+        <QuestionCard key={q.id} request={q} sessionId={session.sessionID} />
+      ))}
       {session.permissions.map((p) => (
         <PermissionCard key={p.id} request={p} sessionId={session.sessionID} />
       ))}
@@ -309,10 +326,12 @@ function Message({
   message,
   sessionId,
   isLastAssistant,
+  streaming = false,
 }: {
   message: ChatMessage;
   sessionId: string;
   isLastAssistant: boolean;
+  streaming?: boolean;
 }) {
   const { t } = useI18n();
   const { info } = message;
@@ -343,7 +362,7 @@ function Message({
   return (
     <article className="msg msg--assistant" aria-label={t("chat.assistant")}>
       {visible.map((p) => (
-        <Part key={p.id} part={p} />
+        <Part key={p.id} part={p} streaming={streaming} />
       ))}
       {info.error && (
         <p className="chat__note chat__note--error z-small" role="alert">
@@ -377,9 +396,10 @@ function MessageMeta({ message }: { message: ChatMessage }) {
   );
 }
 
-function Part({ part }: { part: MessagePart }) {
+function Part({ part, streaming = false }: { part: MessagePart; streaming?: boolean }) {
   const { t } = useI18n();
-  if (part.type === "text") return part.synthetic || !part.text ? null : <Markdown text={part.text} />;
+  if (part.type === "text")
+    return part.synthetic || !part.text ? null : <Markdown text={part.text} streaming={streaming} />;
   if (part.type === "reasoning") return part.text ? <Reasoning text={part.text} label={t("chat.thinking")} /> : null;
   if (part.type === "tool") return <ToolCard part={part} />;
   return null;
