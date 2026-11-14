@@ -14,6 +14,7 @@
 - **Fase 7 — Panel 3 Viewer Dokumen:** selesai (CI hijau).
 - **Fase 8 — Panel 4 Tools:** selesai (CI hijau).
 - **Fase 9 — Memori & Skill Creator:** selesai di lokal (belum di-push); ADR-037, `docs/features/memory.md`. Adapter Hindsight/Graphify dan opt-in di dialog Tambah project belum.
+- **Fase 11 — Panel 3 lanjutan & fitur ekstra:** sebagian selesai di lokal (ADR-039); belum: input suara, remote engine, model peran, manual konfigurasi agent.
 - **Fase 10 — Kustomisasi:** selesai di lokal; ADR-038, `docs/features/appearance.md`. Belum: paket ikon file Open VSX.
 - **Status MVP:** audit PRD §13 selesai — kelima kriteria terpenuhi (`docs/features/mvp.md`); menunggu keputusan rilis `0.1.0`.
 

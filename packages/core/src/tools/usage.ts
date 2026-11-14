@@ -14,6 +14,10 @@ export type SessionUsage = {
   /** Batas konteks model (bila diketahui) dan persentase terpakai. */
   contextLimit: number | null;
   contextPercent: number | null;
+  /** Token tersisa di jendela konteks (null bila batas/pemakaian tidak diketahui). */
+  contextRemaining: number | null;
+  /** Batas token keluaran model (null bila tidak diketahui). */
+  outputLimit: number | null;
   /** Total waktu asisten bekerja (ms), dari pesan yang sudah selesai. */
   workMs: number;
   firstAt: number | null;
@@ -22,7 +26,11 @@ export type SessionUsage = {
 
 const tools = (m: ChatMessage): ToolPart[] => m.parts.filter((p: MessagePart): p is ToolPart => p.type === "tool");
 
-export function sessionUsage(messages: ChatMessage[], contextLimit: number | null = null): SessionUsage {
+export function sessionUsage(
+  messages: ChatMessage[],
+  contextLimit: number | null = null,
+  outputLimit: number | null = null,
+): SessionUsage {
   const u: SessionUsage = {
     messages: { user: 0, assistant: 0 },
     toolCalls: { total: 0, completed: 0, failed: 0, running: 0, byTool: {} },
@@ -31,6 +39,8 @@ export function sessionUsage(messages: ChatMessage[], contextLimit: number | nul
     model: { providerID: null, modelID: null },
     contextTokens: null,
     contextLimit,
+    outputLimit,
+    contextRemaining: null,
     contextPercent: null,
     workMs: 0,
     firstAt: null,
@@ -66,7 +76,28 @@ export function sessionUsage(messages: ChatMessage[], contextLimit: number | nul
       else u.toolCalls.running++;
     }
   }
-  if (contextLimit && u.contextTokens !== null)
+  if (contextLimit && u.contextTokens !== null) {
     u.contextPercent = Math.min(100, (u.contextTokens / contextLimit) * 100);
+    u.contextRemaining = Math.max(0, contextLimit - u.contextTokens);
+  }
   return u;
+}
+
+/** Singkat angka token: 950 → "950", 12400 → "12,4k", 2_300_000 → "2,3M" (locale mengatur pemisah desimal). */
+export function formatTokens(n: number, locale = "id"): string {
+  const f = (v: number) => new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(v);
+  if (n >= 1_000_000) return `${f(n / 1_000_000)}M`;
+  if (n >= 10_000) return `${f(n / 1000)}k`;
+  if (n >= 1000) return `${f(Math.round(n / 100) / 10)}k`;
+  return String(Math.round(n));
+}
+
+export type UsageLevel = "ok" | "warn" | "high";
+
+/** Tingkat kepenuhan jendela konteks: ≥ 80% peringatan, ≥ 95% hampir penuh. null (tak diketahui) → "ok". */
+export function usageLevel(percent: number | null): UsageLevel {
+  if (percent === null) return "ok";
+  if (percent >= 95) return "high";
+  if (percent >= 80) return "warn";
+  return "ok";
 }

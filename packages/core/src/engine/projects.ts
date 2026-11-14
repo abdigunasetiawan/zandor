@@ -343,13 +343,14 @@ export class ProjectStore {
     return this.api;
   }
 
-  async createSession(key: ProjectKey, title?: string): Promise<SessionInfo> {
+  /** `select: false` membuat sesi tanpa memindahkan fokus pengguna (dipakai automasi). */
+  async createSession(key: ProjectKey, title?: string, options: { select?: boolean } = {}): Promise<SessionInfo> {
     const dir = this.directoryOf(key);
     if (!dir) throw new Error(key === CHAT_KEY ? "direktori Chat belum tersedia" : "project tidak ditemukan");
     const session = await this.requireApi().createSession(dir, title);
     const cur = this.snap.sessions[key] ?? emptySessions();
     this.updateSessions(key, { status: "ready", items: [session, ...cur.items.filter((s) => s.id !== session.id)] });
-    this.select(key, session.id);
+    if (options.select !== false) this.select(key, session.id);
     return session;
   }
 

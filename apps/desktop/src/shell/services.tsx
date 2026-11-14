@@ -7,6 +7,9 @@ import {
   type Appearance,
   type AppearanceStorage,
   AppearanceStore,
+  type AutomationState,
+  type AutomationStorage,
+  AutomationStore,
   ChatStore,
   type ChatStoreState,
   type CommandDef,
@@ -46,6 +49,7 @@ import {
 } from "react";
 import type { DocHost } from "./doc-host";
 import type { EngineHost } from "./engine-host";
+import type { NotifyHost } from "./notify-host";
 import { loadWindowApi, type WindowApi } from "./window-api";
 
 export const TOOL_IDS = ["terminal", "git", "browser", "info", "log"] as const;
@@ -118,6 +122,8 @@ export type Services = {
   providers: ProviderStore;
   memory: MemoryStore;
   appearance: AppearanceStore;
+  automation: AutomationStore;
+  notify: NotifyHost;
   openVsx: OpenVsxHost;
   docs: DocStore;
   docHost: DocHost;
@@ -136,6 +142,8 @@ export function createServices(options: {
   gitHost: GitHost;
   memoryHost: MemoryHost;
   appearanceStorage: AppearanceStorage;
+  automationStorage: AutomationStorage;
+  notifyHost: NotifyHost;
   openVsxHost: OpenVsxHost;
   /** Log aktivitas bersama; dibuat di main.tsx supaya sink logger sudah terpasang sejak awal. */
   activity: ActivityLog;
@@ -181,6 +189,8 @@ export function createServices(options: {
     git: new GitStore(options.gitHost),
     memory: new MemoryStore(options.memoryHost),
     appearance: new AppearanceStore(options.appearanceStorage),
+    automation: new AutomationStore(options.automationStorage),
+    notify: options.notifyHost,
     openVsx: options.openVsxHost,
     activity: options.activity,
     docs: new DocStore({
@@ -390,5 +400,14 @@ export function useAppearance(): Appearance {
     (cb) => appearance.subscribe(cb),
     () => appearance.state(),
     () => appearance.state(),
+  );
+}
+
+export function useAutomation(): AutomationState {
+  const { automation } = useServices();
+  return useSyncExternalStore(
+    (cb) => automation.subscribe(cb),
+    () => automation.state(),
+    () => automation.state(),
   );
 }

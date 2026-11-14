@@ -39,6 +39,8 @@ export type ModelOption = {
   variants: string[];
   /** Batas jendela konteks model (token), bila diketahui. */
   contextLimit?: number;
+  /** Batas token keluaran model, bila diketahui. */
+  outputLimit?: number;
 };
 export type FileAttachment = { mime: string; url: string; filename?: string };
 export type ModelRef = { providerID: string; modelID: string };
@@ -185,6 +187,7 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
             name: m.name,
             variants: Object.keys(m.variants ?? {}),
             ...(m.limit?.context ? { contextLimit: m.limit.context } : {}),
+            ...(m.limit?.output ? { outputLimit: m.limit.output } : {}),
           });
         }
       }

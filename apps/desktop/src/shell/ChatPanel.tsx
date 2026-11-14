@@ -10,7 +10,9 @@ import {
   type PermissionMode,
   type PermissionRequest,
   type SessionChat,
+  type Suggestion,
   sessionTitle,
+  suggestPrompts,
   type ToolPart,
   visibleMessages,
 } from "@zandor/core";
@@ -42,9 +44,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { ComposerInfo } from "./ComposerInfo";
 import { Markdown } from "./Markdown";
 import { ModelPicker } from "./ModelPicker";
-import { useChat, useEngineState, useOpenDoc, useProjects, useServices } from "./services";
+import { useChat, useDocs, useEngineState, useGit, useOpenDoc, useProjects, useServices } from "./services";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -520,6 +523,43 @@ function PermissionCard({ request, sessionId }: { request: PermissionRequest; se
   );
 }
 
+/** Saran prompt dari konteks nyata: git, berkas yang dibuka, dan isi akar project. */
+function useSuggestions(enabled: boolean): Suggestion[] {
+  const { projects } = useServices();
+  const state = useProjects();
+  const git = useGit();
+  const docs = useDocs();
+  const sel = state.selection.sessionId ? projects.selected() : null;
+  const projectPath = sel?.project?.path ?? null;
+  const [rootFiles, setRootFiles] = useState<string[] | null>(null);
+  const engineReady = state.engineReady;
+
+  useEffect(() => {
+    setRootFiles(null);
+    const api = projects.engineApi();
+    if (!enabled || !projectPath || !api || !engineReady) return;
+    let live = true;
+    api
+      .listFiles(projectPath, ".")
+      .then((nodes) => live && setRootFiles(nodes.map((n) => n.name)))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [enabled, projectPath, engineReady, projects]);
+
+  if (!enabled) return [];
+  const active = docs.tabs.find((d) => d.id === docs.activeId);
+  const files = git.status?.isRepo ? git.status.files : [];
+  return suggestPrompts({
+    hasProject: projectPath !== null,
+    rootFiles,
+    changed: files.map((f) => f.path),
+    staged: files.filter((f) => f.index !== " " && f.index !== "?").length,
+    activeDoc: active && active.root === projectPath ? { path: active.path, kind: active.kind } : null,
+  });
+}
+
 function Composer({ session }: { session: SessionChat }) {
   const { t } = useI18n();
   const { chat, host, nav } = useServices();
@@ -534,6 +574,9 @@ function Composer({ session }: { session: SessionChat }) {
   const variants =
     models.find((m) => m.providerID === model?.providerID && m.modelID === model?.modelID)?.variants ?? [];
   const canSend = !disabled && !!model && (text.trim() !== "" || files.length > 0);
+  const showSuggestions = session.loaded && session.messages.length === 0 && text === "" && !running;
+  const suggestions = useSuggestions(showSuggestions);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
@@ -596,7 +639,28 @@ function Composer({ session }: { session: SessionChat }) {
           ))}
         </ul>
       )}
+      {suggestions.length > 0 && (
+        <ul className="chips suggest" aria-label={t("sugg.title")}>
+          {suggestions.map((s) => (
+            <li key={s.id}>
+              <button
+                type="button"
+                className="suggest__chip"
+                disabled={disabled}
+                title={t(`sugg.${s.id}.prompt` as never, s.params)}
+                onClick={() => {
+                  setText(t(`sugg.${s.id}.prompt` as never, s.params));
+                  inputRef.current?.focus();
+                }}
+              >
+                {t(`sugg.${s.id}.label` as never, s.params)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
       <textarea
+        ref={inputRef}
         className="z-input composer__input"
         rows={3}
         value={text}
@@ -606,6 +670,7 @@ function Composer({ session }: { session: SessionChat }) {
         onKeyDown={onKey}
         disabled={disabled}
       />
+      <ComposerInfo session={session} />
       <div className="composer__actions">
         <IconButton
           label={t("chat.attach")}

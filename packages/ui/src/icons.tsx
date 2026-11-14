@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Clock,
   Code,
   Copy,
   Download,
@@ -86,6 +87,7 @@ export const InfoIcon = icon(Info, "InfoIcon");
 export const ListIcon = icon(List, "ListIcon");
 export const SettingsIcon = icon(Settings, "SettingsIcon");
 export const BrainIcon = icon(Brain, "BrainIcon");
+export const ClockIcon = icon(Clock, "ClockIcon");
 export const EditIcon = icon(Pencil, "EditIcon");
 export const SaveIcon = icon(Save, "SaveIcon");
 export const FolderIcon = icon(Folder, "FolderIcon");

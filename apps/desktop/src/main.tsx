@@ -7,6 +7,7 @@ import { loadDocHost } from "./shell/doc-host";
 import { loadEngineHost } from "./shell/engine-host";
 import { loadGitHost } from "./shell/git-host";
 import { loadMemoryHost } from "./shell/memory-host";
+import { loadNotifyHost } from "./shell/notify-host";
 import { loadOpenVsxHost } from "./shell/openvsx-host";
 import { loadProviderHost } from "./shell/provider-host";
 import { createServices } from "./shell/services";
@@ -15,6 +16,7 @@ import "./styles.css";
 
 const SETTINGS_KEY = "zandor.settings";
 const APPEARANCE_KEY = "zandor.appearance";
+const AUTOMATION_KEY = "zandor.automation";
 
 const activity = new ActivityLog();
 const logger = createLogger("app", {
@@ -34,6 +36,17 @@ const services = createServices({
   gitHost: await loadGitHost(),
   memoryHost: await loadMemoryHost(),
   openVsxHost: await loadOpenVsxHost(),
+  notifyHost: await loadNotifyHost(),
+  automationStorage: {
+    get: () => {
+      try {
+        return localStorage.getItem(AUTOMATION_KEY);
+      } catch {
+        return null;
+      }
+    },
+    set: (v) => localStorage.setItem(AUTOMATION_KEY, v),
+  },
   appearanceStorage: {
     get: () => {
       try {

@@ -475,6 +475,7 @@ pub fn run() {
     reset_ctrl_c_inheritance();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(EngineManager::default())
         .setup(|app| {
             let handle = app.handle().clone();

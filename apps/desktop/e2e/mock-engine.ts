@@ -39,7 +39,7 @@ export type MockOptions = {
   /** Semua panggilan gagal 500. */
   fail?: boolean;
   /** Daftar model; default satu model. Kosong = tidak ada provider. */
-  models?: Array<{ id: string; name: string; variants?: string[] }>;
+  models?: Array<{ id: string; name: string; variants?: string[]; limit?: { context: number; output?: number } }>;
   /** Jumlah pasangan pesan (pengguna+asisten) yang sudah ada di setiap sesi baru; untuk uji sesi panjang. */
   preload?: number;
   /** Metode OAuth yang dikembalikan engine tiruan. */
@@ -293,6 +293,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
                       providerID: "mock",
                       name: m.name,
                       variants: Object.fromEntries((m.variants ?? []).map((v) => [v, {}])),
+                      ...(m.limit ? { limit: m.limit } : {}),
                     },
                   ]),
                 ),

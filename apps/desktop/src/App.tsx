@@ -13,6 +13,8 @@ import {
 import { useEffect } from "react";
 import { DesignSystemPage } from "./design-system/DesignSystemPage";
 import { AppearancePage } from "./shell/AppearancePage";
+import { AutomationDriver } from "./shell/AutomationDriver";
+import { AutomationPage } from "./shell/AutomationPage";
 import { CommandCenter } from "./shell/CommandCenter";
 import { MemoryPage } from "./shell/MemoryPage";
 import { ProvidersPage } from "./shell/ProvidersPage";
@@ -34,6 +36,7 @@ export type Route =
   | { page: "providers" }
   | { page: "memory" }
   | { page: "appearance" }
+  | { page: "automation" }
   | { page: "design-system"; section: string | null };
 
 /** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
@@ -42,6 +45,7 @@ export function parseRoute(path: string): Route {
   if (/^\/providers\/?$/.test(path)) return { page: "providers" };
   if (/^\/memory\/?$/.test(path)) return { page: "memory" };
   if (/^\/appearance\/?$/.test(path)) return { page: "appearance" };
+  if (/^\/automation\/?$/.test(path)) return { page: "automation" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -148,6 +152,7 @@ function Page() {
   if (page === "providers") return <ProvidersPage />;
   if (page === "memory") return <MemoryPage />;
   if (page === "appearance") return <AppearancePage />;
+  if (page === "automation") return <AutomationPage />;
   if (page === "design-system") return <DesignSystemPage />;
   return <ShellLayout />;
 }
@@ -171,6 +176,7 @@ function Root() {
             <ConfirmProvider>
               <CommandCenter>
                 <Effects />
+                <AutomationDriver />
                 <div className="app">
                   <TitleBar />
                   <div className="app__content">

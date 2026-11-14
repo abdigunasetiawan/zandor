@@ -1,4 +1,5 @@
 export * from "./attachments";
+export * from "./automation";
 export * from "./build-info";
 export * from "./chat";
 export * from "./commands";
@@ -12,6 +13,7 @@ export * from "./navigation";
 export * from "./providers";
 export * from "./settings";
 export * from "./shortcuts";
+export * from "./suggestions";
 export * from "./terminal";
 export * from "./theme";
 export * from "./tools";

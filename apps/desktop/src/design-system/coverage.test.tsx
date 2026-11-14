@@ -10,6 +10,7 @@ import { App, hashToPath, parseRoute } from "../App";
 import { createBrowserDocHost } from "../shell/doc-host";
 import { createBrowserHost } from "../shell/engine-host";
 import { createUnavailableGitHost } from "../shell/git-host";
+import { createBrowserNotifyHost } from "../shell/notify-host";
 import { createUnavailableOpenVsxHost } from "../shell/openvsx-host";
 import { createBrowserProviderHost } from "../shell/provider-host";
 import { createServices } from "../shell/services";
@@ -65,6 +66,8 @@ describe("halaman design system", () => {
       gitHost: createUnavailableGitHost(),
       memoryHost: createFakeMemoryHost({ connected: false }),
       appearanceStorage: { get: () => null, set: () => {} },
+      automationStorage: { get: () => null, set: () => {} },
+      notifyHost: createBrowserNotifyHost(),
       openVsxHost: createUnavailableOpenVsxHost(),
       activity: new ActivityLog(),
       storage: { get: () => null, set: () => {} },

@@ -1763,3 +1763,89 @@
 .nb__out--error {
   color: var(--z-color-danger);
 }
+
+/* ---------- Saran prompt (Fase 11) ---------- */
+.suggest {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.suggest__chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 0 var(--z-space-2);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-full);
+  background: transparent;
+  color: var(--z-color-fg);
+  font: inherit;
+  font-size: var(--z-type-small-size);
+  cursor: pointer;
+}
+.suggest__chip:hover:not(:disabled) {
+  background: var(--z-color-hover);
+}
+
+/* ---------- Info pemakaian di composer (Fase 12) ---------- */
+.cinfo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+}
+.cinfo__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-2);
+  padding: var(--z-space-1) var(--z-space-2);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  font: inherit;
+  font-size: var(--z-type-small-size);
+  text-align: left;
+  cursor: pointer;
+}
+.cinfo__bar:hover {
+  background: var(--z-color-hover);
+}
+.cinfo__model {
+  color: var(--z-color-fg);
+  font-weight: var(--z-type-label-weight);
+}
+.cinfo__meter {
+  width: calc(var(--z-space-7) * 2);
+  height: var(--z-space-2);
+}
+.cinfo__warn {
+  margin: 0;
+}
+.cinfo[data-level="warn"] .cinfo__ctx,
+.cinfo[data-level="warn"] .cinfo__warn {
+  color: var(--z-color-warning);
+}
+.cinfo[data-level="high"] .cinfo__ctx,
+.cinfo[data-level="high"] .cinfo__warn {
+  color: var(--z-color-danger);
+}
+.cinfo__detail {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--z-space-1) var(--z-space-3);
+  margin: 0;
+  padding: var(--z-space-2);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+}
+.cinfo__detail dt {
+  color: var(--z-color-fg-muted);
+}
+.cinfo__detail dd {
+  margin: 0;
+}
+.cinfo__note {
+  grid-column: 1 / -1;
+  color: var(--z-color-fg-subtle);
+}

@@ -15,6 +15,7 @@ import { App } from "../App";
 import { createBrowserDocHost } from "./doc-host";
 import { createBrowserHost } from "./engine-host";
 import { createUnavailableGitHost } from "./git-host";
+import { createBrowserNotifyHost } from "./notify-host";
 import { createUnavailableOpenVsxHost } from "./openvsx-host";
 import { createBrowserProviderHost } from "./provider-host";
 import { createServices } from "./services";
@@ -51,6 +52,8 @@ function mount(seed: (h: FakeMemoryHost) => void = () => {}, connected = true) {
     gitHost: createUnavailableGitHost(),
     memoryHost,
     appearanceStorage: { get: () => null, set: () => {} },
+    automationStorage: { get: () => null, set: () => {} },
+    notifyHost: createBrowserNotifyHost(),
     openVsxHost: createUnavailableOpenVsxHost(),
     activity: new ActivityLog(),
     storage: { get: () => JSON.stringify({ language: "id" }), set: () => {} },

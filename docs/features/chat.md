@@ -35,3 +35,10 @@ native memakai URL `file://`. Output tool dipotong 20.000 karakter di UI.
   (`bun e2e-native/smoke.ts ../../target/debug/zandor-desktop.exe`; fase chat nyata hanya jalan bila ada provider).
 - Manual: tambah project, buat sesi, minta "buat file x.txt berisi halo" → harus muncul kartu izin dan file baru
   muncul **setelah** Izinkan sekali; coba Hentikan saat jawaban panjang; matikan engine lalu hidupkan lagi.
+
+## Saran prompt dinamis (Fase 11)
+
+Di sesi kosong, composer menampilkan hingga 4 chip saran yang dihitung dari konteks nyata: jumlah berkas yang berubah di git
+("Tinjau N perubahan", "Tulis pesan commit"), berkas yang sedang dibuka ("Jelaskan x", "Tulis tes untuk x"), isi akar project
+("Buat README" bila README hilang, "Jalankan tes" bila ada manifes), dan saran umum bila tanpa project. Klik mengisi kotak
+pesan (tidak langsung terkirim); chip hilang saat mulai mengetik. Tes: `suggestions.test.ts`, `e2e/suggest.spec.ts`.

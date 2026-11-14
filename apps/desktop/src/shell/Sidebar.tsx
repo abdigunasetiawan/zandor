@@ -14,6 +14,7 @@ import {
   ChatIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ClockIcon,
   ContextMenu,
   Dialog,
   Field,
@@ -432,6 +433,7 @@ function SidebarFooter() {
       {(engine.status === "error" || engine.status === "stopped") && host.native && (
         <IconButton label={t("engine.retry")} size="sm" icon={<RefreshIcon />} onClick={() => void host.restart()} />
       )}
+      <IconButton label={t("auto.manage")} size="sm" icon={<ClockIcon />} onClick={() => nav.push("/automation")} />
       <IconButton label={t("mem.manage")} size="sm" icon={<BrainIcon />} onClick={() => nav.push("/memory")} />
       <IconButton label={t("pv.manage")} size="sm" icon={<SettingsIcon />} onClick={() => nav.push("/providers")} />
       <span className="z-small sidebar__version">{t("app.version", { version: build.version })}</span>

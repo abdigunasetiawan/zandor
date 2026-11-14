@@ -4,7 +4,7 @@
 // Pemakaian (Windows): bun e2e-native/smoke.ts <path zandor-desktop.exe>
 // Build dengan UI tertanam: `bun run tauri build --debug --no-bundle` (cargo build biasa memuat devUrl).
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -104,6 +104,7 @@ for (const f of MEMORY_FILES) {
 let originalRegistry: string | null = null;
 // Fase 10: kustomisasi tampilan tersimpan di localStorage WebView aplikasi asli; dipulihkan di akhir.
 let originalAppearance: string | null = null;
+let originalAutomation: string | null = null;
 try {
   originalRegistry = readFileSync(registryFile, "utf8");
 } catch {
@@ -135,6 +136,10 @@ git("add", "README.md", "kode.ts");
 git("commit", "-q", "-m", "awal");
 writeFileSync(join(docDir, "README.md"), `${SAMPLE_MD}\nbaris tambahan dari smoke\n`);
 writeFileSync(join(docDir, "baru.txt"), "berkas baru\n");
+// Fase 11: fixture Office/notebook asli (ditulis python-docx/openpyxl/python-pptx) untuk penampil di aplikasi asli.
+const fixtureDir = join(import.meta.dirname, "..", "..", "..", "packages", "core", "src", "docs", "fixtures");
+for (const f of ["contoh.docx", "contoh.xlsx", "contoh.pptx", "contoh.ipynb"])
+  copyFileSync(join(fixtureDir, f), join(docDir, f));
 {
   let reg: { projects?: unknown[]; [k: string]: unknown } = {
     version: 1,
@@ -274,6 +279,29 @@ try {
   await docsPanel.getByTestId("image").waitFor({ timeout: 15000 });
   const imgOk = await docsPanel.getByTestId("image").evaluate((el) => (el as HTMLImageElement).naturalWidth === 8);
   check("Panel 3: gambar PNG dari disk (blob) tampil", imgOk);
+  // Fase 11: penampil Office/notebook dengan berkas asli lewat fs_read (CSP: gambar data: dari dokumen)
+  await page.locator('.tree__file[title="contoh.docx"]').click();
+  await docsPanel.getByTestId("docx-view").getByRole("heading", { name: "Judul Laporan" }).waitFor({ timeout: 20000 });
+  const docxImg = await docsPanel
+    .getByTestId("docx-view")
+    .locator("img")
+    .evaluate((el) => (el as HTMLImageElement).naturalWidth);
+  check("Panel 3: DOCX asli dirender (heading, gambar data: lolos CSP)", docxImg === 4, `naturalWidth=${docxImg}`);
+  await page.locator('.tree__file[title="contoh.xlsx"]').click();
+  await docsPanel.getByTestId("xlsx-view").first().getByText("Jeruk <manis>").waitFor({ timeout: 20000 });
+  check("Panel 3: XLSX asli dirender (sheet, sel teks aman)", true);
+  await page.locator('.tree__file[title="contoh.pptx"]').click();
+  await docsPanel.getByTestId("pptx-view").getByRole("heading", { name: "Presentasi Uji" }).waitFor({ timeout: 20000 });
+  check("Panel 3: PPTX asli dirender (slide, judul)", true);
+  await page.locator('.tree__file[title="contoh.ipynb"]').click();
+  await docsPanel
+    .getByTestId("notebook-view")
+    .getByRole("heading", { name: "Judul Notebook" })
+    .waitFor({ timeout: 20000 });
+  check(
+    "Panel 3: notebook asli dirender (markdown, keluaran, galat)",
+    (await docsPanel.getByTestId("notebook-view").getByRole("alert").count()) === 1,
+  );
   await page.locator('.tree__file[title="laporan.pdf"]').click();
   await docsPanel.getByTestId("pdf-pages").getByText("Halaman 1 dari 2").waitFor({ timeout: 30000 });
   const canvasOk = await docsPanel
@@ -475,6 +503,16 @@ try {
     `${await sessionRows.count()} sesi; ${pageErrors.slice(0, 2).join(" | ")}`,
   );
 
+  // Fase 11: saran prompt dihitung dari konteks nyata (git di repo uji + berkas di akar project).
+  await page.getByRole("button", { name: `Sesi baru di ${docProject}` }).click();
+  const sugg = page.getByRole("list", { name: "Saran" });
+  await sugg.getByRole("button", { name: /^Tinjau \d+ perubahan$/ }).waitFor({ timeout: 30000 });
+  await sugg
+    .getByRole("button", { name: "Buat README" })
+    .waitFor({ timeout: 5000 })
+    .catch(() => {});
+  check("saran prompt dinamis dari git nyata ('Tinjau N perubahan') muncul di sesi kosong", true);
+
   // 1b1d) Fase 9: plugin Zandor memuat opsi memoryDir, halaman Memori & Skill bekerja di aplikasi asli.
   mkdirSync(memoryDir, { recursive: true });
   writeFileSync(
@@ -583,7 +621,7 @@ try {
   check("editor shortcut: combo baru tampil dan tersimpan di WebView asli", true);
   await page.getByRole("tab", { name: "Editor" }).click();
   await page.getByText(/hanya tersedia di aplikasi desktop/).waitFor({ state: "detached", timeout: 3000 });
-  await page.getByRole("textbox", { name: "Cari tema di Open VSX" }).fill("dracula");
+  await page.getByRole("textbox", { name: "Cari tema di Open VSX" }).fill("Dracula Theme Official");
   await page.getByRole("button", { name: "Cari", exact: true }).click();
   const hit = page.getByRole("list", { name: "Hasil pencarian" }).getByRole("listitem").first();
   const vsx = await Promise.race([
@@ -608,14 +646,22 @@ try {
       true,
       (await hit.getAttribute("aria-label")) ?? "",
     );
-    await hit.getByRole("button", { name: /^Pasang / }).click();
-    const installed = await waitFor(
-      "tema editor terpasang",
-      () =>
-        page.evaluate(() => JSON.parse(localStorage.getItem("zandor.appearance") ?? "{}").editorThemes?.length ?? 0),
-      (n) => n > 0,
-      60000,
-    ).catch(() => 0);
+    // Hasil teratas bisa saja ekstensi tanpa tema warna: coba sampai 3 hasil pertama.
+    let installed = 0;
+    const hits = page.getByRole("list", { name: "Hasil pencarian" }).getByRole("listitem");
+    for (let i = 0; i < Math.min(3, await hits.count()) && installed === 0; i++) {
+      await hits
+        .nth(i)
+        .getByRole("button", { name: /^Pasang / })
+        .click();
+      installed = await waitFor(
+        "tema editor terpasang",
+        () =>
+          page.evaluate(() => JSON.parse(localStorage.getItem("zandor.appearance") ?? "{}").editorThemes?.length ?? 0),
+        (n) => n > 0,
+        45000,
+      ).catch(() => 0);
+    }
     check(
       "Open VSX: paket .vsix diunduh dan temanya terpasang (hanya JSON dibaca)",
       installed > 0,
@@ -765,6 +811,45 @@ try {
       .first()
       .waitFor({ timeout: 180000 });
     check("memori nyata: model menjawab dari memori global yang disuntik plugin (BIRU-77)", true);
+    await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 120000 });
+
+    // Fase 11: automasi terjadwal nyata — "Jalankan sekarang" membuat sesi, mengirim prompt ke model nyata, memberi tahu.
+    originalAutomation = await page.evaluate(() => localStorage.getItem("zandor.automation"));
+    const notifOk = await page.evaluate(async () => {
+      const g = window as unknown as { __TAURI_INTERNALS__: { invoke: (c: string) => Promise<unknown> } };
+      return typeof (await g.__TAURI_INTERNALS__.invoke("plugin:notification|is_permission_granted")) === "boolean";
+    });
+    check("plugin notifikasi Tauri tersedia di aplikasi asli (izin dapat ditanyakan)", notifOk);
+    await page.evaluate(() => {
+      window.location.hash = "#/automation";
+    });
+    await page.getByRole("heading", { name: "Automasi Terjadwal" }).waitFor({ timeout: 10000 });
+    await page.getByRole("button", { name: "Tugas baru" }).first().click();
+    const aform = page.getByRole("region", { name: "Formulir tugas" });
+    await aform.getByLabel("Nama tugas").fill("Smoke otomasi");
+    await aform.getByLabel("Prompt", { exact: true }).fill("Balas hanya dengan satu kata: otomasi-ok");
+    await aform.getByRole("button", { name: "Simpan" }).click();
+    const acard = page.getByRole("listitem", { name: "Smoke otomasi" });
+    await acard.waitFor({ timeout: 5000 });
+    await acard.getByRole("button", { name: "Jalankan sekarang Smoke otomasi" }).click();
+    await page
+      .getByText(/Tugas Smoke otomasi dimulai/)
+      .first()
+      .waitFor({ timeout: 60000 });
+    check("automasi: Jalankan sekarang membuat sesi dan mengirim prompt ke model nyata", true);
+    await page
+      .getByText(/Tugas Smoke otomasi selesai/)
+      .first()
+      .waitFor({ timeout: 180000 });
+    check("automasi: pemberitahuan selesai muncul setelah model menjawab", true);
+    await acard.getByRole("button", { name: "Buka sesi terakhir Smoke otomasi" }).click();
+    await page
+      .getByRole("article", { name: "Asisten" })
+      .filter({ hasText: /otomasi-ok/i })
+      .first()
+      .waitFor({ timeout: 60000 });
+    check("automasi: sesi hasil tugas berisi jawaban model", true);
+
     // Giliran harus benar-benar selesai (tidak ada kartu izin/dialog tertinggal) sebelum menguji kontrol jendela.
     await page.getByRole("button", { name: "Kirim" }).waitFor({ timeout: 120000 });
   }
@@ -861,10 +946,15 @@ try {
   } catch {
     // diabaikan
   }
-  await second.page.evaluate((prev) => {
-    if (prev === null) localStorage.removeItem("zandor.appearance");
-    else localStorage.setItem("zandor.appearance", prev);
-  }, originalAppearance);
+  await second.page.evaluate(
+    ([appearance, automation]) => {
+      const put = (k: string, v: string | null) =>
+        v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v);
+      put("zandor.appearance", appearance);
+      put("zandor.automation", automation);
+    },
+    [originalAppearance, originalAutomation] as [string | null, string | null],
+  );
   await second.page.getByRole("button", { name: /^(Tutup jendela|Close window)$/ }).click();
   await waitFor(
     "proses keluar (kedua)",
