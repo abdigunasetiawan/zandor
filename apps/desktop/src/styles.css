@@ -169,33 +169,35 @@
   height: 100%;
   min-height: 0;
 }
-.settings__head {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--z-space-3);
-  padding: var(--z-space-3) var(--z-space-5);
-}
-.settings__head h1 {
-  flex: 1;
-  margin: 0;
-}
-.settings__search {
-  max-width: calc(var(--z-space-7) * 5);
-}
 .settings__body {
   display: flex;
   flex: 1;
-  gap: var(--z-space-4);
   min-height: 0;
-  padding: 0 var(--z-space-5) var(--z-space-5);
 }
-.settings__nav {
+.settings__side {
   display: flex;
   flex: none;
   flex-direction: column;
+  gap: var(--z-space-3);
+  width: calc(var(--z-space-7) * 4);
+  padding: var(--z-space-4) var(--z-space-3);
+  overflow-y: auto;
+}
+.settings__sidehead {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+.settings__sidehead h1 {
+  margin: 0;
+}
+.settings__search {
+  width: 100%;
+}
+.settings__nav {
+  display: flex;
+  flex-direction: column;
   gap: calc(var(--z-space-1) / 2);
-  width: calc(var(--z-space-7) * 3);
 }
 .settings__navitem {
   padding: var(--z-space-2) var(--z-space-3);
@@ -215,12 +217,17 @@
   background: var(--z-color-active);
   color: var(--z-color-fg);
 }
-.settings__content {
+/* isi di tengah: area gulir selebar sisa, kolom isi dibatasi dan diposisikan di tengah */
+.settings__scroll {
   flex: 1;
-  max-width: calc(var(--z-space-7) * 16);
   min-width: 0;
   overflow-y: auto;
-  padding-right: var(--z-space-2);
+}
+.settings__content {
+  width: 100%;
+  max-width: calc(var(--z-space-7) * 16);
+  margin: 0 auto;
+  padding: var(--z-space-5) var(--z-space-4);
 }
 .settings__note {
   margin: 0 0 var(--z-space-4);

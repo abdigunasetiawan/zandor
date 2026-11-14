@@ -100,9 +100,11 @@ export function SettingsPage() {
   }, [q, t]);
 
   const goto = (s: Section) => {
+    setQuery("");
     setActive(s);
-    document.getElementById(`settings-${s}`)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
   };
+  /** Satu halaman per kategori; saat mencari, hasil dari semua kategori tampil bersama. */
+  const show = (s: Section) => q !== "" || active === s;
 
   const matchesText = (...texts: string[]) => !q || texts.join(" ").toLowerCase().includes(q);
   const resetAll = async () => {
@@ -190,160 +192,166 @@ export function SettingsPage() {
 
   return (
     <main className="settings" aria-labelledby="settings-title">
-      <header className="settings__head">
-        <IconButton label={t("mem.back")} icon={<ArrowLeftIcon />} onClick={() => nav.push("/")} />
-        <h1 id="settings-title" className="z-h2">
-          {t("settings.title")}
-        </h1>
-        <SearchField
-          value={query}
-          onValueChange={setQuery}
-          placeholder={t("settings.search")}
-          aria-label={t("settings.search")}
-          className="settings__search"
-        />
-      </header>
       <div className="settings__body">
-        <nav className="settings__nav" aria-label={t("settings.categories")}>
-          {navItems.map((n) => (
-            <button
-              key={n.id}
-              type="button"
-              className="settings__navitem"
-              aria-current={active === n.id ? "true" : undefined}
-              onClick={() => goto(n.id)}
-            >
-              {n.label}
-            </button>
-          ))}
-        </nav>
-        <div className="settings__content">
-          <p className="z-small settings__note">{t("settings.schemaNote")}</p>
-
-          {GROUPS.map((group) => {
-            const keys = rowsOf[group];
-            const extra = groupExtra(group);
-            if (keys.length === 0 && !extra) return null;
-            return (
-              <section
-                key={group}
-                className="settings__group"
-                id={`settings-${group}`}
-                aria-labelledby={`settings-h-${group}`}
+        <aside className="settings__side">
+          <div className="settings__sidehead">
+            <IconButton label={t("mem.back")} icon={<ArrowLeftIcon />} onClick={() => nav.push("/")} />
+            <h1 id="settings-title" className="z-h4">
+              {t("settings.title")}
+            </h1>
+          </div>
+          <SearchField
+            value={query}
+            onValueChange={setQuery}
+            placeholder={t("settings.search")}
+            aria-label={t("settings.search")}
+            className="settings__search"
+          />
+          <nav className="settings__nav" aria-label={t("settings.categories")}>
+            {navItems.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                className="settings__navitem"
+                aria-current={!q && active === n.id ? "true" : undefined}
+                onClick={() => goto(n.id)}
               >
-                <h2 id={`settings-h-${group}`} className="z-h4">
-                  {t(`settings.${group}` as MessageKey)}
+                {n.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+        <div className="settings__scroll">
+          <div className="settings__content">
+            <p className="z-small settings__note">{t("settings.schemaNote")}</p>
+
+            {GROUPS.map((group) => {
+              const keys = rowsOf[group];
+              const extra = groupExtra(group);
+              if (!show(group) || (keys.length === 0 && !extra)) return null;
+              return (
+                <section
+                  key={group}
+                  className="settings__group"
+                  id={`settings-${group}`}
+                  aria-labelledby={`settings-h-${group}`}
+                >
+                  <h2 id={`settings-h-${group}`} className="z-h4">
+                    {t(`settings.${group}` as MessageKey)}
+                  </h2>
+                  {keys.map((k) => {
+                    const prop = SETTINGS_SCHEMA.properties[k] as SettingProperty;
+                    const meta = prop["x-zandor"];
+                    return (
+                      <div key={k} className="settings__row" data-setting={k}>
+                        <div className="settings__text">
+                          <span className="z-label">{t(meta.titleKey as MessageKey)}</span>
+                          {meta.descriptionKey && (
+                            <span className="z-small">{t(meta.descriptionKey as MessageKey)}</span>
+                          )}
+                        </div>
+                        <div className="settings__control">
+                          <SettingControl settingKey={k} prop={prop} value={all[k]} />
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={!settings.isExplicit(k)}
+                          onClick={() => settings.reset(k)}
+                        >
+                          {t("settings.reset")}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                  {extra}
+                </section>
+              );
+            })}
+
+            {show("more") && matchesText(t("settings.more"), ...linkCards.map((c) => t(c.title))) && (
+              <section className="settings__group" id="settings-more" aria-labelledby="settings-h-more">
+                <h2 id="settings-h-more" className="z-h4">
+                  {t("settings.more")}
                 </h2>
-                {keys.map((k) => {
-                  const prop = SETTINGS_SCHEMA.properties[k] as SettingProperty;
-                  const meta = prop["x-zandor"];
-                  return (
-                    <div key={k} className="settings__row" data-setting={k}>
-                      <div className="settings__text">
-                        <span className="z-label">{t(meta.titleKey as MessageKey)}</span>
-                        {meta.descriptionKey && <span className="z-small">{t(meta.descriptionKey as MessageKey)}</span>}
-                      </div>
-                      <div className="settings__control">
-                        <SettingControl settingKey={k} prop={prop} value={all[k]} />
-                      </div>
+                <div className="settings__cards">
+                  {linkCards
+                    .filter((c) => matchesText(t(c.title), t(c.body)))
+                    .map((c) => (
+                      <button key={c.path} type="button" className="settings__card" onClick={() => nav.push(c.path)}>
+                        <SettingsIcon size="sm" />
+                        <span className="z-label">{t(c.title)}</span>
+                        <span className="z-small">{t(c.body)}</span>
+                      </button>
+                    ))}
+                </div>
+              </section>
+            )}
+
+            {show("data") &&
+              matchesText(t("settings.data"), t("settings.export"), t("settings.import"), t("settings.resetAll")) && (
+                <section className="settings__group" id="settings-data" aria-labelledby="settings-h-data">
+                  <h2 id="settings-h-data" className="z-h4">
+                    {t("settings.data")}
+                  </h2>
+                  <div className="settings__row">
+                    <div className="settings__text">
+                      <span className="z-label">{t("settings.export")}</span>
+                      <span className="z-small">{t("settings.exportBody")}</span>
+                    </div>
+                    <div className="settings__control settings__actions">
                       <Button
                         size="sm"
-                        variant="ghost"
-                        disabled={!settings.isExplicit(k)}
-                        onClick={() => settings.reset(k)}
+                        onClick={() =>
+                          download("zandor-settings.json", `${JSON.stringify(explicitOnly(settings, all), null, 2)}\n`)
+                        }
                       >
-                        {t("settings.reset")}
+                        {t("settings.exportButton")}
                       </Button>
                     </div>
-                  );
-                })}
-                {extra}
-              </section>
-            );
-          })}
-
-          {(!q || matchesText(t("settings.more"), ...linkCards.map((c) => t(c.title)))) && (
-            <section className="settings__group" id="settings-more" aria-labelledby="settings-h-more">
-              <h2 id="settings-h-more" className="z-h4">
-                {t("settings.more")}
-              </h2>
-              <div className="settings__cards">
-                {linkCards
-                  .filter((c) => matchesText(t(c.title), t(c.body)))
-                  .map((c) => (
-                    <button key={c.path} type="button" className="settings__card" onClick={() => nav.push(c.path)}>
-                      <SettingsIcon size="sm" />
-                      <span className="z-label">{t(c.title)}</span>
-                      <span className="z-small">{t(c.body)}</span>
-                    </button>
-                  ))}
-              </div>
-            </section>
-          )}
-
-          {(!q ||
-            matchesText(t("settings.data"), t("settings.export"), t("settings.import"), t("settings.resetAll"))) && (
-            <section className="settings__group" id="settings-data" aria-labelledby="settings-h-data">
-              <h2 id="settings-h-data" className="z-h4">
-                {t("settings.data")}
-              </h2>
-              <div className="settings__row">
-                <div className="settings__text">
-                  <span className="z-label">{t("settings.export")}</span>
-                  <span className="z-small">{t("settings.exportBody")}</span>
-                </div>
-                <div className="settings__control settings__actions">
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      download("zandor-settings.json", `${JSON.stringify(explicitOnly(settings, all), null, 2)}\n`)
-                    }
-                  >
-                    {t("settings.exportButton")}
-                  </Button>
-                </div>
-              </div>
-              <div className="settings__row">
-                <div className="settings__text">
-                  <span className="z-label">{t("settings.import")}</span>
-                  <span className="z-small">{t("settings.importBody")}</span>
-                </div>
-                <div className="settings__control settings__actions">
-                  <input
-                    ref={importRef}
-                    type="file"
-                    accept="application/json,.json"
-                    hidden
-                    aria-label={t("settings.import")}
-                    onChange={(e) => {
-                      void importJson(e.target.files?.[0]);
-                      e.target.value = "";
-                    }}
-                  />
-                  <Button size="sm" onClick={() => importRef.current?.click()}>
-                    {t("settings.importButton")}
-                  </Button>
-                </div>
-              </div>
-              <div className="settings__row">
-                <div className="settings__text">
-                  <span className="z-label">{t("settings.resetAll")}</span>
-                  <span className="z-small">{t("settings.resetAllHelp")}</span>
-                </div>
-                <div className="settings__control settings__actions">
-                  <Button size="sm" variant="danger" onClick={() => void resetAll()}>
-                    {t("settings.resetAll")}
-                  </Button>
-                </div>
-              </div>
-              <h3 id="settings-json" className="z-label settings__sub">
-                {t("settings.current")}
-              </h3>
-              <pre className="settings__json z-code" data-testid="settings-json">
-                {JSON.stringify(all, null, 2)}
-              </pre>
-            </section>
-          )}
+                  </div>
+                  <div className="settings__row">
+                    <div className="settings__text">
+                      <span className="z-label">{t("settings.import")}</span>
+                      <span className="z-small">{t("settings.importBody")}</span>
+                    </div>
+                    <div className="settings__control settings__actions">
+                      <input
+                        ref={importRef}
+                        type="file"
+                        accept="application/json,.json"
+                        hidden
+                        aria-label={t("settings.import")}
+                        onChange={(e) => {
+                          void importJson(e.target.files?.[0]);
+                          e.target.value = "";
+                        }}
+                      />
+                      <Button size="sm" onClick={() => importRef.current?.click()}>
+                        {t("settings.importButton")}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="settings__row">
+                    <div className="settings__text">
+                      <span className="z-label">{t("settings.resetAll")}</span>
+                      <span className="z-small">{t("settings.resetAllHelp")}</span>
+                    </div>
+                    <div className="settings__control settings__actions">
+                      <Button size="sm" variant="danger" onClick={() => void resetAll()}>
+                        {t("settings.resetAll")}
+                      </Button>
+                    </div>
+                  </div>
+                  <h3 id="settings-json" className="z-label settings__sub">
+                    {t("settings.current")}
+                  </h3>
+                  <pre className="settings__json z-code" data-testid="settings-json">
+                    {JSON.stringify(all, null, 2)}
+                  </pre>
+                </section>
+              )}
+          </div>
         </div>
       </div>
     </main>

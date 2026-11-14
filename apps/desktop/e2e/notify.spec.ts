@@ -60,6 +60,10 @@ test("izin menunggu saat tidak dilihat: titik 'butuh tindakan' + toast", async (
 test("pengaturan notifikasi: toast bisa dimatikan; tidak ada toast saat sesi selesai", async ({ page }) => {
   await mockEngine(page);
   await page.goto("/#/settings");
+  await page
+    .getByRole("navigation", { name: "Kategori pengaturan" })
+    .getByRole("button", { name: "Notifikasi dan suara" })
+    .click();
   await page.locator('[data-setting="notifyToast"]').getByRole("switch").click();
   await page.goto("/#/");
   const engine = await mockEngine(page);
@@ -97,6 +101,10 @@ test("halaman Pengaturan: kategori, pencarian, suara kustom, dan data", async ({
   await expect(page.locator('[data-setting="theme"]')).toHaveCount(0);
   await expect(page.locator('[data-setting="soundCustom.done"]')).toBeVisible();
   await page.getByRole("searchbox", { name: "Cari pengaturan…" }).fill("");
+  await page
+    .getByRole("navigation", { name: "Kategori pengaturan" })
+    .getByRole("button", { name: "Data dan cadangan" })
+    .click();
   await expect(page.getByRole("button", { name: "Ekspor" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Atur ulang semua" })).toBeVisible();
 });

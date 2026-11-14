@@ -152,19 +152,29 @@ test("zoom 150%: panel terlipat otomatis berurutan, chat tetap di atas minimum, 
   expect(await width(page, "sidebar")).toBeGreaterThan(100);
 });
 
-test("Pengaturan: bahasa, tema, skala, dan ingat tata letak; tersimpan; JSON saat ini tampil", async ({ page }) => {
+test("Pengaturan: satu halaman per kategori; bahasa, tema, skala tersimpan; JSON saat ini di Data", async ({
+  page,
+}) => {
   await home(page);
   await page.getByRole("button", { name: "Pengaturan" }).click();
+  // pencarian omnibox di tengah atas disembunyikan di halaman Pengaturan
+  await expect(page.getByRole("button", { name: "Command palette" })).toHaveCount(0);
+  const nav = page.getByRole("navigation", { name: "Kategori pengaturan" });
+  await expect(page.locator('[data-setting="language"]')).toBeVisible();
+  await expect(page.locator('[data-setting="theme"]')).toHaveCount(0); // kategori lain tidak tampil
+
   await page.getByRole("combobox", { name: "Bahasa" }).click();
   await page.getByRole("option", { name: "English" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
-  await expect(page.getByTestId("settings-json")).toContainText('"language": "en"');
 
+  await page
+    .getByRole("navigation", { name: "Settings categories" })
+    .getByRole("button", { name: "Appearance" })
+    .click();
   await page.getByRole("combobox", { name: "UI scale" }).click();
   await page.getByRole("option", { name: "125%" }).click();
   expect(await rootPx(page)).toBe(20);
-  await expect(page.getByTestId("settings-json")).toContainText('"uiScale": 1.25');
 
   const resetBtn = page.locator('[data-setting="theme"]').getByRole("button", { name: "Reset to default" });
   await expect(resetBtn).toBeDisabled(); // belum pernah diubah
@@ -172,7 +182,15 @@ test("Pengaturan: bahasa, tema, skala, dan ingat tata letak; tersimpan; JSON saa
   await page.getByRole("option", { name: "Dark" }).click();
   await expect(resetBtn).toBeEnabled();
   await resetBtn.click();
+
+  await page
+    .getByRole("navigation", { name: "Settings categories" })
+    .getByRole("button", { name: "Data and backup" })
+    .click();
+  await expect(page.getByTestId("settings-json")).toContainText('"language": "en"');
+  await expect(page.getByTestId("settings-json")).toContainText('"uiScale": 1.25');
   await expect(page.getByTestId("settings-json")).toContainText('"theme": "system"');
+  void nav;
 
   await page.reload();
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible(); // rute tersimpan di hash
@@ -183,6 +201,10 @@ test("tata letak tidak disimpan bila 'ingat tata letak' dimatikan", async ({ pag
   await home(page);
   const defaultWidth = await width(page, "sidebar");
   await page.getByRole("button", { name: "Pengaturan" }).click();
+  await page
+    .getByRole("navigation", { name: "Kategori pengaturan" })
+    .getByRole("button", { name: "Tata letak" })
+    .click();
   await page.getByRole("switch", { name: "Ingat tata letak panel" }).click();
   await page.getByRole("button", { name: "Kembali", exact: true }).click();
   await expect(page.getByRole("region", { name: "Chat" })).toBeVisible();

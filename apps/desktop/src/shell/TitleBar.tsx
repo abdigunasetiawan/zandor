@@ -169,17 +169,20 @@ export function TitleBar() {
       </div>
       <MenuBar />
       <div className="titlebar__center" data-tauri-drag-region>
-        <button
-          type="button"
-          className="omnibox"
-          onClick={openPalette}
-          aria-label={t("palette.label")}
-          aria-haspopup="dialog"
-        >
-          <SearchIcon size="sm" />
-          <span className="omnibox__text">{t("palette.placeholder")}</span>
-          <Kbd keys="Ctrl+K" />
-        </button>
+        {/* di halaman Pengaturan pencarian ada di sidebar halaman itu sendiri; omnibox disembunyikan */}
+        {!/^\/settings\/?$/.test(navState.current) && (
+          <button
+            type="button"
+            className="omnibox"
+            onClick={openPalette}
+            aria-label={t("palette.label")}
+            aria-haspopup="dialog"
+          >
+            <SearchIcon size="sm" />
+            <span className="omnibox__text">{t("palette.placeholder")}</span>
+            <Kbd keys="Ctrl+K" />
+          </button>
+        )}
       </div>
       <fieldset className="titlebar__tools" aria-label={t("panel.rail")}>
         {panelState.ready &&
