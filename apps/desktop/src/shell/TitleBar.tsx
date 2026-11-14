@@ -152,7 +152,11 @@ export function TitleBar() {
   const actions = panels.actions;
 
   return (
-    <header className="titlebar" data-tauri-drag-region>
+    <header
+      className="titlebar"
+      data-tauri-drag-region
+      data-surface={/^\/settings\/?$/.test(navState.current) ? "" : undefined}
+    >
       <div className="titlebar__nav">
         <IconButton
           label={t("nav.back")}

@@ -179,13 +179,25 @@
   flex: none;
   flex-direction: column;
   gap: var(--z-space-3);
-  margin: var(--z-space-2) 0 var(--z-space-2) var(--z-space-2);
-  border-radius: var(--z-radius-lg);
-  background: var(--z-color-bg);
-  box-shadow: var(--z-shadow-panel);
   width: calc(var(--z-space-7) * 4.5);
-  padding: var(--z-space-4) var(--z-space-3);
+  padding: 0;
   overflow-y: auto;
+  background: var(--z-color-bg);
+}
+/* sidebar penuh dari atas ke bawah, tanpa margin/radius: jarak diberikan elemen di dalamnya */
+.settings__side > * {
+  margin-inline: var(--z-space-3);
+}
+.settings__side > .settings__sidehead {
+  margin-top: var(--z-space-3);
+}
+.settings__side > .settings__nav {
+  margin-inline: 0;
+  padding: 0 var(--z-space-2) var(--z-space-3);
+}
+/* navbar atas ikut berlatar di halaman Pengaturan */
+.titlebar[data-surface] {
+  background: var(--z-color-bg);
 }
 .settings__sidehead {
   display: flex;
@@ -196,7 +208,7 @@
   margin: 0;
 }
 .settings__search {
-  width: 100%;
+  width: auto;
 }
 .settings__nav {
   display: flex;
