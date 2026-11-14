@@ -17,11 +17,23 @@ import {
   Spinner,
   Switch,
   Textarea,
+  Working,
 } from "../index";
 import { renderUi } from "../test-utils";
 import { initials } from "./Avatar";
 
 afterEach(cleanup);
+
+describe("Working", () => {
+  test("peran status berlabel; jumlah bagian per varian; label kustom", () => {
+    const { container, rerender } = renderUi(<Working variant="wave" />);
+    expect(screen.getByRole("status", { name: "Sedang bekerja" })).toBeTruthy();
+    expect(container.querySelectorAll("i")).toHaveLength(5);
+    rerender(<Working variant="ripple" label="Agent bekerja" />);
+    expect(screen.getByRole("status", { name: "Agent bekerja" })).toBeTruthy();
+    expect(container.querySelectorAll("i")).toHaveLength(3);
+  });
+});
 
 describe("Button", () => {
   test("klik memanggil handler; disabled tidak", async () => {

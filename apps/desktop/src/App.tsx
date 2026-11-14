@@ -17,6 +17,7 @@ import { AutomationDriver } from "./shell/AutomationDriver";
 import { AutomationPage } from "./shell/AutomationPage";
 import { CommandCenter } from "./shell/CommandCenter";
 import { MemoryPage } from "./shell/MemoryPage";
+import { NotificationDriver } from "./shell/NotificationDriver";
 import { ProvidersPage } from "./shell/ProvidersPage";
 import { SettingsPage } from "./shell/SettingsPage";
 import { ShellLayout } from "./shell/ShellLayout";
@@ -63,6 +64,13 @@ function Effects() {
 
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
   useEffect(() => applyScale(settings.uiScale), [settings.uiScale]);
+  // lebar isi chat (token --z-chat-width); "normal" memakai nilai token bawaan
+  useEffect(() => {
+    const root = document.documentElement;
+    const rem = { narrow: "38rem", wide: "56rem" }[settings.chatWidth as "narrow" | "wide"];
+    if (rem) root.style.setProperty("--z-chat-width", rem);
+    else root.style.removeProperty("--z-chat-width");
+  }, [settings.chatWidth]);
   // Tema kustom/tipografi/panel chat (Fase 10): dihitung untuk mode efektif; mode "system" mengikuti OS.
   const appearance = useAppearance();
   useEffect(() => {
@@ -177,6 +185,7 @@ function Root() {
               <CommandCenter>
                 <Effects />
                 <AutomationDriver />
+                <NotificationDriver />
                 <div className="app">
                   <TitleBar />
                   <div className="app__content">

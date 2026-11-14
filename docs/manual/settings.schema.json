@@ -73,6 +73,258 @@
         "descriptionKey": "settings.rememberLayoutHelp",
         "group": "layout"
       }
+    },
+    "notifyToast": {
+      "type": "boolean",
+      "title": "Toast di dalam aplikasi",
+      "description": "Tampilkan toast saat sesi selesai, gagal, atau butuh aksi.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.notifyToast",
+        "group": "notifications"
+      }
+    },
+    "notifySystem": {
+      "type": "boolean",
+      "title": "Notifikasi sistem",
+      "description": "Kirim notifikasi sistem operasi (butuh izin dari Anda).",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.notifySystem",
+        "group": "notifications"
+      }
+    },
+    "notifySound": {
+      "type": "boolean",
+      "title": "Suara",
+      "description": "Putar suara untuk peristiwa sesi.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.notifySound",
+        "group": "notifications"
+      }
+    },
+    "notifyOnlyAway": {
+      "type": "boolean",
+      "title": "Hanya saat tidak dilihat",
+      "description": "Lewati pemberitahuan untuk sesi yang sedang Anda lihat (jendela fokus).",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.notifyOnlyAway",
+        "group": "notifications"
+      }
+    },
+    "notifyDone": {
+      "type": "boolean",
+      "title": "Sesi selesai",
+      "description": "Beritahu saat agent selesai bekerja.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.notifyDone",
+        "group": "notifications"
+      }
+    },
+    "notifyFailed": {
+      "type": "boolean",
+      "title": "Sesi gagal atau terkena batas",
+      "description": "Beritahu saat sesi gagal (termasuk rate limit/kuota).",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.notifyFailed",
+        "group": "notifications"
+      }
+    },
+    "notifyAction": {
+      "type": "boolean",
+      "title": "Butuh tindakan Anda",
+      "description": "Beritahu saat agent meminta izin atau mengajukan pertanyaan.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.notifyAction",
+        "group": "notifications"
+      }
+    },
+    "notifyVolume": {
+      "type": "number",
+      "title": "Volume suara",
+      "description": "Volume suara pemberitahuan.",
+      "enum": [
+        0.2,
+        0.4,
+        0.6,
+        0.8,
+        1
+      ],
+      "default": 0.6,
+      "x-zandor": {
+        "titleKey": "settings.notifyVolume",
+        "group": "notifications"
+      }
+    },
+    "soundDone": {
+      "type": "string",
+      "title": "Suara: selesai",
+      "description": "Suara saat sesi selesai.",
+      "enum": [
+        "chime",
+        "pop",
+        "bell",
+        "soft",
+        "alert",
+        "low",
+        "none",
+        "custom"
+      ],
+      "default": "chime",
+      "x-zandor": {
+        "titleKey": "settings.soundDone",
+        "group": "notifications",
+        "enumLabelKeys": {
+          "chime": "sound.chime",
+          "pop": "sound.pop",
+          "bell": "sound.bell",
+          "soft": "sound.soft",
+          "alert": "sound.alert",
+          "low": "sound.low",
+          "none": "sound.none",
+          "custom": "sound.custom"
+        }
+      }
+    },
+    "soundFailed": {
+      "type": "string",
+      "title": "Suara: gagal",
+      "description": "Suara saat sesi gagal atau terkena batas.",
+      "enum": [
+        "chime",
+        "pop",
+        "bell",
+        "soft",
+        "alert",
+        "low",
+        "none",
+        "custom"
+      ],
+      "default": "low",
+      "x-zandor": {
+        "titleKey": "settings.soundFailed",
+        "group": "notifications",
+        "enumLabelKeys": {
+          "chime": "sound.chime",
+          "pop": "sound.pop",
+          "bell": "sound.bell",
+          "soft": "sound.soft",
+          "alert": "sound.alert",
+          "low": "sound.low",
+          "none": "sound.none",
+          "custom": "sound.custom"
+        }
+      }
+    },
+    "soundAction": {
+      "type": "string",
+      "title": "Suara: butuh aksi",
+      "description": "Suara saat izin atau pertanyaan menunggu.",
+      "enum": [
+        "chime",
+        "pop",
+        "bell",
+        "soft",
+        "alert",
+        "low",
+        "none",
+        "custom"
+      ],
+      "default": "bell",
+      "x-zandor": {
+        "titleKey": "settings.soundAction",
+        "group": "notifications",
+        "enumLabelKeys": {
+          "chime": "sound.chime",
+          "pop": "sound.pop",
+          "bell": "sound.bell",
+          "soft": "sound.soft",
+          "alert": "sound.alert",
+          "low": "sound.low",
+          "none": "sound.none",
+          "custom": "sound.custom"
+        }
+      }
+    },
+    "sendKey": {
+      "type": "string",
+      "title": "Tombol kirim pesan",
+      "description": "Enter mengirim (Shift+Enter baris baru), atau Ctrl+Enter mengirim (Enter baris baru).",
+      "enum": [
+        "enter",
+        "ctrl-enter"
+      ],
+      "default": "enter",
+      "x-zandor": {
+        "titleKey": "settings.sendKey",
+        "group": "chat",
+        "enumLabelKeys": {
+          "enter": "settings.sendKey.enter",
+          "ctrl-enter": "settings.sendKey.ctrl"
+        }
+      }
+    },
+    "chatWidth": {
+      "type": "string",
+      "title": "Lebar isi chat",
+      "description": "Lebar kolom pesan di Panel Chat.",
+      "enum": [
+        "narrow",
+        "normal",
+        "wide"
+      ],
+      "default": "normal",
+      "x-zandor": {
+        "titleKey": "settings.chatWidth",
+        "group": "chat",
+        "enumLabelKeys": {
+          "narrow": "settings.chatWidth.narrow",
+          "normal": "settings.chatWidth.normal",
+          "wide": "settings.chatWidth.wide"
+        }
+      }
+    },
+    "confirmDelete": {
+      "type": "boolean",
+      "title": "Konfirmasi sebelum menghapus sesi",
+      "description": "Tanyakan dulu sebelum menghapus sesi dari sidebar.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.confirmDelete",
+        "group": "chat"
+      }
+    },
+    "showDemos": {
+      "type": "boolean",
+      "title": "Tampilkan sesi demo",
+      "description": "Tampilkan tiga sesi demo bawaan di daftar Chat.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.showDemos",
+        "group": "chat"
+      }
+    },
+    "terminalFontSize": {
+      "type": "number",
+      "title": "Ukuran huruf terminal",
+      "description": "Ukuran huruf terminal (satuan titik).",
+      "enum": [
+        11,
+        12,
+        13,
+        14,
+        16
+      ],
+      "default": 13,
+      "x-zandor": {
+        "titleKey": "settings.terminalFontSize",
+        "group": "tools"
+      }
     }
   }
 }

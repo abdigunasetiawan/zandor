@@ -7,10 +7,21 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
 import { CHAT_KEY, type PtySocket, type TerminalTab } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { Button, CloseIcon, IconButton, PlusIcon, Select, Spinner, useToast } from "@zandor/ui";
+import {
+  Button,
+  CloseIcon,
+  FolderIcon,
+  IconButton,
+  PlusIcon,
+  Select,
+  Spinner,
+  TerminalIcon,
+  useToast,
+} from "@zandor/ui";
 import "@xterm/xterm/css/xterm.css";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useProjects, useServices, useTerminals } from "../services";
+import { useProjects, useServices, useSettings, useTerminals } from "../services";
+import { ToolNotice } from "./ToolNotice";
 
 const RECONNECT_MS = 1000;
 const MAX_RECONNECTS = 5;
@@ -27,6 +38,10 @@ function TerminalView({ tab, visible }: { tab: TerminalTab; visible: boolean }) 
   const fitRef = useRef<{ fit: () => void } | null>(null);
   const [state, setState] = useState<"connecting" | "ready" | "reconnecting" | "ended">("connecting");
   const engineReady = useProjects().engineReady;
+  const { terminalFontSize } = useSettings();
+  const fontSizeRef = useRef(terminalFontSize);
+  fontSizeRef.current = terminalFontSize;
+  const termRef = useRef<Terminal | null>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: dibuat sekali per tab; `visible` ditangani efek lain
   useEffect(() => {
@@ -40,7 +55,7 @@ function TerminalView({ tab, visible }: { tab: TerminalTab; visible: boolean }) 
       cursorBlink: true,
       allowProposedApi: true,
       fontFamily: cssVar("--z-font-terminal") || "monospace",
-      fontSize: 13,
+      fontSize: fontSizeRef.current,
       scrollback: 5000,
       theme: { background: cssVar("--z-color-bg"), foreground: cssVar("--z-color-fg"), cursor: cssVar("--z-color-fg") },
     });
@@ -49,6 +64,7 @@ function TerminalView({ tab, visible }: { tab: TerminalTab; visible: boolean }) 
     term.loadAddon(new Unicode11Addon());
     term.unicode.activeVersion = "11";
     term.open(el);
+    termRef.current = term;
     fitRef.current = fit;
     let disposed = false;
     let socket: PtySocket | null = null;
@@ -123,6 +139,7 @@ function TerminalView({ tab, visible }: { tab: TerminalTab; visible: boolean }) 
       sub2.dispose();
       socket?.close();
       term.dispose();
+      termRef.current = null;
       fitRef.current = null;
     };
   }, [tab.id, tab.cwd, engineReady]);
@@ -130,6 +147,13 @@ function TerminalView({ tab, visible }: { tab: TerminalTab; visible: boolean }) 
   useEffect(() => {
     if (visible) requestAnimationFrame(() => fitRef.current?.fit());
   }, [visible]);
+
+  // ukuran huruf berubah di Pengaturan → terapkan langsung ke terminal yang sudah terbuka
+  useEffect(() => {
+    if (!termRef.current) return;
+    termRef.current.options.fontSize = terminalFontSize;
+    requestAnimationFrame(() => fitRef.current?.fit());
+  }, [terminalFontSize]);
 
   return (
     <div className="term" data-visible={visible ? "" : undefined} hidden={!visible}>
@@ -156,9 +180,18 @@ export function TerminalPanel() {
   const ctx = useMemo(() => {
     const key = proj.selection.key ?? CHAT_KEY;
     const project = proj.projects.find((p) => p.id === key);
-    const cwd = project?.path ?? (key === CHAT_KEY ? proj.chatDir : null);
-    return { key: project ? key : CHAT_KEY, cwd, name: project?.name ?? t("sb.chatGroup") };
-  }, [proj.selection.key, proj.projects, proj.chatDir, t]);
+    // sesi Chat punya folder kerja sendiri: terminal mengikuti sesi terpilih (folder Chat bila belum ada sesi)
+    const chatSession =
+      !project && key === CHAT_KEY && proj.selection.sessionId
+        ? proj.sessions[CHAT_KEY]?.items.find((x) => x.id === proj.selection.sessionId)
+        : undefined;
+    const cwd = project?.path ?? (key === CHAT_KEY ? (chatSession?.directory ?? proj.chatDir) : null);
+    return {
+      key: project ? key : chatSession ? `chat:${chatSession.id}` : CHAT_KEY,
+      cwd,
+      name: project?.name ?? t("sb.chatGroup"),
+    };
+  }, [proj.selection.key, proj.selection.sessionId, proj.sessions, proj.projects, proj.chatDir, t]);
 
   // adopsi PTY yang masih hidup di engine untuk konteks ini (setelah muat ulang aplikasi)
   // biome-ignore lint/correctness/useExhaustiveDependencies: dijalankan saat konteks/engine berubah
@@ -178,8 +211,8 @@ export function TerminalPanel() {
     }
   };
 
-  if (!proj.engineReady) return <p className="sidebar__note z-small">{t("tm.noEngine")}</p>;
-  if (!ctx.cwd) return <p className="sidebar__note z-small">{t("tm.noContext")}</p>;
+  if (!proj.engineReady) return <ToolNotice icon={<TerminalIcon size="lg" />}>{t("tm.noEngine")}</ToolNotice>;
+  if (!ctx.cwd) return <ToolNotice icon={<TerminalIcon size="lg" />}>{t("tm.noContext")}</ToolNotice>;
 
   return (
     <div className="terms">
@@ -193,8 +226,13 @@ export function TerminalPanel() {
                 aria-current={x.id === active ? "true" : undefined}
                 onClick={() => terminals.setActive(ctx.key, x.id)}
               >
-                {x.title}
-                {x.status === "exited" ? " ✕" : ""}
+                <TerminalIcon size="sm" />
+                <span className="stabs__text">{x.title}</span>
+                {x.status === "exited" && (
+                  <span className="z-small terms__exited" title={t("tm.exited")}>
+                    ✕
+                  </span>
+                )}
               </button>
               <button
                 type="button"
@@ -220,7 +258,10 @@ export function TerminalPanel() {
         <IconButton label={t("tm.new")} size="sm" icon={<PlusIcon />} onClick={() => void create()} />
       </div>
       <p className="terms__cwd z-small" title={ctx.cwd}>
-        {ctx.name} — {ctx.cwd}
+        <FolderIcon size="sm" />
+        <span className="terms__cwdtext">
+          {ctx.name} — {ctx.cwd}
+        </span>
       </p>
       {term.error && (
         <p className="chat__note chat__note--error z-small" role="alert">
@@ -230,6 +271,7 @@ export function TerminalPanel() {
       <div className="terms__views">
         {tabs.length === 0 && (
           <div className="terms__empty">
+            <TerminalIcon size="lg" />
             <p className="z-p">{t("tm.empty")}</p>
             <Button variant="solid" onClick={() => void create()}>
               {t("tm.new")}

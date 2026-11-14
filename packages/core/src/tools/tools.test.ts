@@ -96,6 +96,46 @@ describe("GitStore", () => {
     expect(s.state()).toMatchObject({ root: null, status: null, branches: [] });
   });
 
+  test("monorepo: akar bukan repo → memakai repo di anak folder; pilihan repo diingat dan status/diff memakai repo aktif", async () => {
+    const calls: string[] = [];
+    const files: Record<string, FileChange[]> = {
+      "C:monoapi": [f("a.ts", " ", "M")],
+      "C:monoweb": [f("b.ts", " ", "M")],
+    };
+    const h = host();
+    h.status = async (root: string) => {
+      calls.push(`status:${root}`);
+      const fl = files[root];
+      return fl ? repoStatus(fl) : { ...repoStatus([]), isRepo: false, branch: null };
+    };
+    h.repos = async () => ["C:monoapi", "C:monoweb"];
+    const s = new GitStore(h);
+    await s.setRoot("C:mono");
+    expect(s.state()).toMatchObject({ projectRoot: "C:mono", root: "C:monoapi" });
+    expect(s.state().repos).toEqual(["C:monoapi", "C:monoweb"]);
+    expect(s.state().status?.files[0]?.path).toBe("a.ts");
+    await s.selectRepo("C:monoweb");
+    expect(s.state().root).toBe("C:monoweb");
+    expect(s.state().status?.files[0]?.path).toBe("b.ts");
+    await s.refresh(); // refresh mengingat repo yang dipilih
+    expect(s.state().root).toBe("C:monoweb");
+    await s.selectRepo("C:lain"); // bukan anggota daftar → diabaikan
+    expect(s.state().root).toBe("C:monoweb");
+  });
+
+  test("akar yang sendiri repo tidak mencari anak folder", async () => {
+    const h = host();
+    const spy = { n: 0 };
+    h.repos = async () => {
+      spy.n++;
+      return ["x"];
+    };
+    const s = new GitStore(h);
+    await s.setRoot("C:p");
+    expect(spy.n).toBe(0);
+    expect(s.state().repos).toEqual([]);
+  });
+
   test("stage → status dimuat ulang; commit mengembalikan hash dan membersihkan perubahan", async () => {
     const h = host();
     const s = new GitStore(h);

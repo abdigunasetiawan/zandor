@@ -4,6 +4,8 @@ import { normalizeBrowserUrl } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, IconButton, Input, RefreshIcon, useToast } from "@zandor/ui";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { BROWSER_OPEN_EVENT, takePendingBrowserUrl } from "./browser-bridge";
+import { ToolNotice } from "./ToolNotice";
 
 type Core = typeof import("@tauri-apps/api/core");
 type Mode = "checking" | "native" | "system" | "none";
@@ -74,7 +76,8 @@ export function BrowserPanel() {
     };
     const b0 = bounds();
     if (b0) {
-      void call("browser_open", { url: created ? null : lastUrl || null, ...b0 })
+      const wanted = takePendingBrowserUrl(); // URL yang diminta bagian lain aplikasi (mis. pratinjau HTML)
+      void call("browser_open", { url: wanted ?? (created ? null : lastUrl || null), ...b0 })
         .then(() => {
           created = true;
           sync(); // sinkron ulang setelah dibuat (mitigasi race cold-start, ADR-020 temuan 1)
@@ -84,6 +87,12 @@ export function BrowserPanel() {
     const ro = new ResizeObserver(sync);
     if (host.current) ro.observe(host.current);
     window.addEventListener("resize", sync);
+    // permintaan buka URL saat panel sudah terpasang
+    const onOpen = () => {
+      const u = takePendingBrowserUrl();
+      if (u) void call("browser_navigate", { url: u }).catch((e) => alive && setError(String(e)));
+    };
+    window.addEventListener(BROWSER_OPEN_EVENT, onOpen);
     // overlay UI → sembunyikan webview (airspace)
     let hidden = false;
     const mo = new MutationObserver(() => {
@@ -111,6 +120,7 @@ export function BrowserPanel() {
       ro.disconnect();
       mo.disconnect();
       window.removeEventListener("resize", sync);
+      window.removeEventListener(BROWSER_OPEN_EVENT, onOpen);
       off?.();
       void call("browser_visible", { visible: false }).catch(() => {});
     };
@@ -190,8 +200,8 @@ export function BrowserPanel() {
           {error}
         </p>
       )}
-      {mode === "none" && <p className="sidebar__note z-small">{t("br.unavailable")}</p>}
-      {mode === "system" && <p className="sidebar__note z-small">{t("br.systemFallback")}</p>}
+      {mode === "none" && <ToolNotice inline>{t("br.unavailable")}</ToolNotice>}
+      {mode === "system" && <ToolNotice inline>{t("br.systemFallback")}</ToolNotice>}
       <div className="brw__host" ref={host} data-testid="browser-host" data-mode={mode} />
     </div>
   );

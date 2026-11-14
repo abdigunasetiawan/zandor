@@ -21,6 +21,13 @@ export type MockEngine = {
   variants: Array<string | undefined>;
   /** Isi berkas project untuk /file dan /file/content (kunci = path relatif). */
   project: Map<string, { text?: string; base64?: string }>;
+  /** Selesaikan giliran yang sedang berjalan (jawaban singkat + status idle), atau gagalkan dengan galat. */
+  finishTurn(sessionId: string, error?: { name: string; message: string }): void;
+  /** Perubahan berkas per sesi untuk GET /session/:id/diff. */
+  sessionDiffs: Map<
+    string,
+    Array<{ file: string; patch: string; additions: number; deletions: number; status: string }>
+  >;
   /** Terminal tiruan: PTY yang dibuat, input yang diterima, dan perubahan ukuran. */
   pty: {
     list: Array<{ id: string; title: string; command: string; cwd: string; status: "running" | "exited"; pid: number }>;
@@ -87,6 +94,7 @@ export const RICH_MD = [
 
 export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<MockEngine> {
   const state: MockEngine = {
+    finishTurn: () => {},
     sessions: [],
     prompts: [],
     aborted: [],
@@ -111,6 +119,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
       },
     },
     project: new Map(),
+    sessionDiffs: new Map(),
   };
   const revertOf = new Map<string, string>();
   const sockets = new Map<string, { close(): void }>();
@@ -133,6 +142,15 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
   });
 
   const emit = (type: string, properties: unknown) => queue.push({ id: id("evt"), type, properties });
+  state.finishTurn = (sid, error) => {
+    const last = (messages.get(sid) ?? []).at(-1);
+    if (last) {
+      last.info.time = { ...(last.info.time as object), completed: ++clock } as never;
+      if (error) last.info.error = { name: error.name, data: { message: error.message } };
+      emit("message.updated", { sessionID: sid, info: last.info });
+    }
+    emit("session.status", { sessionID: sid, status: { type: "idle" } });
+  };
 
   /** Skenario balasan asisten: teks streaming, plus tool call atau permintaan izin sesuai isi prompt. */
   const respond = (sessionID: string, text: string) => {
@@ -157,7 +175,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     emit("message.part.updated", { sessionID, part: user.parts[0] });
     emit("session.status", { sessionID, status: { type: "busy" } });
 
-    const asst: Msg = {
+    let asst: Msg = {
       info: {
         id: id("msg"),
         sessionID,
@@ -196,6 +214,64 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
       }
     };
 
+    if (text.includes("bekerja")) {
+      // giliran yang sedang berjalan dengan proses (berpikir + pencarian web) dan belum ada jawaban
+      for (const part of [
+        { id: id("prt"), messageID: asst.info.id, sessionID, type: "reasoning", text: "menimbang langkah" },
+        {
+          id: id("prt"),
+          messageID: asst.info.id,
+          sessionID,
+          type: "tool",
+          tool: "websearch",
+          callID: id("call"),
+          state: { status: "running", input: { query: "cuaca jakarta" }, title: "", time: { start: 1 } },
+        },
+      ] as Part[]) {
+        asst.parts.push(part);
+        emit("message.part.updated", { sessionID, part });
+      }
+      return; // tetap sibuk sampai di-abort
+    }
+    for (const [needle, path] of [
+      ["buat dokumen", "laporan/ringkasan.md"],
+      ["buat kode", "src/app.ts"],
+    ] as const) {
+      if (!text.includes(needle)) continue;
+      asst.parts.push({
+        id: id("prt"),
+        messageID: asst.info.id,
+        sessionID,
+        type: "tool",
+        tool: "write",
+        callID: id("call"),
+        state: {
+          status: "completed",
+          input: { filePath: path },
+          output: "ok",
+          title: path,
+          time: { start: 1, end: 2 },
+        },
+      });
+      emit("message.part.updated", { sessionID, part: asst.parts.at(-1) });
+      // seperti engine asli: pesan pertama hanya berisi tool call, jawaban datang di pesan asisten berikutnya
+      asst.info.time = { ...(asst.info.time as object), completed: ++clock } as never;
+      emit("message.updated", { sessionID, info: asst.info });
+      asst = {
+        info: {
+          id: id("msg"),
+          sessionID,
+          role: "assistant",
+          parentID: user.info.id,
+          modelID: "m-satu",
+          providerID: "mock",
+          time: { created: ++clock },
+        },
+        parts: [],
+      };
+      list.push(asst);
+      emit("message.updated", { sessionID, info: asst.info });
+    }
     if (text.includes("lambat")) return; // tetap sibuk sampai di-abort
     if (text.includes("pertanyaan")) {
       const req = {
@@ -556,6 +632,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         const cutId = revertOf.get(sid);
         return json({ ...s, ...(cutId ? { revert: { messageID: cutId } } : {}) });
       }
+      if (sub === "diff" && req.method() === "GET") return json(state.sessionDiffs.get(sid) ?? []);
       if (sub === "revert" && req.method() === "POST") {
         const body = req.postDataJSON() ?? {};
         state.reverts.push(body.messageID);
@@ -620,7 +697,9 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
       }
     }
     if (p === "/file/content") {
-      const f = state.project.get(url.searchParams.get("path") ?? "");
+      const reqPath = url.searchParams.get("path") ?? "";
+      // berkas di folder sesi Chat dibuka lewat root folder Chat + awalan `chat-…/`; mock memetakannya ke isi project tiruan
+      const f = state.project.get(reqPath) ?? state.project.get(reqPath.replace(/^chat-[^/]+\//, ""));
       if (!f) return json({ name: "NotFoundError", data: { message: "tidak ada" } }, 404);
       if (f.base64 !== undefined) {
         return json({ type: "binary", content: f.base64, encoding: "base64", mimeType: "application/octet-stream" });

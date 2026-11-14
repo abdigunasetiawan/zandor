@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
+import type { EngineApi } from "../engine/api";
 import { createFakeEngine } from "../engine/fake-engine";
-import { ProjectStore, type RegistryStorage } from "../engine/projects";
+import { CHAT_KEY, chatFolderName, ProjectStore, type RegistryStorage } from "../engine/projects";
 import { applyEvent, initialChatState, visibleMessages } from "./reducer";
 import { type ChatPrefs, ChatStore } from "./store";
 import { type ChatMessage, type EngineEvent, toEngineEvent } from "./types";
@@ -211,6 +212,173 @@ describe("tab sesi (ProjectStore)", () => {
     store.closeTab("b");
     expect(store.state().selection).toEqual({ key: "p", sessionId: null });
     expect(store.state().tabs).toEqual([]);
+  });
+
+  test("menu tab: tutup lainnya / kanan / kiri / semua; pilihan pindah ke tab jangkar bila ikut tertutup", async () => {
+    const mk = async () => {
+      const { store } = make();
+      await store.init();
+      for (const id of ["a", "b", "c", "d", "e"]) store.select("p", id);
+      return store; // terpilih: e
+    };
+    const ids = (s: ProjectStore) => s.state().tabs.map((t) => t.sessionId);
+
+    let s = await mk();
+    s.closeTabsBy("others", "c");
+    expect(ids(s)).toEqual(["c"]);
+    expect(s.state().selection.sessionId).toBe("c");
+
+    s = await mk();
+    s.closeTabsBy("right", "b"); // e (terpilih) tertutup → pilih b
+    expect(ids(s)).toEqual(["a", "b"]);
+    expect(s.state().selection.sessionId).toBe("b");
+
+    s = await mk();
+    s.select("p", "c");
+    s.closeTabsBy("left", "d"); // c terpilih tertutup → pilih d
+    expect(ids(s)).toEqual(["d", "e"]);
+    expect(s.state().selection.sessionId).toBe("d");
+
+    s = await mk();
+    s.closeTabsBy("right", "e"); // tidak ada di kanan → tidak berubah
+    s.closeTabsBy("left", "a");
+    s.closeTabsBy("others", "tidak-ada");
+    expect(ids(s)).toEqual(["a", "b", "c", "d", "e"]);
+
+    s = await mk();
+    s.closeTabsBy("all");
+    expect(ids(s)).toEqual([]);
+    expect(s.state().selection).toEqual({ key: "p", sessionId: null });
+  });
+
+  test("sesi Chat: tiap sesi punya folder SENDIRI; daftar mencakup semua folder + folder lama yang berbagi; hapus membersihkan folder kosong", async () => {
+    const created: string[] = [];
+    const removed: string[] = [];
+    const folders = {
+      create: async (name: string) => {
+        const path = `C:/data/chats/${name}`;
+        created.push(path);
+        return path;
+      },
+      list: async () => created,
+      removeIfEmpty: async (p: string) => {
+        removed.push(p);
+      },
+    };
+    const sessions: Array<{
+      id: string;
+      title: string;
+      directory: string;
+      time: { created: number; updated: number };
+    }> = [{ id: "lama", title: "Sesi lama", directory: "C:/data/chats", time: { created: 1, updated: 1 } }];
+    const api = {
+      listSessions: async (d: string) => sessions.filter((s) => s.directory === d),
+      createSession: async (d: string, title?: string) => {
+        const s = { id: `s${sessions.length}`, title: title ?? "baru", directory: d, time: { created: 5, updated: 5 } };
+        sessions.push(s);
+        return s;
+      },
+      renameSession: async (_d: string, id: string, title: string) => {
+        const s = sessions.find((x) => x.id === id);
+        if (!s) throw new Error("tidak ada");
+        s.title = title;
+        return s;
+      },
+      deleteSession: async (_d: string, id: string) => {
+        sessions.splice(
+          sessions.findIndex((x) => x.id === id),
+          1,
+        );
+      },
+    } as unknown as EngineApi;
+    const { storage } = make();
+    const store = new ProjectStore({
+      storage,
+      newId: () => "ABCD1234",
+      now: () => Date.UTC(2026, 10, 14, 9, 5, 7),
+      chatFolders: folders,
+    });
+    await store.init();
+    store.setChatDir("C:/data/chats");
+    const shared = store.state().chatDir ?? "";
+    for (const x of sessions) x.directory = shared; // sesi lama berbagi folder Chat (bentuk path sudah dinormalisasi store)
+    store.setApi(api);
+    await flush();
+    const a = await store.createSession(CHAT_KEY);
+    const b = await store.createSession(CHAT_KEY);
+    expect(a.directory).toMatch(/^C:\/data\/chats\/chat-\d{8}-\d{6}-abcd12$/);
+    expect(a.directory).toBe(b.directory); // nama dari id/jam yang sama di tes; folder dibuat tiap kali
+    expect(created).toHaveLength(2);
+    await store.refresh(CHAT_KEY);
+    // sesi lama (folder bersama) + sesi di folder masing-masing, tanpa duplikat
+    expect(
+      store
+        .state()
+        .sessions[CHAT_KEY]?.items.map((s) => s.id)
+        .sort(),
+    ).toEqual(["lama", "s1", "s2"]);
+    await store.renameSession(CHAT_KEY, "s1", "Judul baru"); // memakai folder milik sesi
+    await store.deleteSession(CHAT_KEY, "s1");
+    expect(removed).toEqual([a.directory]);
+    await store.deleteSession(CHAT_KEY, "lama"); // folder bersama tidak pernah dibersihkan
+    expect(removed).toEqual([a.directory]);
+  });
+
+  test("nama folder sesi Chat: berurut waktu, aman, dan memangkas akhiran liar", () => {
+    expect(chatFolderName(new Date(2026, 10, 14, 9, 5, 7), "AB-cd_12ef99")).toBe("chat-20261114-090507-abcd12");
+    expect(chatFolderName(new Date(2026, 0, 2, 3, 4, 5), "!!!")).toBe("chat-20260102-030405-x");
+  });
+
+  test("antrean pesan: antre saat sibuk, urutan bisa diubah/diedit/dihapus, dikirim berurutan saat idle", async () => {
+    const { engine, store } = await setup();
+    const busy = () => engine.emit(DIR, { type: "session.status", sessionID: "s1", status: { type: "busy" } });
+    const idle = () => engine.emit(DIR, { type: "session.status", sessionID: "s1", status: { type: "idle" } });
+    busy();
+    const a = store.enqueue("s1", "  satu ");
+    const b = store.enqueue("s1", "dua");
+    const c = store.enqueue("s1", "tiga");
+    expect(() => store.enqueue("s1", "   ")).toThrow();
+    expect(store.queueOf("s1").map((q) => q.text)).toEqual(["satu", "dua", "tiga"]);
+    store.moveQueued("s1", c, 0);
+    store.editQueued("s1", a, "satu (diedit)");
+    store.removeQueued("s1", b);
+    expect(store.queueOf("s1").map((q) => q.text)).toEqual(["tiga", "satu (diedit)"]);
+    expect(engine.prompts).toHaveLength(0); // sibuk: belum ada yang dikirim
+    idle();
+    await flush();
+    expect(engine.prompts.map((p) => p.text)).toEqual(["tiga"]); // satu per giliran
+    expect(store.queueOf("s1").map((q) => q.text)).toEqual(["satu (diedit)"]);
+    busy();
+    idle();
+    await flush();
+    expect(engine.prompts.map((p) => p.text)).toEqual(["tiga", "satu (diedit)"]);
+    expect(store.queueOf("s1")).toEqual([]);
+  });
+
+  test("antrean: Stop menjeda (tidak dikirim diam-diam), lanjutkan mengirim; kirim langsung menghentikan giliran lalu mengirim item itu", async () => {
+    const { engine, store } = await setup();
+    const busy = () => engine.emit(DIR, { type: "session.status", sessionID: "s1", status: { type: "busy" } });
+    const idle = () => engine.emit(DIR, { type: "session.status", sessionID: "s1", status: { type: "idle" } });
+    busy();
+    store.enqueue("s1", "pertama");
+    const second = store.enqueue("s1", "kedua");
+    await store.abort("s1");
+    idle();
+    await flush();
+    expect(store.state().queuePaused.s1).toBe(true);
+    expect(engine.prompts).toHaveLength(0);
+    store.resumeQueue("s1");
+    await flush();
+    expect(engine.prompts.map((p) => p.text)).toEqual(["pertama"]);
+
+    busy();
+    engine.aborted.length = 0;
+    await store.sendQueuedNow("s1", second);
+    expect(engine.aborted).toEqual(["s1"]);
+    expect(store.queueOf("s1").map((q) => q.text)).toEqual(["kedua"]); // menunggu sesi idle
+    idle();
+    await flush();
+    expect(engine.prompts.map((p) => p.text)).toEqual(["pertama", "kedua"]);
   });
 
   test("tab dibatasi 12 dan tersimpan/pulih dari registry", async () => {

@@ -230,6 +230,211 @@ pub fn detect_local() -> Vec<LocalFound> {
     detect_local_with(&LOCAL_CANDIDATES, Duration::from_millis(800))
 }
 
+// ---------- uji model provider katalog lewat metadata engine ----------
+//
+// Provider katalog (mis. opencode, anthropic, openrouter) tidak punya base URL di registry kita, tetapi engine opencode
+// menyebutkannya per model (`GET /config/providers` → `models[id].api.{url,npm}`) dan sering juga kuncinya. Rust mengambil
+// metadata itu sendiri (kredensial engine + kunci TIDAK pernah dikirim ke JavaScript) lalu mengirim satu permintaan 1 token.
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct EngineTarget {
+    pub url: String,
+    /// Adapter AI SDK model ini (mis. `@ai-sdk/openai-compatible`, `@ai-sdk/anthropic`).
+    pub npm: String,
+    pub key: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Adapter {
+    OpenAiCompatible,
+    Anthropic,
+}
+
+/// Adapter yang bisa diuji. Selain ini dilaporkan jujur sebagai belum didukung.
+pub fn adapter_of(npm: &str) -> Option<Adapter> {
+    match npm {
+        "@ai-sdk/anthropic" => Some(Adapter::Anthropic),
+        "@ai-sdk/openai-compatible"
+        | "@ai-sdk/openai"
+        | "@ai-sdk/xai"
+        | "@ai-sdk/groq"
+        | "@ai-sdk/deepseek"
+        | "@ai-sdk/mistral"
+        | "@ai-sdk/togetherai"
+        | "@ai-sdk/fireworks"
+        | "@ai-sdk/cerebras"
+        | "@ai-sdk/deepinfra"
+        | "@ai-sdk/perplexity"
+        | "@openrouter/ai-sdk-provider" => Some(Adapter::OpenAiCompatible),
+        _ => None,
+    }
+}
+
+/// Turunkan target dari body `GET /config/providers` (fungsi murni agar mudah diuji).
+pub fn parse_engine_target(
+    body: &str,
+    provider: &str,
+    model: &str,
+) -> Result<EngineTarget, String> {
+    let v: Value =
+        serde_json::from_str(body).map_err(|e| format!("respons engine bukan JSON: {e}"))?;
+    let providers = v
+        .get("providers")
+        .and_then(Value::as_array)
+        .ok_or("respons engine tidak berisi daftar provider")?;
+    let p = providers
+        .iter()
+        .find(|p| p.get("id").and_then(Value::as_str) == Some(provider))
+        .ok_or_else(|| format!("provider {provider} tidak ada di engine"))?;
+    let m = p
+        .get("models")
+        .and_then(|m| m.get(model))
+        .ok_or_else(|| format!("model {model} tidak ada di provider {provider}"))?;
+    let url = m
+        .get("api")
+        .and_then(|a| a.get("url"))
+        .and_then(Value::as_str)
+        .filter(|u| !u.is_empty())
+        .ok_or("engine tidak menyebutkan endpoint API model ini")?
+        .to_string();
+    let npm = m
+        .get("api")
+        .and_then(|a| a.get("npm"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let key = p
+        .get("key")
+        .and_then(Value::as_str)
+        .filter(|k| !k.is_empty())
+        .map(str::to_string);
+    Ok(EngineTarget { url, npm, key })
+}
+
+const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Base64 baku (dipakai untuk header Basic auth engine). Tanpa dependensi tambahan.
+pub fn base64(input: &[u8]) -> String {
+    let mut out = String::new();
+    for chunk in input.chunks(3) {
+        let b = [
+            chunk[0],
+            *chunk.get(1).unwrap_or(&0),
+            *chunk.get(2).unwrap_or(&0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        out.push(B64[(n >> 18) as usize & 63] as char);
+        out.push(B64[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            B64[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            B64[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Ambil target ping dari engine yang berjalan (Basic auth). Galat dikembalikan sebagai `ProbeResult` gagal.
+pub fn engine_target(
+    engine_url: &str,
+    user: &str,
+    pass: &str,
+    provider: &str,
+    model: &str,
+    timeout: Duration,
+) -> Result<EngineTarget, ProbeResult> {
+    let started = Instant::now();
+    let url = format!("{}/config/providers", engine_url.trim_end_matches('/'));
+    let auth = format!("Basic {}", base64(format!("{user}:{pass}").as_bytes()));
+    let mut resp = agent(timeout)
+        .get(&url)
+        .header("Authorization", &auth)
+        .call()
+        .map_err(|e| failure("network", started, format!("engine tidak terjangkau: {e}")))?;
+    let status = resp.status().as_u16();
+    let body = resp.body_mut().read_to_string().unwrap_or_default();
+    if !(200..300).contains(&status) {
+        return Err(failure(
+            "server",
+            started,
+            format!("engine menjawab HTTP {status}"),
+        ));
+    }
+    parse_engine_target(&body, provider, model).map_err(|e| failure("invalid", started, e))
+}
+
+/// Kirim satu permintaan 1 token sesuai adapter. Adapter yang belum didukung dilaporkan apa adanya.
+pub fn ping_target(target: &EngineTarget, model: &str, timeout: Duration) -> ProbeResult {
+    match adapter_of(&target.npm) {
+        Some(Adapter::OpenAiCompatible) => ping_model(&target.url, target.key.as_deref(), model, timeout),
+        Some(Adapter::Anthropic) => ping_anthropic(&target.url, target.key.as_deref(), model, timeout),
+        None => failure(
+            "invalid",
+            Instant::now(),
+            format!(
+                "uji koneksi belum mendukung adapter {} (hanya format OpenAI-compatible dan Anthropic)",
+                if target.npm.is_empty() { "(tidak diketahui)" } else { &target.npm }
+            ),
+        ),
+    }
+}
+
+/// Permintaan 1 token ke API pesan Anthropic (`POST {url}/messages`).
+pub fn ping_anthropic(
+    base_url: &str,
+    api_key: Option<&str>,
+    model: &str,
+    timeout: Duration,
+) -> ProbeResult {
+    let started = Instant::now();
+    if let Err(e) = valid_url(base_url) {
+        return failure("invalid", started, e);
+    }
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
+    let body = json!({
+        "model": model,
+        "max_tokens": 1,
+        "messages": [{ "role": "user", "content": "ping" }],
+    })
+    .to_string();
+    let mut req = agent(timeout)
+        .post(&url)
+        .header("content-type", "application/json")
+        .header("anthropic-version", "2023-06-01");
+    if let Some(k) = api_key.filter(|k| !k.is_empty()) {
+        req = req.header("x-api-key", k);
+    }
+    let mut resp = match req.send(body) {
+        Ok(r) => r,
+        Err(e) => return failure("network", started, format!("tidak bisa terhubung: {e}")),
+    };
+    let status = resp.status().as_u16();
+    let text = resp.body_mut().read_to_string().unwrap_or_default();
+    let kind = classify(status);
+    ProbeResult {
+        ok: kind == "ok",
+        status: Some(status),
+        latency_ms: started.elapsed().as_millis() as u64,
+        models: vec![],
+        kind: kind.into(),
+        error: if kind == "ok" {
+            None
+        } else {
+            Some(explain(kind, status, &text))
+        },
+    }
+}
+
+/// Hasil gagal dengan pesan (untuk pemanggil di luar modul ini).
+pub fn failed(kind: &str, message: String) -> ProbeResult {
+    failure(kind, Instant::now(), message)
+}
+
 #[cfg(test)]
 mod tests {
     /// Jaringan nyata: `cargo test --lib netprobe -- --ignored`. Endpoint https tidak boleh panik.
@@ -334,6 +539,89 @@ mod tests {
         assert!(!r.ok);
         assert_eq!(r.kind, "network");
         assert_eq!(probe("ftp://x", None, T).kind, "invalid");
+    }
+
+    #[test]
+    fn base64_matches_known_vectors() {
+        assert_eq!(base64(b""), "");
+        assert_eq!(base64(b"f"), "Zg==");
+        assert_eq!(base64(b"fo"), "Zm8=");
+        assert_eq!(base64(b"foo"), "Zm9v");
+        assert_eq!(base64(b"opencode:rahasia"), "b3BlbmNvZGU6cmFoYXNpYQ==");
+    }
+
+    #[test]
+    fn adapters_are_recognised_and_unknown_is_reported() {
+        assert_eq!(
+            adapter_of("@ai-sdk/openai-compatible"),
+            Some(Adapter::OpenAiCompatible)
+        );
+        assert_eq!(adapter_of("@ai-sdk/anthropic"), Some(Adapter::Anthropic));
+        assert_eq!(adapter_of("@ai-sdk/google"), None);
+        let t = EngineTarget {
+            url: "http://x/v1".into(),
+            npm: "@ai-sdk/google".into(),
+            key: None,
+        };
+        let r = ping_target(&t, "m", Duration::from_secs(1));
+        assert!(!r.ok);
+        assert_eq!(r.kind, "invalid");
+        assert!(r.error.unwrap().contains("@ai-sdk/google"));
+    }
+
+    #[test]
+    fn engine_target_is_derived_from_config_providers() {
+        let body = r#"{"providers":[
+            {"id":"opencode","key":"public","models":{"big":{"api":{"id":"big","url":"https://opencode.ai/zen/v1","npm":"@ai-sdk/openai-compatible"}}}},
+            {"id":"anthropic","models":{"c":{"api":{"id":"c","url":"https://api.anthropic.com/v1","npm":"@ai-sdk/anthropic"}}}}
+        ],"default":{}}"#;
+        let t = parse_engine_target(body, "opencode", "big").unwrap();
+        assert_eq!(t.url, "https://opencode.ai/zen/v1");
+        assert_eq!(t.npm, "@ai-sdk/openai-compatible");
+        assert_eq!(t.key.as_deref(), Some("public"));
+        let a = parse_engine_target(body, "anthropic", "c").unwrap();
+        assert_eq!(a.key, None);
+        assert!(parse_engine_target(body, "zzz", "c")
+            .unwrap_err()
+            .contains("zzz"));
+        assert!(parse_engine_target(body, "opencode", "hilang")
+            .unwrap_err()
+            .contains("hilang"));
+        assert!(parse_engine_target("bukan json", "a", "b").is_err());
+    }
+
+    #[test]
+    fn anthropic_ping_sends_key_and_version_headers() {
+        let (base, seen) = serve(vec![(200, "{}")]);
+        let r = ping_anthropic(&base, Some("kunci-uji"), "claude-x", Duration::from_secs(5));
+        assert!(r.ok, "{:?}", r.error);
+        let req = seen.lock().unwrap()[0].to_lowercase();
+        assert!(req.contains("post /v1/messages"), "{req}");
+        assert!(req.contains("x-api-key: kunci-uji"), "{req}");
+        assert!(req.contains("anthropic-version: 2023-06-01"), "{req}");
+        assert!(req.contains("\"max_tokens\":1"), "{req}");
+    }
+
+    #[test]
+    fn engine_target_fetch_uses_basic_auth() {
+        let body: &'static str = r#"{"providers":[{"id":"p","models":{"m":{"api":{"url":"http://e/v1","npm":"@ai-sdk/openai-compatible"}}}}]}"#;
+        let (base, seen) = serve(vec![(200, body)]);
+        let t = engine_target(
+            &base,
+            "opencode",
+            "rahasia",
+            "p",
+            "m",
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(t.url, "http://e/v1");
+        let req = seen.lock().unwrap()[0].to_lowercase();
+        assert!(req.contains("get /v1/config/providers"), "{req}");
+        assert!(
+            req.contains("authorization: basic b3blbmnvzgu6cmfoyxnpyq=="),
+            "{req}"
+        );
     }
 
     #[test]

@@ -1,9 +1,22 @@
 // Panel 4 — Git: status, stage/unstage, diff, commit, cabang. Menjalankan `git` CLI lewat Rust di project terdaftar.
 import { CHAT_KEY, type FileChange, groupChanges, isUntracked } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { Button, IconButton, Input, PlusIcon, RefreshIcon, Select, Spinner, useToast } from "@zandor/ui";
+import {
+  Button,
+  GitIcon,
+  IconButton,
+  Input,
+  PlusIcon,
+  RefreshIcon,
+  Select,
+  Spinner,
+  Textarea,
+  useToast,
+} from "@zandor/ui";
 import { type FormEvent, useEffect, useState } from "react";
 import { useGit, useProjects, useServices } from "../services";
+import { DiffText } from "./DiffText";
+import { ToolNotice } from "./ToolNotice";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -12,24 +25,6 @@ function statusLabel(t: ReturnType<typeof useI18n>["t"], f: FileChange, staged: 
   const c = staged ? f.index : f.worktree;
   const known = ["M", "A", "D", "R", "C", "T", "U"];
   return known.includes(c) ? t(`git.s.${c}` as never) : c;
-}
-
-function DiffText({ text }: { text: string }) {
-  return (
-    <pre className="fold__pre diff" data-testid="git-diff">
-      {text.split("\n").map((l, i) => {
-        const kind =
-          l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : "ctx";
-        return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: baris diff statis, urutan tetap
-          <span key={i} className={`diff__line diff__line--${kind}`}>
-            {l}
-            {"\n"}
-          </span>
-        );
-      })}
-    </pre>
-  );
 }
 
 export function GitPanel() {
@@ -62,8 +57,8 @@ export function GitPanel() {
     }
   };
 
-  if (!git.available) return <p className="sidebar__note z-small">{t("git.unavailable")}</p>;
-  if (!root) return <p className="sidebar__note z-small">{t("git.noProject")}</p>;
+  if (!git.available) return <ToolNotice icon={<GitIcon size="lg" />}>{t("git.unavailable")}</ToolNotice>;
+  if (!root) return <ToolNotice icon={<GitIcon size="lg" />}>{t("git.noProject")}</ToolNotice>;
   if (g.loading && !g.status) {
     return (
       <p className="sidebar__note z-small" role="status">
@@ -85,6 +80,7 @@ export function GitPanel() {
     return (
       <div className="gitp">
         <p className="z-p">{t("git.notRepo")}</p>
+        <p className="z-small gitp__clean">{t("git.notRepoHint")}</p>
         <Button onClick={() => void git.refresh()}>{t("git.refresh")}</Button>
       </div>
     );
@@ -133,8 +129,26 @@ export function GitPanel() {
     </li>
   );
 
+  const repoLabel = (dir: string) => {
+    const base = (g.projectRoot ?? "").replace(/[\\/]+$/, "");
+    const rel = dir.length > base.length ? dir.slice(base.length + 1) : dir;
+    return rel.replace(/\\/g, "/");
+  };
   return (
     <div className="gitp">
+      {g.repos.length > 0 && (
+        <div className="gitp__repos" data-testid="git-repos">
+          <span className="z-small">{t("git.repo")}</span>
+          <Select
+            aria-label={t("git.repo")}
+            size="sm"
+            className="gitp__select"
+            items={g.repos.map((r) => ({ value: r, label: repoLabel(r) }))}
+            value={g.root}
+            onValueChange={(dir) => void git.selectRepo(dir)}
+          />
+        </div>
+      )}
       <div className="gitp__head">
         <span className="gitp__branch" data-testid="git-branch">
           {st.detached ? t("git.detached") : (st.branch ?? "?")}
@@ -234,8 +248,7 @@ export function GitPanel() {
       )}
 
       <form className="gitp__commit" onSubmit={(e) => void commit(e)}>
-        <textarea
-          className="z-input composer__input"
+        <Textarea
           rows={2}
           aria-label={t("git.commitMsg")}
           placeholder={t("git.commitMsg")}

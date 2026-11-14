@@ -1,5 +1,5 @@
 // Pusat perintah: mendaftarkan perintah global, mengikat pintasannya, dan menampung palette + dialog Tentang.
-import { type CommandDef, formatCombo, type Logger, searchCommands } from "@zandor/core";
+import { CHAT_KEY, type CommandDef, formatCombo, type Logger, parseMessageLink, searchCommands } from "@zandor/core";
 import type { MessageKey } from "@zandor/i18n";
 import { useI18n } from "@zandor/i18n/react";
 import {
@@ -10,9 +10,11 @@ import {
   useShortcut,
   useShortcutList,
   useShortcutRegistry,
+  useToast,
 } from "@zandor/ui";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { build } from "../build";
+import { requestMessageFocus } from "./message-focus";
 import { useAppearance, useCommandList, useServices, useWindowApi } from "./services";
 
 type CommandCenterValue = { openPalette: () => void };
@@ -56,7 +58,8 @@ function useCommandShortcuts(logger: Logger) {
 
 export function CommandCenter({ children }: { children: ReactNode }) {
   const { t } = useI18n();
-  const { commands, settings, nav, logger } = useServices();
+  const { commands, settings, nav, logger, projects } = useServices();
+  const toast = useToast();
   const windowApi = useWindowApi();
   const list = useCommandList();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -84,6 +87,16 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         group: "app",
         shortcut: "Ctrl+,",
         run: () => nav.push("/settings"),
+      },
+      {
+        id: "chat.new",
+        titleKey: "cmd.newChat",
+        group: "app",
+        shortcut: "Ctrl+N",
+        run: () => {
+          const sel = projects.state().selection.key;
+          void projects.createSession(sel ?? CHAT_KEY).catch((e) => logger.error("chat baru gagal", { error: e }));
+        },
       },
       { id: "app.providers", titleKey: "cmd.providers", group: "app", run: () => nav.push("/providers") },
       { id: "app.memory", titleKey: "cmd.memory", group: "app", run: () => nav.push("/memory") },
@@ -156,7 +169,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
     return () => {
       for (const off of offs) off();
     };
-  }, [commands, settings, nav, openPalette, windowApi]);
+  }, [commands, settings, nav, openPalette, windowApi, projects, logger]);
 
   // Pintasan tambahan yang tidak punya perintah sendiri (alias).
   useShortcut({
@@ -180,8 +193,24 @@ export function CommandCenter({ children }: { children: ReactNode }) {
 
   const translate = useCallback((key: string) => t(key as MessageKey), [t]);
 
+  const openMessageLink = (text: string) => {
+    const link = parseMessageLink(text);
+    if (!link) return;
+    const group = projects.state().sessions[link.key];
+    if (group?.status === "ready" && !group.items.some((s) => s.id === link.sessionId)) {
+      toast.show({ title: t("msg.linkMissing"), tone: "warning" });
+      return;
+    }
+    projects.select(link.key, link.sessionId);
+    requestMessageFocus(link.messageId);
+  };
+
   const items = useMemo<PaletteItem[]>(() => {
     if (!paletteOpen) return [];
+    // tautan pesan yang ditempel → satu butir "Buka pesan"
+    if (parseMessageLink(query)) {
+      return [{ id: "msg-link:open", label: t("msg.openLink"), group: t("group.app" as MessageKey) }];
+    }
     return searchCommands(list, query, translate).map((h) => ({
       id: h.command.id,
       label: h.title,
@@ -206,7 +235,10 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         query={query}
         onQueryChange={setQuery}
         items={items}
-        onSelect={(id) => void commands.run(id)}
+        onSelect={(id) => {
+          if (id === "msg-link:open") return openMessageLink(query);
+          void commands.run(id);
+        }}
       />
       <Dialog
         open={aboutOpen}

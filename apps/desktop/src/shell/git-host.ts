@@ -18,6 +18,7 @@ export function createUnavailableGitHost(): GitHost {
     switchBranch: async () => unavailable(),
     createBranch: async () => unavailable(),
     log: async () => unavailable(),
+    repos: async () => [],
   };
 }
 
@@ -43,5 +44,6 @@ export async function loadGitHost(): Promise<GitHost> {
       await invoke("git_create_branch", { root, name });
     },
     log: (root, count) => invoke<CommitInfo[]>("git_log", { root, count }),
+    repos: (root) => invoke<string[]>("git_repos", { root }),
   };
 }

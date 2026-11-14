@@ -7,6 +7,7 @@ mod git;
 mod memory;
 mod netprobe;
 mod openvsx;
+mod openwith;
 mod openwork;
 mod providers;
 mod registry;
@@ -45,6 +46,41 @@ fn chats_dir(app: tauri::AppHandle) -> Result<String, String> {
     let d = app_data(&app)?.join("chats");
     std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
     Ok(d.to_string_lossy().into_owned())
+}
+
+/// Buat folder kerja khusus satu sesi Chat di dalam folder Chat; mengembalikan path lengkapnya.
+#[tauri::command]
+fn chat_folder_new(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    let root = app_data(&app)?.join("chats");
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    Ok(files::chat_folder_create(&root, &name)?
+        .to_string_lossy()
+        .into_owned())
+}
+
+/// Path lengkap semua folder sesi Chat.
+#[tauri::command]
+fn chat_folders(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let root = app_data(&app)?.join("chats");
+    Ok(files::chat_folder_list(&root)
+        .into_iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect())
+}
+
+/// Hapus folder sesi Chat hanya bila kosong.
+#[tauri::command]
+fn chat_folder_remove_if_empty(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let root = app_data(&app)?.join("chats");
+    files::chat_folder_remove_if_empty(&root, std::path::Path::new(&path))
+}
+
+/// Nama pengguna OS (untuk sapaan dan info pengguna di sidebar). Kosong bila tidak diketahui.
+#[tauri::command]
+fn os_user() -> String {
+    std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -250,26 +286,48 @@ async fn provider_probe(
 #[tauri::command]
 async fn provider_ping(
     app: tauri::AppHandle,
+    manager: State<'_, EngineManager>,
     provider_id: String,
     model: String,
 ) -> Result<netprobe::ProbeResult, String> {
     let store = provider_store(&app)?;
     let (all, _) = store.load();
-    let p = all
+    let stored_key = store.api_key(&provider_id)?;
+    let base = all
         .into_iter()
         .find(|p| p.id == provider_id)
-        .ok_or("provider tidak ditemukan")?;
-    let base = p
-        .base_url
-        .ok_or("provider ini tidak punya base URL (ping hanya untuk endpoint kustom/lokal)")?;
-    let key = store.api_key(&provider_id)?;
+        .and_then(|p| p.base_url);
+    let timeout = std::time::Duration::from_secs(90);
+    if let Some(base) = base {
+        // koneksi kustom/lokal milik pengguna: base URL dan kunci dari registry/keychain
+        return tauri::async_runtime::spawn_blocking(move || {
+            netprobe::ping_model(&base, stored_key.as_deref(), &model, timeout)
+        })
+        .await
+        .map_err(|e| e.to_string());
+    }
+    // provider katalog: endpoint, adapter, dan kunci diambil Rust dari engine (tidak lewat JavaScript)
+    let snap = manager.snapshot();
+    if snap.status != "ready" {
+        return Ok(netprobe::failed("network", "engine belum siap".into()));
+    }
     tauri::async_runtime::spawn_blocking(move || {
-        netprobe::ping_model(
-            &base,
-            key.as_deref(),
+        match netprobe::engine_target(
+            &snap.url,
+            snap.username,
+            &snap.password,
+            &provider_id,
             &model,
-            std::time::Duration::from_secs(90),
-        )
+            std::time::Duration::from_secs(10),
+        ) {
+            Ok(mut target) => {
+                if target.key.is_none() {
+                    target.key = stored_key;
+                }
+                netprobe::ping_target(&target, &model, timeout)
+            }
+            Err(failed) => failed,
+        }
     })
     .await
     .map_err(|e| e.to_string())
@@ -445,6 +503,20 @@ fn fs_write(
     files::write_text(&resolve_file(&app, &root, &path)?, &text, expected_modified)
 }
 
+/// Buat berkas kosong atau folder baru di dalam folder `parent` milik project terdaftar (tidak pernah menimpa).
+#[tauri::command]
+fn fs_create(
+    app: tauri::AppHandle,
+    root: String,
+    parent: String,
+    name: String,
+    dir: bool,
+) -> Result<String, String> {
+    let parent_dir = resolve_file(&app, &root, &parent)?;
+    let created = files::create_entry(&parent_dir, &name, dir)?;
+    Ok(created.to_string_lossy().into_owned())
+}
+
 /// Salin berkas project ke lokasi yang dipilih pengguna lewat dialog "Simpan sebagai".
 #[tauri::command]
 fn fs_copy_to(
@@ -457,6 +529,12 @@ fn fs_copy_to(
     files::read_limited(&file, files::MAX_READ_BYTES)?; // validasi jenis dan ukuran
     std::fs::copy(&file, &dest).map_err(|e| format!("gagal menyalin: {e}"))?;
     Ok(())
+}
+
+/// Simpan byte hasil ekspor respons (teks/PNG/SVG) ke lokasi yang dipilih pengguna lewat dialog "Simpan sebagai".
+#[tauri::command]
+fn fs_save_as(dest: String, data: Vec<u8>) -> Result<(), String> {
+    files::save_bytes(std::path::Path::new(&dest), &data)
 }
 
 /// Buka berkas dengan aplikasi bawaan sistem. Berkas yang dapat dieksekusi ditolak.
@@ -483,11 +561,129 @@ fn fs_open_external(app: tauri::AppHandle, root: String, path: String) -> Result
     }
 }
 
+/// Daftar aplikasi terdaftar untuk ekstensi berkas (beserta ikon PNG base64) — untuk menu "Buka dengan".
+#[tauri::command]
+async fn fs_open_with_list(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text_like: bool,
+    refresh: bool,
+) -> Result<Vec<openwith::OpenApp>, String> {
+    let file = resolve_file(&app, &root, &path)?;
+    let ext = file
+        .extension()
+        .and_then(|e| e.to_str())
+        .ok_or("berkas tanpa ekstensi")?
+        .to_string();
+    git_blocking(move || openwith::apps_for(&ext, text_like, refresh)).await
+}
+
+/// Buka berkas dengan aplikasi pilihan; hanya aplikasi yang ada di daftar ekstensi itu yang diterima.
+#[tauri::command]
+async fn fs_open_with(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    app_path: String,
+    text_like: bool,
+) -> Result<(), String> {
+    let file = resolve_file(&app, &root, &path)?;
+    if files::is_executable_ext(&file) {
+        return Err("berkas yang dapat dieksekusi tidak dibuka dari Zandor".into());
+    }
+    let ext = file
+        .extension()
+        .and_then(|e| e.to_str())
+        .ok_or("berkas tanpa ekstensi")?
+        .to_string();
+    git_blocking(move || {
+        let apps = openwith::apps_for(&ext, text_like, false)?;
+        if !openwith::app_allowed(&apps, &app_path) {
+            return Err("aplikasi ini tidak terdaftar untuk jenis berkas tersebut".to_string());
+        }
+        openwith::launch(&app_path, &file)
+    })
+    .await
+}
+
+/// Tampilkan berkas di File Explorer.
+#[tauri::command]
+fn fs_reveal(app: tauri::AppHandle, root: String, path: String) -> Result<(), String> {
+    openwith::reveal(&resolve_file(&app, &root, &path)?)
+}
+
+// ---------- Pratinjau HTML dengan sumber luar (opt-in) ----------
+
+type Previews = std::sync::Mutex<std::collections::VecDeque<(String, Vec<u8>)>>;
+fn previews() -> &'static Previews {
+    static P: std::sync::OnceLock<Previews> = std::sync::OnceLock::new();
+    P.get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()))
+}
+
+/// Simpan HTML di memori dan kembalikan token untuk skema `zpreview://`. Hanya 8 pratinjau terakhir disimpan.
+#[tauri::command]
+fn doc_preview_register(html: String) -> Result<String, String> {
+    if html.len() > files::MAX_WRITE_BYTES {
+        return Err("HTML terlalu besar untuk pratinjau".into());
+    }
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let token = format!(
+        "p{:x}{:x}",
+        nanos,
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let mut q = previews().lock().map_err(|e| e.to_string())?;
+    q.push_back((token.clone(), html.into_bytes()));
+    while q.len() > 8 {
+        q.pop_front();
+    }
+    Ok(token)
+}
+
+/// CSP dokumen pratinjau: sumber https dan skrip diizinkan (pengguna memilihnya), tetapi tanpa form, tanpa base, dan
+/// iframe-nya tetap ber-sandbox tanpa `allow-same-origin` (origin buram, tidak bisa menjangkau aplikasi).
+const PREVIEW_CSP: &str = "default-src 'none'; img-src https: data: blob:; media-src https: data: blob:; font-src https: data:; style-src https: 'unsafe-inline'; script-src https: 'unsafe-inline' 'unsafe-eval'; connect-src https:; frame-src https:; form-action 'none'; base-uri 'none'";
+
+fn preview_response(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
+    let token = request.uri().path().trim_matches('/').to_string();
+    let body = previews()
+        .lock()
+        .ok()
+        .and_then(|q| q.iter().find(|(t, _)| *t == token).map(|(_, b)| b.clone()));
+    match body {
+        Some(b) => tauri::http::Response::builder()
+            .status(200)
+            .header("Content-Type", "text/html; charset=utf-8")
+            .header("Content-Security-Policy", PREVIEW_CSP)
+            .header("X-Content-Type-Options", "nosniff")
+            .header("Cache-Control", "no-store")
+            .body(b)
+            .unwrap_or_default(),
+        None => tauri::http::Response::builder()
+            .status(404)
+            .body(Vec::new())
+            .unwrap_or_default(),
+    }
+}
+
 // ---------- Git (Fase 8) ----------
 
 fn git_dir(app: &tauri::AppHandle, root: &str) -> Result<PathBuf, String> {
     let roots = files::allowed_roots(&app_data(app)?);
-    files::resolve_dir(&roots, root)
+    // root project terdaftar, atau anak foldernya (repo git di dalam monorepo)
+    files::resolve_dir_within(&roots, root)
+}
+
+/// Repo git di anak folder project (untuk monorepo yang akarnya bukan repo).
+#[tauri::command]
+async fn git_repos(app: tauri::AppHandle, root: String) -> Result<Vec<String>, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || Ok(git::find_repos(&dir))).await
 }
 
 async fn git_blocking<T: Send + 'static>(
@@ -606,6 +802,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .register_uri_scheme_protocol("zpreview", |_ctx, request| preview_response(&request))
         .manage(EngineManager::default())
         .manage(OpenWorkFlow::default())
         .setup(|app| {
@@ -622,6 +819,10 @@ pub fn run() {
             engine_state,
             engine_restart,
             chats_dir,
+            os_user,
+            chat_folder_new,
+            chat_folders,
+            chat_folder_remove_if_empty,
             registry_load,
             registry_save,
             openwork_start,
@@ -647,9 +848,16 @@ pub fn run() {
             fs_read,
             fs_stat,
             fs_write,
+            fs_create,
             fs_copy_to,
+            fs_save_as,
             fs_open_external,
+            fs_open_with_list,
+            fs_open_with,
+            fs_reveal,
+            doc_preview_register,
             git_status,
+            git_repos,
             git_diff,
             git_stage,
             git_unstage,

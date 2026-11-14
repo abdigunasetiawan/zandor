@@ -1,6 +1,7 @@
 // Penampilan yang bisa dikustomisasi (Fase 10): preset/tema kustom, tipografi per variabel, font, panel chat, dan gaya
 // section project. Murni data + store; penerapan ke DOM ada di aplikasi. Semua masukan divalidasi (tokens.ts).
 import { parseCombo } from "../shortcuts";
+import { validateGradientCss } from "./gradient";
 import { DEFAULT_PRESET, PRESETS, presetById } from "./presets";
 import {
   type ColorKey,
@@ -29,7 +30,27 @@ export type ChatStyle = {
   font?: string;
 };
 
-export type ProjectStyle = { border?: string; background?: string; logo?: string };
+/**
+ * Gaya tampilan satu project di sidebar. `background` = warna, `gradient` = string CSS gradien (dari generator), `image` =
+ * gambar latar (data URL kecil). Urutan prioritas tampil: image > gradient > background.
+ */
+export type ProjectStyle = {
+  border?: string;
+  background?: string;
+  logo?: string;
+  gradient?: string;
+  image?: string;
+  /** Logo berupa gambar (data URL kecil); menggantikan logo teks bila ada. */
+  logoImage?: string;
+};
+
+/** Batas panjang data URL gambar gaya project (~0,7 MB). */
+export const MAX_STYLE_IMAGE_CHARS = 700_000;
+const IMAGE_DATA_URL = /^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+export function validateImageDataUrl(v: unknown, maxChars = MAX_STYLE_IMAGE_CHARS): string | null {
+  if (typeof v !== "string" || !IMAGE_DATA_URL.test(v)) return "gambar harus berupa data URL png/jpeg/webp/gif";
+  return v.length > maxChars ? "gambar terlalu besar" : null;
+}
 
 export type Appearance = {
   version: 1;
@@ -88,6 +109,9 @@ export function validateLogo(v: unknown): string | null {
 
 export function validateProjectStyle(key: keyof ProjectStyle, v: unknown): string | null {
   if (key === "logo") return validateLogo(v);
+  if (key === "gradient") return validateGradientCss(v);
+  if (key === "image") return validateImageDataUrl(v);
+  if (key === "logoImage") return validateImageDataUrl(v, 120_000);
   return isColor(v) ? null : "warna tidak valid";
 }
 
@@ -161,7 +185,7 @@ export function sanitizeAppearance(raw: unknown): Appearance {
     for (const [id, st] of Object.entries(projects)) {
       if (!st || typeof st !== "object") continue;
       const clean: ProjectStyle = {};
-      for (const k of ["border", "background", "logo"] as const)
+      for (const k of ["border", "background", "logo", "gradient", "image", "logoImage"] as const)
         if (st[k] !== undefined && validateProjectStyle(k, st[k]) === null) clean[k] = st[k] as string;
       if (Object.keys(clean).length) out.projects[id] = clean;
     }

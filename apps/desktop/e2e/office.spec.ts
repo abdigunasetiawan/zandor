@@ -31,7 +31,7 @@ async function openFiles(page: Page, files: Record<string, Buffer | string>) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/docs");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.getByRole("tab", { name: "Berkas" }).click();
 }
 
 const docs = (page: Page) => page.getByRole("region", { name: "Dokumen", exact: true });

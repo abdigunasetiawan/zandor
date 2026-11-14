@@ -25,6 +25,15 @@ export type SessionInfo = {
   time: { created: number; updated: number };
 };
 
+/** Perubahan satu berkas oleh sesi, dari snapshot engine: patch unified (bisa kosong untuk berkas biner) + jumlah baris. */
+export type SessionFileDiff = {
+  file: string;
+  patch: string;
+  additions: number;
+  deletions: number;
+  status: "added" | "deleted" | "modified";
+};
+
 export type FileNode = {
   name: string;
   /** Relatif terhadap direktori project. */
@@ -101,6 +110,8 @@ export interface EngineApi {
     sessionId: string,
     input: { text: string; model?: ModelRef; variant?: string; files?: FileAttachment[] },
   ): Promise<void>;
+  /** Perubahan berkas yang dibuat sesi ini (berdasarkan snapshot engine; tidak bergantung pada git). */
+  sessionDiff(directory: string, sessionId: string): Promise<SessionFileDiff[]>;
   /** Id pesan tujuan revert sesi, atau null. */
   getRevert(directory: string, sessionId: string): Promise<string | null>;
   revert(directory: string, sessionId: string, messageId: string): Promise<void>;
@@ -251,6 +262,16 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
     async getRevert(directory, sessionId) {
       const r = await client.session.get({ sessionID: sessionId, directory });
       return body(r, "session.get").revert?.messageID ?? null;
+    },
+    async sessionDiff(directory, sessionId) {
+      const r = await client.session.diff({ sessionID: sessionId, directory });
+      return body(r, "session.diff").map((d) => ({
+        file: d.file ?? "",
+        patch: d.patch ?? "",
+        additions: d.additions ?? 0,
+        deletions: d.deletions ?? 0,
+        status: d.status ?? "modified",
+      }));
     },
     async revert(directory, sessionId, messageId) {
       await client.session.revert({ sessionID: sessionId, directory, messageID: messageId });

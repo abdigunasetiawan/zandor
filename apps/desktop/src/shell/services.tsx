@@ -7,6 +7,7 @@ import {
   type Appearance,
   type AppearanceStorage,
   AppearanceStore,
+  AttentionTracker,
   type AutomationState,
   type AutomationStorage,
   AutomationStore,
@@ -32,9 +33,12 @@ import {
   type ProjectsState,
   ProviderStore,
   type ProvidersState,
+  type SessionIndicator,
   type SettingKey,
   type Settings,
   SettingsStore,
+  SidebarPrefs,
+  type SidebarPrefsState,
   type TerminalState,
   TerminalStore,
 } from "@zandor/core";
@@ -52,7 +56,7 @@ import type { EngineHost } from "./engine-host";
 import type { NotifyHost } from "./notify-host";
 import { loadWindowApi, type WindowApi } from "./window-api";
 
-export const TOOL_IDS = ["terminal", "git", "browser", "info", "log"] as const;
+export const TOOL_IDS = ["terminal", "git", "changes", "files", "browser", "info", "session", "log"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 export const PANEL_IDS = ["sidebar", "chat", "docs", "tools"] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
@@ -130,6 +134,10 @@ export type Services = {
   terminals: TerminalStore;
   git: GitStore;
   activity: ActivityLog;
+  /** Indikator sesi + peristiwa yang layak diberitahukan (selesai/gagal/butuh aksi). */
+  attention: AttentionTracker;
+  /** Sematan dan urutan buatan pengguna untuk sesi/project di sidebar. */
+  sidebarPrefs: SidebarPrefs;
 };
 
 export function createServices(options: {
@@ -181,6 +189,11 @@ export function createServices(options: {
     connection: new ConnectionStore(),
     projects: new ProjectStore({
       storage: { load: () => options.host.registryLoad(), save: (t) => options.host.registrySave(t) },
+      chatFolders: {
+        create: (name) => options.host.chatFolderNew(name),
+        list: () => options.host.chatFolders(),
+        removeIfEmpty: (path) => options.host.chatFolderRemoveIfEmpty(path),
+      },
       onWarning: (m) => options.logger.warn(m),
     }),
     chat,
@@ -193,6 +206,23 @@ export function createServices(options: {
     notify: options.notifyHost,
     openVsx: options.openVsxHost,
     activity: options.activity,
+    attention: new AttentionTracker(),
+    sidebarPrefs: new SidebarPrefs({
+      get: (k) => {
+        try {
+          return localStorage.getItem(k);
+        } catch {
+          return null;
+        }
+      },
+      set: (k, v) => {
+        try {
+          localStorage.setItem(k, v);
+        } catch {
+          // sengaja diabaikan
+        }
+      },
+    }),
     docs: new DocStore({
       source: options.docHost.source,
       prefs: {
@@ -336,26 +366,49 @@ export function useDocs(): DocsState {
  * Buka berkas di Panel 3. `path` boleh relatif (terhadap direktori sesi terpilih) atau absolut (harus berada di salah
  * satu project/folder Chat). Mengembalikan false bila berada di luar project (tidak dibuka).
  */
-export function useOpenDoc(): (path: string, root?: string) => boolean {
-  const { docs, panels, projects } = useServices();
-  return useCallback(
-    (path: string, root?: string) => {
+export type DocTarget = { root: string; path: string };
+
+/** Aksi berkas dokumen dari percakapan: temukan di akar yang terdaftar, buka di Panel Dokumen, atau simpan salinan (unduh). */
+export function useDocActions() {
+  const { docs, docHost, panels, projects } = useServices();
+  const resolve = useCallback(
+    (path: string, root?: string): DocTarget | null => {
       const state = projects.state();
       const roots = [...state.projects.map((p) => p.path), ...(state.chatDir ? [state.chatDir] : [])];
-      let target: { root: string; path: string } | null = null;
-      if (isAbsolutePath(path)) target = locateInRoots(roots, path);
-      else {
-        const base = root ?? projects.selected()?.session.directory ?? null;
-        if (base && roots.some((r) => r.toLowerCase() === base.toLowerCase())) target = { root: base, path };
-        else if (base) target = locateInRoots(roots, `${base.replace(/[\\/]+$/, "")}/${path}`);
-      }
+      if (isAbsolutePath(path)) return locateInRoots(roots, path);
+      const base = root ?? projects.selected()?.session.directory ?? null;
+      if (base && roots.some((r) => r.toLowerCase() === base.toLowerCase())) return { root: base, path };
+      if (base) return locateInRoots(roots, `${base.replace(/[\\/]+$/, "")}/${path}`);
+      return null;
+    },
+    [projects],
+  );
+  const open = useCallback(
+    (path: string, root?: string): boolean => {
+      const target = resolve(path, root);
       if (!target) return false;
       docs.open(target.root, target.path);
       panels.actions?.reveal("docs");
       return true;
     },
-    [docs, panels, projects],
+    [docs, panels, resolve],
   );
+  /** "saved" | "cancelled" | "outside" (berkas di luar project/Chat). Galat nyata dilempar. */
+  const download = useCallback(
+    async (path: string, root?: string): Promise<"saved" | "cancelled" | "outside"> => {
+      const target = resolve(path, root);
+      if (!target) return "outside";
+      const name = target.path.split(/[\\/]/).pop() ?? "berkas";
+      const bytes = docHost.native ? null : await docHost.source.read(target.root, target.path);
+      return (await docHost.saveCopy(target.root, target.path, name, bytes)) ? "saved" : "cancelled";
+    },
+    [docHost, resolve],
+  );
+  return { resolve, open, download };
+}
+
+export function useOpenDoc(): (path: string, root?: string) => boolean {
+  return useDocActions().open;
 }
 
 export function useTerminals(): TerminalState {
@@ -365,6 +418,27 @@ export function useTerminals(): TerminalState {
     () => terminals.state(),
     () => terminals.state(),
   );
+}
+
+export function useSidebarPrefs(): SidebarPrefsState {
+  const { sidebarPrefs } = useServices();
+  return useSyncExternalStore(
+    (cb) => sidebarPrefs.subscribe(cb),
+    () => sidebarPrefs.state(),
+    () => sidebarPrefs.state(),
+  );
+}
+
+/** Status tampilan satu sesi (idle/bekerja/butuh aksi/selesai/gagal/batas). */
+export function useSessionIndicator(sessionId: string): SessionIndicator {
+  const { attention } = useServices();
+  const chat = useChat();
+  useSyncExternalStore(
+    (cb) => attention.subscribe(cb),
+    () => attention.state(),
+    () => attention.state(),
+  );
+  return attention.indicator(sessionId, chat.sessions[sessionId]);
 }
 
 export function useGit(): GitState {

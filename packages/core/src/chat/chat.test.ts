@@ -224,6 +224,33 @@ describe("ChatStore", () => {
     return { engine, store, prefs };
   }
 
+  test("pesan disematkan: per sesi, bisa dilepas, tersimpan dan dipulihkan, data rusak diabaikan", async () => {
+    const a = await setup();
+    a.store.toggleMessagePin("s1", "m1");
+    a.store.toggleMessagePin("s1", "m2");
+    a.store.toggleMessagePin("s2", "m9");
+    expect(a.store.state().pinnedMessages).toEqual({ s1: ["m1", "m2"], s2: ["m9"] });
+    a.store.toggleMessagePin("s1", "m1");
+    a.store.toggleMessagePin("s2", "m9");
+    expect(a.store.state().pinnedMessages).toEqual({ s1: ["m2"] });
+    const b = await setup(a.prefs);
+    expect(b.store.state().pinnedMessages).toEqual({ s1: ["m2"] });
+    const c = await setup(prefsOf({ "zandor.pinnedMessages": "[1,2]" }));
+    expect(c.store.state().pinnedMessages).toEqual({});
+  });
+
+  test("model terakhir digunakan: maks 3, terbaru dulu, tanpa duplikat, tersimpan dan dipulihkan", async () => {
+    const a = await setup();
+    const ref = (id: string) => ({ providerID: "p", modelID: id });
+    expect(a.store.state().recent).toEqual([]);
+    for (const id of ["m1", "m2", "m3", "m4", "m2"]) a.store.selectModel(ref(id));
+    expect(a.store.state().recent).toEqual(["p/m2", "p/m4", "p/m3"]);
+    const b = await setup(a.prefs);
+    expect(b.store.state().recent).toEqual(["p/m2", "p/m4", "p/m3"]);
+    const c = await setup(prefsOf({ "zandor.recentModels": "{rusak" }));
+    expect(c.store.state().recent).toEqual([]);
+  });
+
   test("model: bawaan = pertama; pilihan tersimpan dan dipulihkan; model hilang → kembali ke bawaan", async () => {
     const a = await setup();
     expect(a.store.state().model).toEqual({ providerID: "p", modelID: "m1" });

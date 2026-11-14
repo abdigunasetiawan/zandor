@@ -14,7 +14,7 @@ async function openFiles(page: Page, files: Files): Promise<MockEngine> {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/docs");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.getByRole("tab", { name: "Berkas" }).click();
   return engine;
 }
 
@@ -263,11 +263,13 @@ test("galat baca: pesan + tombol Muat ulang memulihkan", async ({ page }) => {
 
 test("klik berkas dari kartu tool di chat membuka Panel 3", async ({ page }) => {
   await openFiles(page, { "catatan.txt": "halo dunia" });
-  await page.getByRole("tab", { name: "Sesi", exact: true }).click();
+  await page.getByRole("tab", { name: "Chat", exact: true }).click();
   await page.getByRole("button", { name: "Sesi baru di docs" }).click();
   const box = page.getByRole("textbox", { name: /^Tulis pesan/ });
   await box.fill("tolong baca catatan");
   await box.press("Enter");
+  // proses terlipat: buka dulu untuk melihat kartu tool
+  await page.locator(".work__sum, .work__step").last().click({ timeout: 15_000 });
   await page.getByRole("button", { name: "Buka catatan.txt di panel Dokumen" }).click({ timeout: 15_000 });
   await expect(docs(page).getByTestId("doc-path")).toHaveText("catatan.txt");
   await expect(docs(page).getByTestId("monaco").locator(".view-lines")).toContainText("halo dunia", {

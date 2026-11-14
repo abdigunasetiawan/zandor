@@ -8,11 +8,12 @@ import powershell from "highlight.js/lib/languages/powershell";
 import "katex/dist/katex.min.css";
 import { common } from "lowlight";
 import { createContext, type ReactNode, useContext, useState } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { SAFE_IMAGE_URI } from "../image-uri";
 import { Mermaid } from "./Mermaid";
 
 const SAFE_LINK = /^(https?:|mailto:|#)/i;
@@ -85,7 +86,13 @@ const COMPONENTS: Components = {
     ) : (
       <span>{children}</span>
     ),
-  img: ({ alt }) => <span className="md__img">{alt ?? ""}</span>,
+  // hanya data: URI bertipe gambar yang dimuat; gambar dari jaringan tidak diambil (cegah eksfiltrasi lewat URL)
+  img: ({ src, alt }) =>
+    typeof src === "string" && SAFE_IMAGE_URI.test(src) ? (
+      <img className="md__image" src={src} alt={alt ?? ""} draggable={false} />
+    ) : (
+      <span className="md__img">{alt ?? ""}</span>
+    ),
   table: ({ children }) => (
     // biome-ignore lint/a11y/noNoninteractiveTabindex: area gulir harus bisa difokus agar tabel lebar bisa digulir dengan keyboard
     <section className="md__table" tabIndex={0} aria-label="tabel">
@@ -94,6 +101,8 @@ const COMPONENTS: Components = {
   ),
   pre: Pre,
 };
+
+const urlTransform = (url: string) => (SAFE_IMAGE_URI.test(url) ? url : defaultUrlTransform(url));
 
 const REMARK = [remarkGfm, remarkMath];
 const REHYPE = [
@@ -108,7 +117,12 @@ export default function RichMarkdown({ text, streaming = false }: { text: string
   return (
     <StreamingContext.Provider value={streaming}>
       <div className="md">
-        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={COMPONENTS}>
+        <ReactMarkdown
+          remarkPlugins={REMARK}
+          rehypePlugins={REHYPE}
+          components={COMPONENTS}
+          urlTransform={urlTransform}
+        >
           {text}
         </ReactMarkdown>
       </div>

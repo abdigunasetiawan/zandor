@@ -95,7 +95,7 @@ test("rel: klik ikon membuka tab dan panel Tools; klik ikon aktif menutupnya", a
   await home(page);
   const rail = page.getByRole("navigation", { name: "Rel alat" });
   await rail.getByRole("button", { name: "Git" }).click();
-  await expect(page.getByRole("tab", { name: "Git" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Git" })).toBeVisible();
   await expect(page.getByText("Git hanya tersedia di aplikasi desktop.")).toBeVisible();
   await rail.getByRole("button", { name: "Git" }).click();
   await settled(page);
@@ -103,7 +103,7 @@ test("rel: klik ikon membuka tab dan panel Tools; klik ikon aktif menutupnya", a
   await rail.getByRole("button", { name: "Log aktivitas" }).click(); // membuka kembali + tab lain
   await settled(page);
   expect(await width(page, "tools")).toBeGreaterThan(100);
-  await expect(page.getByRole("tab", { name: "Log aktivitas" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("heading", { name: "Log aktivitas" })).toBeVisible();
 });
 
 test("seret separator mengubah lebar panel dan tersimpan setelah reload", async ({ page }) => {

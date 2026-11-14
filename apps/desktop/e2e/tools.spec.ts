@@ -20,7 +20,8 @@ async function setup(page: Page, opts: Parameters<typeof mockEngine>[1] = {}): P
 }
 
 const tools = (page: Page) => page.getByRole("region", { name: "Tools", exact: true });
-const tab = (page: Page, name: string) => tools(page).getByRole("tab", { name, exact: true });
+const tab = (page: Page, name: string) =>
+  page.getByRole("navigation", { name: "Rel alat" }).getByRole("button", { name, exact: true });
 const screen = (page: Page) => tools(page).locator(".xterm-rows");
 
 test("terminal: buat, ketik perintah, keluaran tampil, ukuran dikirim, nama tab sesuai shell", async ({ page }) => {
@@ -144,7 +145,7 @@ test("log aktivitas: tool call dan izin tercatat; filter sumber; bersihkan", asy
   await box.fill("ubah file, butuh izin");
   await box.press("Enter");
   await expect(page.getByRole("alertdialog", { name: /Izin diperlukan/ })).toBeVisible({ timeout: 15_000 });
-  await tab(page, "Log aktivitas").click();
+  await tab(page, "Log aktivitas aplikasi").click();
   const log = tools(page).getByTestId("activity");
   await expect(log).toContainText("read selesai");
   await expect(log).toContainText("izin diminta: edit");

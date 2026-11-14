@@ -3,14 +3,17 @@
 import { desiredCollapsed, formatCombo, type PanelSpec, remToPx } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
+  ActivityIcon,
+  CloseIcon,
+  DiffIcon,
   ErrorBoundary,
+  FilesIcon,
   GitIcon,
   GlobeIcon,
   IconButton,
   InfoIcon,
   ListIcon,
   ShortcutScope,
-  Tabs,
   TerminalIcon,
 } from "@zandor/ui";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
@@ -21,8 +24,11 @@ import { Sidebar } from "./Sidebar";
 import { PANEL_IDS, type PanelId, TOOL_IDS, type ToolId, usePanelState, useServices, useSetting } from "./services";
 import { ActivityPanel } from "./tools/ActivityPanel";
 import { BrowserPanel } from "./tools/BrowserPanel";
+import { ChangesPanel } from "./tools/ChangesPanel";
 import { GitPanel } from "./tools/GitPanel";
 import { InfoPanel } from "./tools/InfoPanel";
+import { SessionActivityPanel } from "./tools/SessionActivityPanel";
+import { SessionFilesPanel } from "./tools/SessionFilesPanel";
 import { TerminalPanel } from "./tools/TerminalPanel";
 
 type PanelDef = { id: PanelId; minRem: number; collapsible: boolean; priority: number; defaultSize: string };
@@ -44,13 +50,15 @@ const LAYOUT_ID = "zandor-main";
 export const TOOL_ICONS: Record<ToolId, ReactNode> = {
   terminal: <TerminalIcon />,
   git: <GitIcon />,
+  changes: <DiffIcon />,
+  files: <FilesIcon />,
   browser: <GlobeIcon />,
   info: <InfoIcon />,
+  session: <ActivityIcon />,
   log: <ListIcon />,
 };
 
 function PanelEmpty({ title, body }: { title: string; body: string }) {
-  const { t } = useI18n();
   return (
     <div className="shell-empty">
       <h2 className="z-h4">{title}</h2>
@@ -281,8 +289,14 @@ export function ShellLayout() {
         return <TerminalPanel />;
       case "git":
         return <GitPanel />;
+      case "changes":
+        return <ChangesPanel />;
+      case "files":
+        return <SessionFilesPanel />;
       case "browser":
         return <BrowserPanel />;
+      case "session":
+        return <SessionActivityPanel />;
       case "info":
         return <InfoPanel />;
       case "log":
@@ -321,11 +335,7 @@ export function ShellLayout() {
           className="shell-panel"
         >
           <section aria-label={t("panel.chat")} className="shell-panel__inner">
-            {guarded(
-              "chat",
-              "panel.chat",
-              <ChatPanel empty={<PanelEmpty title={t("empty.p2.title")} body={t("empty.p2.body")} />} />,
-            )}
+            {guarded("chat", "panel.chat", <ChatPanel />)}
           </section>
         </Panel>
         <Separator id="sep-2" className="shell-sep" />
@@ -358,16 +368,17 @@ export function ShellLayout() {
             {guarded(
               "tools",
               "panel.tools",
-              <Tabs
-                aria-label={t("panel.tools")}
-                value={panelState.activeTool}
-                onValueChange={(v) => bridge.update({ activeTool: v as ToolId })}
-                items={TOOL_IDS.map((tool) => ({
-                  value: tool,
-                  label: toolLabel(tool),
-                  content: toolContent(tool),
-                }))}
-              />,
+              <div className="tools">
+                <header className="tools__head">
+                  <span className="tools__icon" aria-hidden="true">
+                    {TOOL_ICONS[panelState.activeTool]}
+                  </span>
+                  <h2 className="z-label tools__title">{toolLabel(panelState.activeTool)}</h2>
+                  <IconButton label={t("tools.close")} size="sm" icon={<CloseIcon />} onClick={() => toggle("tools")} />
+                </header>
+                {/* Alat dipilih lewat rail di kanan (tanpa tab di dalam panel) */}
+                <div className="tools__body">{toolContent(panelState.activeTool)}</div>
+              </div>,
             )}
           </section>
         </Panel>

@@ -20,7 +20,7 @@ test("saran prompt: dari isi project nyata (README hilang, ada manifes) dan berk
   await expect(group.getByRole("button", { name: "Jelaskan struktur project" })).toBeVisible();
 
   // berkas yang dibuka mengubah saran
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.getByRole("tab", { name: "Berkas" }).click();
   await page.locator('.tree__file[title="app.ts"]').click();
   await expect(group.getByRole("button", { name: "Jelaskan app.ts" })).toBeVisible();
   await expect(group.getByRole("button", { name: "Tulis tes untuk app.ts" })).toBeVisible();

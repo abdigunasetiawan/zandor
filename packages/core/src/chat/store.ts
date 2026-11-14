@@ -13,6 +13,10 @@ export type SessionChat = ChatState & {
   reconnecting: boolean;
 };
 
+/** Pesan yang diantre selagi agent bekerja; dikirim berurutan begitu sesi idle. Hanya di memori (tidak disimpan ke disk). */
+export type QueuedMessage = { id: string; text: string; files: FileAttachment[] };
+export const MAX_QUEUE = 50;
+
 export type ChatStoreState = {
   models: ModelOption[];
   modelsStatus: "idle" | "loading" | "ready" | "error";
@@ -25,6 +29,14 @@ export type ChatStoreState = {
   permissionMode: PermissionMode;
   /** Model yang disematkan pengguna, sebagai kunci `providerID/modelID` (urutan disematkan). */
   pinned: string[];
+  /** Model yang terakhir dipakai (dipilih atau dikirimi prompt), terbaru dulu, maksimal MAX_RECENT, kunci `providerID/modelID`. */
+  recent: string[];
+  /** Pesan yang disematkan per sesi (id pesan, urutan disematkan). */
+  pinnedMessages: Record<string, string[]>;
+  /** Antrean pesan per sesi (urutan kirim). */
+  queues: Record<string, QueuedMessage[]>;
+  /** Sesi yang antreannya dijeda (Stop ditekan, atau pengiriman otomatis gagal): tidak dikirim sampai dilanjutkan. */
+  queuePaused: Record<string, boolean>;
   sessions: Record<string, SessionChat>;
 };
 
@@ -43,6 +55,9 @@ const MODEL_PREF = "zandor.model";
 const MODE_PREF = "zandor.permissionMode";
 const VARIANT_PREF = "zandor.variant";
 const PINNED_PREF = "zandor.pinnedModels";
+const RECENT_PREF = "zandor.recentModels";
+const PINNED_MSG_PREF = "zandor.pinnedMessages";
+export const MAX_RECENT = 3;
 export const modelKey = (r: ModelRef) => `${r.providerID}/${r.modelID}`;
 const MAX_RELOADS = 3;
 const MESSAGE_EVENTS = new Set<EngineEvent["type"]>([
@@ -66,8 +81,15 @@ export class ChatStore {
     variant: null,
     permissionMode: "ask",
     pinned: [],
+    recent: [],
+    pinnedMessages: {},
+    queues: {},
+    queuePaused: {},
     sessions: {},
   };
+  private qSeq = 0;
+  /** Sesi yang sedang dihentikan oleh "kirim langsung": pesan terdepan boleh dikirim walau giliran berakhir dengan galat/abort. */
+  private forceNext = new Set<string>();
   private listeners = new Set<() => void>();
   private api: EngineApi | null = null;
   private subs = new Map<string, { unsub: () => void; sessions: Set<string> }>();
@@ -83,6 +105,8 @@ export class ChatStore {
     }
     this.snap.variant = options.prefs.get(VARIANT_PREF) || null;
     this.snap.pinned = parsePinned(options.prefs.get(PINNED_PREF));
+    this.snap.recent = parsePinned(options.prefs.get(RECENT_PREF)).slice(0, MAX_RECENT);
+    this.snap.pinnedMessages = parsePinnedMessages(options.prefs.get(PINNED_MSG_PREF));
   }
 
   state(): ChatStoreState {
@@ -205,7 +229,27 @@ export class ChatStore {
     });
   }
 
+  /** Sematkan/lepas sematan satu pesan di sesi. Pesan yang hilang dari riwayat tetap tercatat sampai dilepas. */
+  toggleMessagePin(sessionId: string, messageId: string) {
+    const cur = this.snap.pinnedMessages[sessionId] ?? [];
+    const next = cur.includes(messageId) ? cur.filter((m) => m !== messageId) : [...cur, messageId];
+    const { [sessionId]: _old, ...rest } = this.snap.pinnedMessages;
+    const pinnedMessages = next.length > 0 ? { ...rest, [sessionId]: next } : rest;
+    this.safePref(PINNED_MSG_PREF, JSON.stringify(pinnedMessages));
+    this.update({ pinnedMessages });
+  }
+
+  /** Catat model sebagai "terakhir digunakan" (dipindah ke depan, maksimal MAX_RECENT). */
+  private touchRecent(ref: ModelRef) {
+    const key = modelKey(ref);
+    if (this.snap.recent[0] === key) return;
+    const recent = [key, ...this.snap.recent.filter((k) => k !== key)].slice(0, MAX_RECENT);
+    this.safePref(RECENT_PREF, JSON.stringify(recent));
+    this.update({ recent });
+  }
+
   selectModel(ref: ModelRef) {
+    this.touchRecent(ref);
     if (sameModel(ref, this.snap.model)) return;
     this.preferred = ref;
     try {
@@ -297,6 +341,7 @@ export class ChatStore {
         continue;
       }
       this.patchSession(id, (s) => ({ ...s, ...applyEvent(s, ev) }));
+      this.pump(id);
     }
   }
 
@@ -332,6 +377,7 @@ export class ChatStore {
       this.reloading.delete(sessionId);
       this.dirty.delete(sessionId);
       this.patchSession(sessionId, (s) => (s.loading ? { ...s, loading: false } : s));
+      this.pump(sessionId); // antrean yang tertahan selama memuat ulang riwayat
     }
   }
 
@@ -345,6 +391,7 @@ export class ChatStore {
     if (!trimmed && files.length === 0) throw new Error("pesan kosong");
     if (!this.snap.model) throw new Error("belum ada model; tambahkan provider terlebih dahulu");
     if (s.sending || s.status.type !== "idle") throw new Error("sesi sedang berjalan");
+    this.touchRecent(this.snap.model);
     this.patchSession(sessionId, (x) => ({ ...clearError(x), ...{ sending: true } }) as SessionChat);
     try {
       await api.sendPrompt(s.directory, sessionId, {
@@ -358,7 +405,121 @@ export class ChatStore {
       throw e;
     } finally {
       this.patchSession(sessionId, (x) => ({ ...x, sending: false }));
+      // "kirim langsung": giliran yang dihentikan baru berakhir setelah permintaannya kembali → lanjutkan antrean
+      if (this.forceNext.has(sessionId)) this.pump(sessionId);
     }
+  }
+
+  // ---------- antrean pesan ----------
+
+  queueOf(sessionId: string): QueuedMessage[] {
+    return this.snap.queues[sessionId] ?? [];
+  }
+
+  private setQueue(sessionId: string, items: QueuedMessage[]) {
+    const queues = { ...this.snap.queues };
+    if (items.length === 0) delete queues[sessionId];
+    else queues[sessionId] = items;
+    const patch: Partial<ChatStoreState> = { queues };
+    if (items.length === 0 && this.snap.queuePaused[sessionId]) {
+      const { [sessionId]: _drop, ...rest } = this.snap.queuePaused;
+      patch.queuePaused = rest;
+    }
+    this.update(patch);
+  }
+
+  /** Tambah pesan ke antrean sesi. Mengembalikan id antrean. */
+  enqueue(sessionId: string, text: string, files: FileAttachment[] = []): string {
+    const trimmed = text.trim();
+    if (!this.snap.sessions[sessionId]) throw new Error("sesi tidak ditemukan");
+    if (!trimmed && files.length === 0) throw new Error("pesan kosong");
+    const cur = this.queueOf(sessionId);
+    if (cur.length >= MAX_QUEUE) throw new Error(`antrean penuh (maks ${MAX_QUEUE})`);
+    const id = `q${++this.qSeq}`;
+    this.setQueue(sessionId, [...cur, { id, text: trimmed, files }]);
+    return id;
+  }
+
+  editQueued(sessionId: string, id: string, text: string): void {
+    const trimmed = text.trim();
+    const cur = this.queueOf(sessionId);
+    const item = cur.find((q) => q.id === id);
+    if (!item) return;
+    if (!trimmed && item.files.length === 0) {
+      this.removeQueued(sessionId, id);
+      return;
+    }
+    this.setQueue(
+      sessionId,
+      cur.map((q) => (q.id === id ? { ...q, text: trimmed } : q)),
+    );
+  }
+
+  removeQueued(sessionId: string, id: string): void {
+    this.setQueue(
+      sessionId,
+      this.queueOf(sessionId).filter((q) => q.id !== id),
+    );
+  }
+
+  /** Pindahkan item ke indeks `toIndex` (0 = dikirim paling dulu). */
+  moveQueued(sessionId: string, id: string, toIndex: number): void {
+    const cur = this.queueOf(sessionId);
+    const from = cur.findIndex((q) => q.id === id);
+    if (from < 0) return;
+    const to = Math.max(0, Math.min(cur.length - 1, toIndex));
+    if (to === from) return;
+    const next = [...cur];
+    const [item] = next.splice(from, 1);
+    if (!item) return;
+    next.splice(to, 0, item);
+    this.setQueue(sessionId, next);
+  }
+
+  /**
+   * Kirim langsung: item dipindah ke depan antrean; bila agent sedang bekerja, giliran itu dihentikan dulu lalu item
+   * dikirim begitu sesi idle (item lain tetap menunggu di belakangnya).
+   */
+  async sendQueuedNow(sessionId: string, id: string): Promise<void> {
+    const s = this.snap.sessions[sessionId];
+    if (!this.api || !s) throw new Error("engine belum siap");
+    this.moveQueued(sessionId, id, 0);
+    if (!this.queueOf(sessionId).some((q) => q.id === id)) return;
+    const { [sessionId]: _p, ...rest } = this.snap.queuePaused;
+    this.update({ queuePaused: rest });
+    if (s.status.type !== "idle" || s.sending) {
+      this.forceNext.add(sessionId);
+      await this.api.abort(s.directory, sessionId);
+    }
+    this.pump(sessionId, true);
+  }
+
+  /** Lanjutkan antrean yang dijeda. */
+  resumeQueue(sessionId: string): void {
+    const { [sessionId]: _p, ...rest } = this.snap.queuePaused;
+    this.update({ queuePaused: rest });
+    this.pump(sessionId, true);
+  }
+
+  /** Kirim pesan terdepan bila sesi idle dan antrean tidak dijeda. `force` mengabaikan galat sesi sebelumnya. */
+  private pump(sessionId: string, force = false) {
+    const s = this.snap.sessions[sessionId];
+    const queue = this.snap.queues[sessionId];
+    if (!s || !queue || queue.length === 0 || !this.api) return;
+    const forced = force || this.forceNext.has(sessionId);
+    if (s.status.type !== "idle" || s.sending || s.loading) return;
+    if (this.snap.queuePaused[sessionId]) return;
+    if (s.error && !forced) return;
+    if (s.permissions.length > 0 || s.questions.length > 0) return;
+    const [head, ...rest] = queue;
+    if (!head) return;
+    this.forceNext.delete(sessionId);
+    this.setQueue(sessionId, rest);
+    this.send(sessionId, head.text, head.files).catch(() => {
+      // gagal (mis. belum ada model): kembalikan ke depan dan jeda supaya tidak berulang
+      this.setQueue(sessionId, [head, ...this.queueOf(sessionId)]);
+      this.update({ queuePaused: { ...this.snap.queuePaused, [sessionId]: true } });
+    });
   }
 
   /** Ulangi jawaban terakhir: revert ke pesan pengguna terakhir lalu kirim ulang isinya (teks + lampiran). */
@@ -408,6 +569,9 @@ export class ChatStore {
   async abort(sessionId: string): Promise<void> {
     const s = this.snap.sessions[sessionId];
     if (!this.api || !s) return;
+    // Stop oleh pengguna menjeda antrean: pesan yang menunggu tidak dikirim diam-diam setelah dihentikan.
+    if (this.queueOf(sessionId).length > 0)
+      this.update({ queuePaused: { ...this.snap.queuePaused, [sessionId]: true } });
     await this.api.abort(s.directory, sessionId);
   }
 
@@ -445,6 +609,24 @@ function parseModel(raw: string | null): ModelRef | null {
       : null;
   } catch {
     return null;
+  }
+}
+
+function parsePinnedMessages(raw: string | null): Record<string, string[]> {
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (typeof v !== "object" || v === null || Array.isArray(v)) return {};
+    const out: Record<string, string[]> = {};
+    for (const [k, ids] of Object.entries(v)) {
+      if (Array.isArray(ids)) {
+        const list = [...new Set(ids.filter((x): x is string => typeof x === "string"))];
+        if (list.length > 0) out[k] = list;
+      }
+    }
+    return out;
+  } catch {
+    return {};
   }
 }
 

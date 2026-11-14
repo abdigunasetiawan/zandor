@@ -2,20 +2,66 @@ import { AlertDialog as BaseAlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useI18n } from "@zandor/i18n/react";
-import { createContext, type ReactElement, type ReactNode, useCallback, useContext, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "../atoms/Button";
+import { cx } from "../cx";
 import { OFFSET_NORMAL } from "../layout";
 
-export type PopoverProps = { trigger: ReactElement; title?: string; children: ReactNode };
+export type PopoverProps = {
+  trigger: ReactElement;
+  title?: string;
+  children: ReactNode;
+  /** Juga terbuka saat kursor di atas pemicu (klik/fokus tetap bekerja). */
+  openOnHover?: boolean;
+  /** Mode terkendali (opsional). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  side?: "top" | "bottom" | "left" | "right";
+  align?: "start" | "center" | "end";
+  /** Elemen yang difokus saat popover terbuka (mis. kolom pencarian). */
+  initialFocus?: RefObject<HTMLElement | null>;
+  /** Judul tetap ada untuk pembaca layar tetapi tidak ditampilkan. */
+  hideTitle?: boolean;
+  className?: string;
+};
 
-export function Popover({ trigger, title, children }: PopoverProps) {
+export function Popover({
+  trigger,
+  title,
+  children,
+  openOnHover,
+  open,
+  onOpenChange,
+  side,
+  align,
+  initialFocus,
+  hideTitle,
+  className,
+}: PopoverProps) {
   return (
-    <BasePopover.Root>
-      <BasePopover.Trigger render={trigger} />
+    <BasePopover.Root open={open} onOpenChange={onOpenChange ? (o) => onOpenChange(o) : undefined}>
+      <BasePopover.Trigger render={trigger} openOnHover={openOnHover} delay={openOnHover ? 150 : undefined} />
       <BasePopover.Portal>
-        <BasePopover.Positioner sideOffset={OFFSET_NORMAL} className="z-popup-positioner">
-          <BasePopover.Popup className="z-popup z-popover" data-shortcut-scope="popover">
-            {title && <BasePopover.Title className="z-h4 z-popover__title">{title}</BasePopover.Title>}
+        <BasePopover.Positioner sideOffset={OFFSET_NORMAL} side={side} align={align} className="z-popup-positioner">
+          <BasePopover.Popup
+            className={cx("z-popup z-popover", className)}
+            data-shortcut-scope="popover"
+            initialFocus={initialFocus}
+          >
+            {title && (
+              <BasePopover.Title className={cx("z-h4 z-popover__title", hideTitle && "z-visually-hidden")}>
+                {title}
+              </BasePopover.Title>
+            )}
             {children}
           </BasePopover.Popup>
         </BasePopover.Positioner>

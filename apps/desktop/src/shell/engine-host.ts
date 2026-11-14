@@ -9,6 +9,14 @@ export type EngineHost = {
   onChange(cb: (s: RawEngineSnapshot) => void): Promise<() => void>;
   restart(): Promise<void>;
   chatsDir(): Promise<string | null>;
+  /** Buat folder kerja khusus satu sesi Chat di dalam folder Chat; mengembalikan path lengkapnya. */
+  chatFolderNew(name: string): Promise<string>;
+  /** Path lengkap semua folder sesi Chat. */
+  chatFolders(): Promise<string[]>;
+  /** Hapus folder sesi Chat hanya bila kosong. */
+  chatFolderRemoveIfEmpty(path: string): Promise<void>;
+  /** Nama pengguna OS; null bila tidak diketahui (browser). */
+  osUser(): Promise<string | null>;
   registryLoad(): Promise<string | null>;
   registrySave(text: string): Promise<void>;
   /** Dialog pilih folder; null bila dibatalkan atau tidak tersedia. */
@@ -20,6 +28,7 @@ export type EngineHost = {
 const OVERRIDE_KEY = "zandor.engine.override";
 const REGISTRY_KEY = "zandor.projects";
 const CHATS_KEY = "zandor.chatsDir";
+const CHAT_FOLDERS_KEY = "zandor.chatFolders";
 
 const stopped = (error: string | null = null): RawEngineSnapshot => ({
   status: error ? "error" : "stopped",
@@ -66,6 +75,39 @@ export function createBrowserHost(): EngineHost {
     async restart() {},
     async chatsDir() {
       return read(CHATS_KEY);
+    },
+    async chatFolderNew(name) {
+      const root = read(CHATS_KEY);
+      if (!root) throw new Error("folder Chat belum tersedia");
+      const sep = root.includes("\\") ? "\\" : "/";
+      const path = `${root.replace(/[\\/]+$/, "")}${sep}${name}`;
+      let list: string[] = [];
+      try {
+        list = JSON.parse(read(CHAT_FOLDERS_KEY) ?? "[]") as string[];
+      } catch {
+        // daftar rusak → mulai ulang
+      }
+      localStorage.setItem(CHAT_FOLDERS_KEY, JSON.stringify([...new Set([...list, path])]));
+      return path;
+    },
+    async chatFolders() {
+      try {
+        const v = JSON.parse(read(CHAT_FOLDERS_KEY) ?? "[]") as unknown;
+        return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+      } catch {
+        return [];
+      }
+    },
+    async chatFolderRemoveIfEmpty(path) {
+      try {
+        const list = JSON.parse(read(CHAT_FOLDERS_KEY) ?? "[]") as string[];
+        localStorage.setItem(CHAT_FOLDERS_KEY, JSON.stringify(list.filter((p) => p !== path)));
+      } catch {
+        // abaikan
+      }
+    },
+    async osUser() {
+      return null;
     },
     async registryLoad() {
       return read(REGISTRY_KEY);
@@ -117,6 +159,10 @@ export async function loadEngineHost(): Promise<EngineHost> {
     onChange: (cb) => listen<RawEngineSnapshot>("engine-state", (e) => cb(e.payload)),
     restart: () => invoke("engine_restart"),
     chatsDir: () => invoke<string>("chats_dir"),
+    chatFolderNew: (name) => invoke<string>("chat_folder_new", { name }),
+    chatFolders: () => invoke<string[]>("chat_folders"),
+    chatFolderRemoveIfEmpty: (path) => invoke("chat_folder_remove_if_empty", { path }),
+    osUser: async () => (await invoke<string>("os_user")) || null,
     registryLoad: () => invoke<string | null>("registry_load"),
     registrySave: (text) => invoke("registry_save", { text }),
     async pickFolder() {

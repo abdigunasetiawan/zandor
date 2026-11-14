@@ -1,6 +1,13 @@
 import { expect, type Page, test } from "@playwright/test";
 import { type MockOptions, mockEngine } from "./mock-engine";
 
+const expandProcess = async (page: Page, count = 1) => {
+  await expect(page.locator(".work__sum, .work__step")).toHaveCount(count, { timeout: 10_000 });
+  const toggle = page.locator(".work__sum, .work__step").last();
+  await expect(toggle).toBeVisible({ timeout: 10_000 });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+};
+
 async function openSession(page: Page, opts?: MockOptions) {
   const engine = await mockEngine(page, opts);
   await page.goto("/");
@@ -9,7 +16,7 @@ async function openSession(page: Page, opts?: MockOptions) {
   await page.getByLabel("Path folder").fill("C:\\Work\\alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
   await page.getByRole("button", { name: "Sesi baru di alpha" }).click();
-  await expect(page.getByRole("log")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
   return engine;
 }
 
@@ -119,18 +126,29 @@ test("tab sesi: beralih dan menutup", async ({ page }) => {
     .getByRole("button", { name: /^Tutup tab/ })
     .first()
     .click();
-  await expect(tabs).toHaveCount(0); // tinggal satu tab → bilah tab disembunyikan
+  await expect(tabs.locator(".stabs__tab")).toHaveCount(1); // bilah tab tetap tampil dengan satu tab
 });
 
 test("pencarian web tampil sebagai kartu khusus; diff edit bisa dibuka", async ({ page }) => {
   await openSession(page);
   await send(page, "tolong cari web cuaca");
+  await expandProcess(page);
   const card = page.locator(".fold--tool").first();
   await expect(card).toContainText("Pencarian web", { timeout: 10_000 });
   await expect(card).toContainText("cuaca jakarta");
   await send(page, "tolong buat diff");
+  await expandProcess(page, 2);
   const edit = page.locator(".fold--tool").filter({ hasText: "edit" });
   await edit.getByRole("button").first().click();
   await expect(edit.locator(".diff__line--add")).toContainText("+baru");
   await expect(edit.locator(".diff__line--del")).toContainText("-lama");
+});
+
+test("input suara: tombol mikrofon dan menu perangkat input tersedia; tanpa perangkat → pesan jujur", async ({
+  page,
+}) => {
+  await openSession(page);
+  await expect(page.getByRole("button", { name: "Mulai input suara" })).toBeVisible();
+  await page.getByRole("button", { name: "Pilih perangkat input suara" }).click();
+  await expect(page.getByRole("menuitemcheckbox", { name: "Bawaan sistem" })).toBeChecked();
 });

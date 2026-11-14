@@ -21,11 +21,17 @@ test("form pertanyaan: pilih, jawaban bebas, kirim → jawaban sampai ke engine 
   const card = page.getByTestId("question-card");
   await expect(card).toBeVisible({ timeout: 15_000 });
   await expect(card.getByText("Framework mana yang dipakai?")).toBeVisible();
-  await expect(card.getByText("Boleh pilih lebih dari satu.")).toBeVisible();
+  await expect(card.getByText("Pilih satu.")).toBeVisible();
 
   const send = card.getByRole("button", { name: "Kirim jawaban" });
-  await expect(send).toBeDisabled(); // belum semua dijawab
+  await expect(card.getByText("Pertanyaan 1 dari 2")).toBeVisible();
+  await expect(card.getByRole("checkbox")).toHaveCount(0); // satu per satu: pertanyaan 2 belum tampil
+  await expect(send).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Berikutnya" })).toBeDisabled(); // belum dijawab
   await card.getByRole("radio", { name: /React/ }).check();
+  await card.getByRole("button", { name: "Berikutnya" }).click();
+  await expect(card.getByText("Boleh pilih lebih dari satu.")).toBeVisible();
+  await expect(card.getByText("Pertanyaan 2 dari 2")).toBeVisible();
   await expect(send).toBeDisabled();
   await card.getByRole("checkbox", { name: /Tes/ }).check();
   await card.getByLabel("Jawaban sendiri untuk pertanyaan 2").fill("lainnya");
@@ -45,6 +51,7 @@ test("pertanyaan tunggal: teks bebas menggantikan pilihan dan sebaliknya", async
   await card.getByRole("radio", { name: /Svelte/ }).check();
   await card.getByLabel("Jawaban sendiri untuk pertanyaan 1").fill("Solid");
   await expect(card.getByRole("radio", { name: /Svelte/ })).not.toBeChecked();
+  await card.getByRole("button", { name: "Berikutnya" }).click();
   await card.getByRole("checkbox", { name: /Lint/ }).check();
   await card.getByRole("button", { name: "Kirim jawaban" }).click();
   await expect(card).toHaveCount(0);
@@ -76,6 +83,6 @@ test("daftar rencana agent: status per item, ringkasan, dan pulih setelah muat u
 
   await page.reload();
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
-  await page.locator(".tree__children .tree__session").first().click();
+  await page.locator(".sidebar__section--chats .tree__session").first().click();
   await expect(page.getByTestId("todo-list").getByText("Rencana agent (1/3 selesai)")).toBeVisible();
 });

@@ -3,13 +3,14 @@ import {
   CHAT_KEY,
   type Project,
   type ProjectKey,
+  type ProjectStyle,
   type SessionInfo,
   type SessionsState,
   sessionTitle,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
-  BrainIcon,
+  Avatar,
   Button,
   ChatIcon,
   ChevronDownIcon,
@@ -18,16 +19,20 @@ import {
   ContextMenu,
   Dialog,
   Field,
+  FileIcon,
   FolderIcon,
+  FolderOpenIcon,
   IconButton,
   Input,
+  Kbd,
   Menu,
   type MenuEntry,
   MoreIcon,
+  PinIcon,
   PlusIcon,
   RefreshIcon,
   SearchField,
-  SettingsIcon,
+  SearchIcon,
   Spinner,
   Tabs,
   useConfirm,
@@ -35,8 +40,13 @@ import {
 } from "@zandor/ui";
 import { type FormEvent, useMemo, useState } from "react";
 import { build } from "../build";
-import { FilesTree } from "./FilesTree";
-import { useAppearance, useEngineState, useProjects, useServices } from "./services";
+import { DEMO_KEY, DEMO_SESSIONS } from "./demo-sessions";
+import { targetIndex, useDragReorder } from "./dnd";
+import { type FilesScope, FilesTree } from "./FilesTree";
+import { ProjectStyleDialog, projectBackground } from "./ProjectStyleDialog";
+import { SessionDot, SessionDotFor } from "./SessionDot";
+import { useAppearance, useEngineState, useProjects, useServices, useSettings, useSidebarPrefs } from "./services";
+import { useOsUser } from "./use-os-user";
 
 type RenameTarget =
   | { kind: "project"; id: string; value: string }
@@ -49,19 +59,61 @@ function useErrorToast() {
     toast.show({ title: t("sb.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" });
 }
 
+const slashes = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+
+/** Folder yang ditampilkan tab Files: folder project terpilih, atau folder kerja sesi Chat yang sedang dibuka. */
+export function filesScopeOf(state: ReturnType<typeof useProjects>): FilesScope | null {
+  const { key, sessionId } = state.selection;
+  const project = state.projects.find((p) => p.id === key);
+  if (project) return { id: project.id, name: project.name, path: project.path, root: project.path, prefix: "" };
+  if (key !== CHAT_KEY || !state.chatDir) return null;
+  const session = sessionId ? state.sessions[CHAT_KEY]?.items.find((s) => s.id === sessionId) : null;
+  const dir = session?.directory || state.chatDir;
+  const root = slashes(state.chatDir);
+  const d = slashes(dir);
+  const prefix = d.toLowerCase().startsWith(`${root.toLowerCase()}/`) ? d.slice(root.length + 1) : "";
+  return { id: CHAT_KEY, name: prefix || "Chat", path: dir, root: state.chatDir, prefix };
+}
+
 export function Sidebar() {
   const { t } = useI18n();
   const state = useProjects();
   const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
   const [tab, setTab] = useState("sessions");
-  const selectedProject = state.projects.find((p) => p.id === state.selection.key) ?? null;
+  const [workspaceOpen, setWorkspaceOpen] = useState(true);
+  const filesScope = useMemo(() => filesScopeOf(state), [state]);
 
   return (
     <div className="sidebar">
       <div className="sidebar__head">
-        <h2 className="z-h4">{t("sb.projects")}</h2>
-        <AddProject />
+        <span className="sidebar__logo" aria-hidden="true">
+          Z
+        </span>
+        <h2 className="z-h4 sidebar__brand">{t("app.name")}</h2>
+        <IconButton
+          label={t("sb.searchToggle")}
+          size="sm"
+          icon={<SearchIcon />}
+          aria-pressed={searching}
+          onClick={() => {
+            setTab("sessions");
+            setSearching((v) => !v);
+            if (searching) setQuery("");
+          }}
+        />
       </div>
+      {searching && (
+        <div className="sidebar__search">
+          <SearchField
+            aria-label={t("sb.search")}
+            placeholder={t("sb.search")}
+            value={query}
+            onValueChange={setQuery}
+            autoFocus
+          />
+        </div>
+      )}
       <Tabs
         aria-label={t("panel.sidebar")}
         value={tab}
@@ -70,22 +122,99 @@ export function Sidebar() {
           {
             value: "sessions",
             label: t("sb.tab.sessions"),
+            icon: <ChatIcon size="sm" />,
             content: (
               <div className="sidebar__tab">
-                <SearchField
-                  aria-label={t("sb.search")}
-                  placeholder={t("sb.search")}
-                  value={query}
-                  onValueChange={setQuery}
-                />
-                <SessionsList query={query} />
+                <SidebarActions />
+                <button
+                  type="button"
+                  className="sidebar__workspace"
+                  aria-expanded={workspaceOpen}
+                  onClick={() => setWorkspaceOpen((v) => !v)}
+                >
+                  <span className="z-label">{t("sb.workspace")}</span>
+                  {workspaceOpen ? <ChevronDownIcon size="sm" /> : <ChevronRightIcon size="sm" />}
+                </button>
+                {workspaceOpen && (
+                  <>
+                    <div className="sidebar__section">
+                      <header className="sidebar__section-head">
+                        <h3 className="z-label">
+                          {t("sb.section.projects")} <span className="sidebar__count">({state.projects.length})</span>
+                        </h3>
+                        <AddProject />
+                      </header>
+                      <SessionsList query={query} kind="projects" />
+                    </div>
+                    <div className="sidebar__section sidebar__section--chats">
+                      <SessionsList query={query} kind="chats" />
+                    </div>
+                  </>
+                )}
               </div>
             ),
           },
-          { value: "files", label: t("sb.tab.files"), content: <FilesTree project={selectedProject} /> },
+          {
+            value: "files",
+            label: t("sb.tab.files"),
+            icon: <FileIcon size="sm" />,
+            content: <FilesTree project={filesScope} />,
+          },
         ]}
       />
       <SidebarFooter />
+    </div>
+  );
+}
+
+/** Sesi demo bawaan (di dalam daftar Chat): disematkan, permanen (tidak bisa diganti nama/dihapus), hanya-baca. */
+function DemoRows() {
+  const { t } = useI18n();
+  const { projects } = useServices();
+  const state = useProjects();
+  return (
+    <ul className="tree__children sidebar__demo-rows" aria-label={t("sb.section.demo")}>
+      {DEMO_SESSIONS.map((d) => (
+        <li key={d.id}>
+          <div className="tree__row">
+            <button
+              type="button"
+              className="tree__demo"
+              title={t(d.subtitleKey)}
+              aria-current={state.selection.key === DEMO_KEY && state.selection.sessionId === d.id ? "true" : undefined}
+              onClick={() => projects.select(DEMO_KEY, d.id)}
+            >
+              <SessionDot state="idle" />
+              <span className="tree__label">{t(d.titleKey)}</span>
+              <PinIcon size="sm" className="tree__pin" />
+            </button>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SidebarActions() {
+  const { t } = useI18n();
+  const { nav, projects } = useServices();
+  const state = useProjects();
+  const fail = useErrorToast();
+  return (
+    <div className="sidebar__actions">
+      <Button
+        className="sidebar__action"
+        disabled={!state.engineReady}
+        onClick={() => void projects.createSession(state.selection.key ?? CHAT_KEY).catch(fail)}
+      >
+        <PlusIcon size="sm" />
+        <span className="sidebar__action-label">{t("sb.newChat")}</span>
+        <Kbd keys="Ctrl+N" />
+      </Button>
+      <Button className="sidebar__action" onClick={() => nav.push("/automation")}>
+        <ClockIcon size="sm" />
+        <span className="sidebar__action-label">{t("auto.manage")}</span>
+      </Button>
     </div>
   );
 }
@@ -149,9 +278,23 @@ function AddProject() {
   );
 }
 
-function SessionsList({ query }: { query: string }) {
+/** Gaya inline baris project dari gaya kustom (latar warna/gradien/gambar dan border). */
+function rowStyle(s: ProjectStyle | undefined): React.CSSProperties | undefined {
+  const bg = projectBackground(s);
+  if (!bg && !s?.border) return undefined;
+  return {
+    ...(bg ? { background: bg } : {}),
+    ...(s?.border ? { boxShadow: `inset 0 0 0 var(--z-border-width) ${s.border}` } : {}),
+  };
+}
+
+function SessionsList({ query, kind }: { query: string; kind: "projects" | "chats" }) {
   const { t } = useI18n();
-  const { projects: store } = useServices();
+  const settings = useSettings();
+  const { projects: store, sidebarPrefs, docHost } = useServices();
+  const prefs = useSidebarPrefs();
+  const toast = useToast();
+  const [styling, setStyling] = useState<Project | null>(null);
   const state = useProjects();
   const appearance = useAppearance();
   const confirm = useConfirm();
@@ -160,13 +303,16 @@ function SessionsList({ query }: { query: string }) {
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const q = query.trim().toLowerCase();
 
-  const groups: Array<{ key: ProjectKey; project: Project | null }> = useMemo(
-    () => [
-      ...state.projects.map((p) => ({ key: p.id, project: p as Project | null })),
-      { key: CHAT_KEY, project: null },
-    ],
-    [state.projects],
-  );
+  // urutan project: disematkan dulu, lalu urutan buatan pengguna (membaca `prefs` agar render ulang saat berubah)
+  const groups: Array<{ key: ProjectKey; project: Project | null }> =
+    kind === "projects"
+      ? sidebarPrefs.sortProjects(state.projects, (p) => p.id).map((p) => ({ key: p.id, project: p as Project | null }))
+      : [{ key: CHAT_KEY as ProjectKey, project: null as Project | null }];
+  void prefs;
+  const projectDnd = useDragReorder((dragId, targetId, before) => {
+    const ids = groups.map((g) => g.key);
+    sidebarPrefs.moveProject(ids, dragId, targetIndex(ids, dragId, targetId, before));
+  });
 
   const toggle = (key: ProjectKey) =>
     setCollapsed((prev) => {
@@ -187,6 +333,10 @@ function SessionsList({ query }: { query: string }) {
     if (ok) run(store.removeProject(p.id));
   };
   const deleteSession = async (key: ProjectKey, s: SessionInfo) => {
+    if (!settings.confirmDelete) {
+      run(store.deleteSession(key, s.id));
+      return;
+    }
     const ok = await confirm({
       title: t("sb.confirmDeleteTitle", { name: sessionTitle(s) ?? t("sb.untitled") }),
       description: t("sb.confirmDeleteBody"),
@@ -208,8 +358,10 @@ function SessionsList({ query }: { query: string }) {
 
   return (
     <>
-      {state.projects.length === 0 && <p className="sidebar__note z-small">{t("sb.noProjects")}</p>}
-      <ul className="tree" aria-label={t("sb.tab.sessions")}>
+      {kind === "projects" && state.projects.length === 0 && (
+        <p className="sidebar__note z-small">{t("sb.noProjects")}</p>
+      )}
+      <ul className="tree" aria-label={kind === "projects" ? t("sb.section.projects") : t("sb.section.chats")}>
         {groups.map(({ key, project }) => {
           const group = state.sessions[key];
           const items = (group?.items ?? []).filter(
@@ -229,11 +381,35 @@ function SessionsList({ query }: { query: string }) {
             ? [
                 {
                   type: "item",
+                  id: "new",
+                  label: t("sb.newSession"),
+                  disabled: !state.engineReady,
+                  onSelect: () => run(store.createSession(key)),
+                },
+                {
+                  type: "item",
+                  id: "pin",
+                  label: prefs.pinnedProjects.includes(project.id) ? t("sb.unpin") : t("sb.pin"),
+                  onSelect: () => sidebarPrefs.toggleProjectPin(project.id),
+                },
+                {
+                  type: "item",
                   id: "rename",
                   label: t("sb.rename"),
                   onSelect: () => setRename({ kind: "project", id: project.id, value: project.name }),
                 },
+                { type: "item", id: "style", label: t("sb.customize"), onSelect: () => setStyling(project) },
                 refresh,
+                ...(docHost.reveal
+                  ? [
+                      {
+                        type: "item" as const,
+                        id: "reveal",
+                        label: t("sb.reveal"),
+                        onSelect: () => void docHost.reveal?.(project.path, ".").catch(fail),
+                      },
+                    ]
+                  : []),
                 { type: "separator", id: "sep" },
                 {
                   type: "item",
@@ -245,63 +421,79 @@ function SessionsList({ query }: { query: string }) {
               ]
             : [refresh];
           return (
-            <li
-              key={key}
-              className="tree__group"
-              data-styled={pstyle ? "" : undefined}
-              style={
-                pstyle
-                  ? ({
-                      "--z-project-border": pstyle.border,
-                      "--z-project-bg": pstyle.background,
-                    } as React.CSSProperties)
-                  : undefined
-              }
-            >
-              <ContextMenu entries={entries} className="tree__row">
-                <button
-                  type="button"
-                  className="tree__toggle"
-                  aria-expanded={open}
-                  data-selected={state.selection.key === key && !state.selection.sessionId ? "" : undefined}
-                  title={project?.path}
-                  onClick={() => {
-                    toggle(key);
-                    store.select(key, null);
-                  }}
-                >
-                  {open ? <ChevronDownIcon size="sm" /> : <ChevronRightIcon size="sm" />}
-                  {pstyle?.logo ? (
-                    <span className="tree__logo" aria-hidden="true">
-                      {pstyle.logo}
-                    </span>
-                  ) : project ? (
-                    <FolderIcon size="sm" />
-                  ) : (
-                    <ChatIcon size="sm" />
-                  )}
-                  <span className="tree__label">{label}</span>
-                </button>
-                <IconButton
-                  label={t("sb.newSessionIn", { name: label })}
-                  size="sm"
-                  icon={<PlusIcon />}
-                  className="tree__action"
-                  disabled={!state.engineReady}
-                  onClick={() => run(store.createSession(key))}
-                />
-                <Menu
-                  trigger={
-                    <IconButton
-                      label={t("sb.menuFor", { name: label })}
-                      size="sm"
-                      icon={<MoreIcon />}
-                      className="tree__action"
-                    />
-                  }
+            <li key={key} className="tree__group" {...(kind === "projects" ? projectDnd.itemProps(key) : {})}>
+              {kind === "chats" ? (
+                <header className="sidebar__section-head">
+                  <h3 className="z-label" title={t("sb.chatHint")}>
+                    {t("sb.section.chats")} <span className="sidebar__count">({group?.items.length ?? 0})</span>
+                  </h3>
+                  <IconButton
+                    label={t("sb.newSessionIn", { name: label })}
+                    size="sm"
+                    icon={<PlusIcon />}
+                    disabled={!state.engineReady}
+                    onClick={() => run(store.createSession(key))}
+                  />
+                </header>
+              ) : (
+                <ContextMenu
                   entries={entries}
-                />
-              </ContextMenu>
+                  className="tree__row"
+                  triggerProps={{ style: rowStyle(pstyle), "data-bg": projectBackground(pstyle) ? "" : undefined }}
+                >
+                  <button
+                    type="button"
+                    className="tree__toggle"
+                    aria-expanded={open}
+                    data-selected={state.selection.key === key && !state.selection.sessionId ? "" : undefined}
+                    title={project?.path}
+                    onClick={() => {
+                      toggle(key);
+                      store.select(key, null);
+                    }}
+                  >
+                    {pstyle?.logoImage ? (
+                      <img className="tree__logoimg" src={pstyle.logoImage} alt="" />
+                    ) : pstyle?.logo ? (
+                      <span className="tree__logo" aria-hidden="true">
+                        {pstyle.logo}
+                      </span>
+                    ) : project ? (
+                      open ? (
+                        <FolderOpenIcon size="sm" />
+                      ) : (
+                        <FolderIcon size="sm" />
+                      )
+                    ) : (
+                      <ChatIcon size="sm" />
+                    )}
+                    <span className="tree__label">{label}</span>
+                    {project && prefs.pinnedProjects.includes(project.id) && (
+                      <PinIcon size="sm" className="tree__pinmark" />
+                    )}
+                  </button>
+                  <IconButton
+                    label={t("sb.newSessionIn", { name: label })}
+                    size="sm"
+                    icon={<PlusIcon />}
+                    className="tree__action"
+                    disabled={!state.engineReady}
+                    onClick={() => run(store.createSession(key))}
+                  />
+                  <Menu
+                    trigger={
+                      <IconButton
+                        label={t("sb.menuFor", { name: label })}
+                        size="sm"
+                        icon={<MoreIcon />}
+                        className="tree__action"
+                      />
+                    }
+                    entries={entries}
+                  />
+                </ContextMenu>
+              )}
+              {open && kind === "chats" && settings.showDemos && <DemoRows />}
               {open && (
                 <SessionRows
                   keyId={key}
@@ -315,6 +507,7 @@ function SessionsList({ query }: { query: string }) {
           );
         })}
       </ul>
+      {styling && <ProjectStyleDialog project={styling} onClose={() => setStyling(null)} />}
       <Dialog
         open={rename !== null}
         onOpenChange={(o) => !o && setRename(null)}
@@ -359,8 +552,20 @@ function SessionRows({
   onRename: (s: SessionInfo) => void;
 }) {
   const { t } = useI18n();
-  const { projects: store } = useServices();
+  const { projects: store, sidebarPrefs } = useServices();
+  const prefs = useSidebarPrefs();
+  const toast = useToast();
   const state = useProjects();
+  // urutan tampil: disematkan dulu, lalu urutan buatan pengguna, lalu bawaan; seret-lepas mengubah urutan buatan
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `prefs` memicu pengurutan ulang
+  const sorted = useMemo(
+    () => sidebarPrefs.sortSessions(keyId, items, (s) => s.id),
+    [sidebarPrefs, keyId, items, prefs],
+  );
+  const dnd = useDragReorder((dragId, targetId, before) => {
+    const ids = sorted.map((s) => s.id);
+    sidebarPrefs.moveSession(keyId, ids, dragId, targetIndex(ids, dragId, targetId, before));
+  });
   if (!state.engineReady && (!group || group.status === "idle"))
     return <p className="tree__note z-small">{t("sb.engineWait")}</p>;
   if (group?.status === "loading" && items.length === 0)
@@ -373,12 +578,29 @@ function SessionRows({
     return <p className="tree__note tree__note--error z-small">{t("sb.loadError", { error: group.error ?? "" })}</p>;
   if (items.length === 0) return <p className="tree__note z-small">{t("sb.noSessions")}</p>;
   return (
-    <ul className="tree__children">
-      {items.map((s) => {
+    <ul className="tree__children sidebar__session-rows">
+      {sorted.map((s) => {
         const title = sessionTitle(s) ?? t("sb.untitled");
         const selected = state.selection.sessionId === s.id;
+        const pinned = prefs.pinnedSessions.includes(s.id);
         const entries: MenuEntry[] = [
+          {
+            type: "item",
+            id: "pin",
+            label: pinned ? t("sb.unpin") : t("sb.pin"),
+            onSelect: () => sidebarPrefs.toggleSessionPin(s.id),
+          },
           { type: "item", id: "rename", label: t("sb.rename"), onSelect: () => onRename(s) },
+          {
+            type: "item",
+            id: "copyid",
+            label: t("sb.copyId"),
+            onSelect: () =>
+              void navigator.clipboard
+                ?.writeText(s.id)
+                .then(() => toast.show({ title: t("sb.copied"), tone: "success", timeoutMs: 1200 })),
+          },
+          { type: "separator", id: "sep" },
           {
             type: "item",
             id: "delete",
@@ -388,15 +610,18 @@ function SessionRows({
           },
         ];
         return (
-          <li key={s.id}>
+          <li key={s.id} className="tree__session-item" {...dnd.itemProps(s.id)}>
             <ContextMenu entries={entries} className="tree__row">
               <button
                 type="button"
                 className="tree__session"
+                title={keyId === CHAT_KEY ? t("sb.chatFolderHint", { path: s.directory }) : undefined}
                 aria-current={selected ? "true" : undefined}
                 onClick={() => store.select(keyId, s.id)}
               >
+                <SessionDotFor sessionId={s.id} />
                 <span className="tree__label">{title}</span>
+                {pinned && <PinIcon size="sm" className="tree__pinmark" />}
               </button>
               <Menu
                 trigger={
@@ -421,22 +646,37 @@ function SidebarFooter() {
   const { t } = useI18n();
   const { host, nav } = useServices();
   const engine = useEngineState();
+  const user = useOsUser();
+  const name = user ?? t("sb.user.fallback");
   const tone =
     engine.status === "ready" ? "ok" : engine.status === "error" || engine.status === "stopped" ? "bad" : "wait";
+  const entries: MenuEntry[] = [
+    { type: "item", id: "settings", label: t("settings.title"), onSelect: () => nav.push("/settings") },
+    { type: "item", id: "providers", label: t("pv.manage"), onSelect: () => nav.push("/providers") },
+    { type: "item", id: "memory", label: t("mem.manage"), onSelect: () => nav.push("/memory") },
+    { type: "item", id: "appearance", label: t("cmd.appearance"), onSelect: () => nav.push("/appearance") },
+  ];
   return (
     <footer className="sidebar__foot">
-      <span className="sidebar__status" data-tone={tone} role="status" title={engine.error ?? undefined}>
-        <span className="sidebar__dot" aria-hidden="true" />
-        {t(`engine.${engine.status}` as never)}
-        {engine.version && engine.status === "ready" ? ` ${engine.version}` : ""}
-      </span>
+      <Avatar name={name} size="md" />
+      <div className="sidebar__user">
+        <span className="sidebar__user-name">{name}</span>
+        <span className="z-small sidebar__version">{t("sb.versionShort", { version: build.version })}</span>
+        <span
+          className={engine.status === "ready" ? "sidebar__status z-visually-hidden" : "sidebar__status"}
+          data-tone={tone}
+          role="status"
+          title={engine.error ?? undefined}
+        >
+          <span className="sidebar__dot" aria-hidden="true" />
+          {t(`engine.${engine.status}` as never)}
+          {engine.version && engine.status === "ready" ? ` ${engine.version}` : ""}
+        </span>
+      </div>
       {(engine.status === "error" || engine.status === "stopped") && host.native && (
         <IconButton label={t("engine.retry")} size="sm" icon={<RefreshIcon />} onClick={() => void host.restart()} />
       )}
-      <IconButton label={t("auto.manage")} size="sm" icon={<ClockIcon />} onClick={() => nav.push("/automation")} />
-      <IconButton label={t("mem.manage")} size="sm" icon={<BrainIcon />} onClick={() => nav.push("/memory")} />
-      <IconButton label={t("pv.manage")} size="sm" icon={<SettingsIcon />} onClick={() => nav.push("/providers")} />
-      <span className="z-small sidebar__version">{t("app.version", { version: build.version })}</span>
+      <Menu trigger={<IconButton label={t("sb.user.menu")} size="sm" icon={<MoreIcon />} />} entries={entries} />
     </footer>
   );
 }

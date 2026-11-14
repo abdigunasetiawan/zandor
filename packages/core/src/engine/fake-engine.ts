@@ -19,6 +19,7 @@ import type {
   ModelOption,
   ModelRef,
   OAuthStart,
+  SessionFileDiff,
   SessionInfo,
   SubscriptionHandlers,
 } from "./api";
@@ -45,6 +46,8 @@ export type FakeEngine = EngineApi & {
     files?: FileAttachment[];
   }>;
   reverts: Map<string, string | null>;
+  /** Perubahan berkas per sesi untuk `sessionDiff`. */
+  diffs: Map<string, SessionFileDiff[]>;
   forks: Array<{ sessionId: string; messageId: string }>;
   replies: Array<{ requestId: string; reply: PermissionReply }>;
   aborted: string[];
@@ -82,6 +85,7 @@ export function createFakeEngine(): FakeEngine {
     questionReplies: [],
     prompts: [],
     reverts: new Map(),
+    diffs: new Map(),
     forks: [],
     replies: [],
     aborted: [],
@@ -169,6 +173,10 @@ export function createFakeEngine(): FakeEngine {
         ...(input.files ? { files: input.files } : {}),
       });
       e.onPrompt?.(directory, sessionId, input.text);
+    },
+    async sessionDiff(_dir, sessionId) {
+      if (e.failWith) throw new Error(e.failWith);
+      return e.diffs.get(sessionId) ?? [];
     },
     async getRevert(_dir, sessionId) {
       return e.reverts.get(sessionId) ?? null;

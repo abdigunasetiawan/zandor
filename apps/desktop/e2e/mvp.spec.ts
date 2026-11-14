@@ -28,10 +28,10 @@ test("3 project dan 12 sesi: buat, kirim pesan, berpindah-pindah, muat ulang —
   for (const [group, count] of plan) {
     for (let i = 0; i < count; i++) {
       await page.getByRole("button", { name: `Sesi baru di ${group}` }).click();
-      await expect(page.getByRole("log")).toBeVisible();
+      await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
     }
   }
-  const rows = page.locator(".tree__children .tree__session");
+  const rows = page.locator(".sidebar__section:not(.sidebar__section--demo) .tree__children .tree__session");
   await expect(rows).toHaveCount(12);
 
   // kirim pesan di tiga sesi berbeda
@@ -49,7 +49,7 @@ test("3 project dan 12 sesi: buat, kirim pesan, berpindah-pindah, muat ulang —
   for (let round = 0; round < 2; round++) {
     for (let i = 0; i < 12; i++) {
       await rows.nth(i).click();
-      await expect(page.getByRole("log")).toBeVisible();
+      await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
     }
   }
 
@@ -60,7 +60,9 @@ test("3 project dan 12 sesi: buat, kirim pesan, berpindah-pindah, muat ulang —
   // muat ulang: project, sesi, dan pilihan bertahan
   await page.reload();
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
-  await expect(page.locator(".tree__children .tree__session")).toHaveCount(12);
+  await expect(
+    page.locator(".sidebar__section:not(.sidebar__section--demo) .tree__children .tree__session"),
+  ).toHaveCount(12);
   for (const n of names) await expect(page.getByRole("button", { name: n, exact: true })).toBeVisible();
 
   expect(errors).toEqual([]);

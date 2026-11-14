@@ -45,17 +45,17 @@ test("tema: gelap, terang, ikut sistem; tersimpan setelah reload", async ({ page
   await page.getByRole("combobox", { name: "Tema" }).click();
   await page.getByRole("option", { name: "Terang" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  expect(await bodyBg(page)).toBe("rgb(250, 250, 250)");
+  expect(await bodyBg(page)).toBe("rgb(253, 253, 253)");
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   await page.getByRole("combobox", { name: "Tema" }).click();
   await page.getByRole("option", { name: "Gelap" }).click();
-  expect(await bodyBg(page)).toBe("rgb(18, 18, 18)");
+  expect(await bodyBg(page)).toBe("rgb(21, 21, 21)");
   await page.getByRole("combobox", { name: "Tema" }).click();
   await page.getByRole("option", { name: "Ikuti sistem" }).click();
   await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.+/);
   await page.emulateMedia({ colorScheme: "light" });
-  expect(await bodyBg(page)).toBe("rgb(250, 250, 250)");
+  expect(await bodyBg(page)).toBe("rgb(253, 253, 253)");
 });
 
 test("zoom UI lewat Ctrl +/-/0 mengubah --ui-scale dan ukuran root, tanpa luapan", async ({ page }) => {

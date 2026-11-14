@@ -15,6 +15,7 @@ import {
   Kbd,
   Menu,
   type MenuEntry,
+  ModelLogo,
   Palette,
   PlusIcon,
   Popover,
@@ -29,6 +30,7 @@ import {
   Tooltip,
   useConfirm,
   useToast,
+  Working,
 } from "@zandor/ui";
 import { type ReactNode, useState } from "react";
 
@@ -295,6 +297,16 @@ export const ATOM_DEMOS: Record<AtomName, () => ReactNode> = {
         <Avatar name="Ana Lopez" size="lg" />
       </>,
     ),
+  ModelLogo: () =>
+    row(
+      <>
+        <ModelLogo providerID="anthropic" modelID="claude-sonnet-4" />
+        <ModelLogo providerID="antigravity" modelID="gemini-3" />
+        <ModelLogo providerID="opencode" modelID="gpt-5" />
+        <ModelLogo providerID="openrouter" modelID="deepseek-chat" />
+        <ModelLogo providerID="zeta-lab" modelID="model-baru" name="Zeta Lab" />
+      </>,
+    ),
   Kbd: () =>
     row(
       <>
@@ -315,6 +327,16 @@ export const ATOM_DEMOS: Record<AtomName, () => ReactNode> = {
         <Spinner size="sm" />
         <Spinner />
         <Spinner size="lg" />
+      </>,
+    ),
+  Working: () =>
+    row(
+      <>
+        <Working variant="wave" />
+        <Working variant="ripple" />
+        <Working variant="orbit" />
+        <Working variant="wave" size="sm" />
+        <Working variant="ripple" size="dot" />
       </>,
     ),
   Skeleton: () => (

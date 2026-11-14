@@ -5,7 +5,14 @@ import { cx } from "../cx";
 import { CloseIcon } from "../icons";
 
 export type ToastTone = "neutral" | "success" | "danger" | "warning";
-export type ToastInput = { title: string; description?: string; tone?: ToastTone; timeoutMs?: number };
+export type ToastInput = {
+  title: string;
+  description?: string;
+  tone?: ToastTone;
+  timeoutMs?: number;
+  /** Tombol aksi di toast (mis. "Buka sesi"). */
+  action?: { label: string; onClick: () => void };
+};
 
 function ToastList() {
   const { t } = useI18n();
@@ -15,6 +22,7 @@ function ToastList() {
       <BaseToast.Content className="z-toast__content">
         <BaseToast.Title className="z-label" />
         <BaseToast.Description className="z-small" />
+        <BaseToast.Action className="z-toast__action" />
       </BaseToast.Content>
       <BaseToast.Close className="z-toast__close" aria-label={t("ui.close")}>
         <CloseIcon size="sm" />
@@ -47,6 +55,7 @@ export function useToast() {
         description: input.description,
         type: input.tone ?? "neutral",
         timeout: input.timeoutMs,
+        ...(input.action ? { actionProps: { children: input.action.label, onClick: input.action.onClick } } : {}),
       }),
     close: (id?: string) => manager.close(id),
   };

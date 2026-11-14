@@ -112,6 +112,35 @@ pub fn resolve_dir(allowed: &[PathBuf], root: &str) -> Result<PathBuf, String> {
     dunce(&root_path).ok_or_else(|| "folder project tidak ditemukan".to_string())
 }
 
+/// Seperti `resolve_dir`, tetapi `dir` juga boleh berada DI DALAM root terdaftar (mis. repo git di anak folder project).
+pub fn resolve_dir_within(allowed: &[PathBuf], dir: &str) -> Result<PathBuf, String> {
+    let dir_path = PathBuf::from(dir);
+    let canon = dunce(&dir_path).ok_or("folder tidak ditemukan")?;
+    if !canon.is_dir() {
+        return Err("bukan folder".into());
+    }
+    for a in allowed {
+        if let Some(root) = dunce(a) {
+            let (c, r) = if cfg!(windows) {
+                (
+                    canon.to_string_lossy().to_lowercase(),
+                    root.to_string_lossy().to_lowercase(),
+                )
+            } else {
+                (
+                    canon.to_string_lossy().into_owned(),
+                    root.to_string_lossy().into_owned(),
+                )
+            };
+            let sep = std::path::MAIN_SEPARATOR;
+            if c == r || c.starts_with(&format!("{}{}", r.trim_end_matches(sep), sep)) {
+                return Ok(canon);
+            }
+        }
+    }
+    Err("folder ini bukan bagian dari project yang terdaftar".into())
+}
+
 pub fn read_limited(path: &Path, max: u64) -> Result<Vec<u8>, String> {
     let meta = std::fs::metadata(path).map_err(|e| format!("tidak bisa membaca berkas: {e}"))?;
     if !meta.is_file() {
@@ -195,6 +224,120 @@ pub fn write_text(path: &Path, text: &str, expected_modified: Option<u64>) -> Re
     Ok(stat(path)?.modified)
 }
 
+/// Nama berkas/folder baru yang valid: satu segmen (tanpa pemisah path), bukan `.`/`..`, tanpa karakter terlarang Windows,
+/// tidak berakhir spasi/titik, 1–255 karakter.
+pub fn valid_entry_name(name: &str) -> bool {
+    let n = name.trim();
+    !n.is_empty()
+        && n == name
+        && n.chars().count() <= 255
+        && n != "."
+        && n != ".."
+        && !n.ends_with('.')
+        && !n
+            .chars()
+            .any(|c| c.is_control() || r#"<>:"/\|?*"#.contains(c))
+}
+
+/// Buat berkas kosong atau folder baru bernama `name` di dalam `parent` (folder yang sudah ada). Tidak pernah menimpa:
+/// nama yang sudah dipakai ditolak. Berkas dengan ekstensi yang dapat dieksekusi ditolak. Mengembalikan path barunya.
+pub fn create_entry(parent: &Path, name: &str, dir: bool) -> Result<PathBuf, String> {
+    if !valid_entry_name(name) {
+        return Err("nama tidak valid".into());
+    }
+    if !parent.is_dir() {
+        return Err("folder tujuan tidak ditemukan".into());
+    }
+    let target = parent.join(name);
+    if target.exists() {
+        return Err("sudah ada berkas atau folder dengan nama itu".into());
+    }
+    if dir {
+        std::fs::create_dir(&target).map_err(|e| format!("gagal membuat folder: {e}"))?;
+    } else {
+        if is_executable_ext(&target) {
+            return Err("berkas yang dapat dieksekusi tidak dibuat dari Zandor".into());
+        }
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|e| format!("gagal membuat berkas: {e}"))?;
+    }
+    Ok(target)
+}
+
+/// Nama folder sesi Chat yang valid: 1–64 karakter huruf/angka/`.`/`_`/`-`, tidak diawali titik.
+pub fn valid_chat_folder_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('.')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+}
+
+/// Buat folder sesi Chat `root/name` (root = folder Chat). Mengembalikan path lengkapnya.
+pub fn chat_folder_create(root: &Path, name: &str) -> Result<PathBuf, String> {
+    if !valid_chat_folder_name(name) {
+        return Err(format!("nama folder sesi tidak valid: {name:?}"));
+    }
+    let dir = root.join(name);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("gagal membuat folder sesi: {e}"))?;
+    Ok(dir)
+}
+
+/// Semua folder sesi (anak langsung folder Chat), urut nama.
+pub fn chat_folder_list(root: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = std::fs::read_dir(root)
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect()
+        })
+        .unwrap_or_default();
+    out.sort();
+    out
+}
+
+/// Hapus folder sesi bila KOSONG. Hanya anak langsung folder Chat yang boleh; folder berisi berkas tidak pernah dihapus.
+pub fn chat_folder_remove_if_empty(root: &Path, dir: &Path) -> Result<(), String> {
+    let parent_ok = dir.parent().is_some_and(|p| same_dir(p, root));
+    let name_ok = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(valid_chat_folder_name);
+    if !parent_ok || !name_ok {
+        return Err("bukan folder sesi Chat".into());
+    }
+    std::fs::remove_dir(dir).map_err(|e| format!("folder tidak dihapus: {e}"))
+}
+
+/// Batas ukuran berkas hasil ekspor (teks/gambar/SVG dari satu respons).
+pub const MAX_SAVE_BYTES: usize = 32 * 1024 * 1024;
+
+/// Tulis byte ke lokasi yang dipilih pengguna lewat dialog "Simpan sebagai" (ekspor respons). Berkas yang dapat dieksekusi
+/// ditolak; folder tujuan harus sudah ada.
+pub fn save_bytes(dest: &Path, data: &[u8]) -> Result<(), String> {
+    if data.len() > MAX_SAVE_BYTES {
+        return Err(format!(
+            "berkas terlalu besar ({} MB maksimum)",
+            MAX_SAVE_BYTES / 1024 / 1024
+        ));
+    }
+    if is_executable_ext(dest) {
+        return Err("berkas yang dapat dieksekusi tidak disimpan dari Zandor".into());
+    }
+    match dest.parent() {
+        Some(p) if !p.as_os_str().is_empty() && !p.is_dir() => {
+            return Err("folder tujuan tidak ada".into())
+        }
+        _ => {}
+    }
+    std::fs::write(dest, data).map_err(|e| format!("gagal menyimpan: {e}"))
+}
+
 pub fn is_executable_ext(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -205,6 +348,40 @@ pub fn is_executable_ext(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_dir_within_menerima_anak_folder_dan_menolak_di_luar_root() {
+        let base = std::env::temp_dir().join(format!("zandor-within-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let root = base.join("mono");
+        std::fs::create_dir_all(root.join("api")).unwrap();
+        std::fs::create_dir_all(base.join("mono-lain")).unwrap(); // awalan nama sama, bukan anak
+        let allowed = vec![root.clone()];
+        assert!(resolve_dir_within(&allowed, root.to_str().unwrap()).is_ok());
+        assert!(resolve_dir_within(&allowed, root.join("api").to_str().unwrap()).is_ok());
+        assert!(resolve_dir_within(&allowed, base.join("mono-lain").to_str().unwrap()).is_err());
+        assert!(resolve_dir_within(&allowed, base.to_str().unwrap()).is_err());
+        assert!(resolve_dir_within(&allowed, root.join("tidak-ada").to_str().unwrap()).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn create_entry_membuat_tanpa_menimpa_dan_menolak_nama_buruk() {
+        let base = std::env::temp_dir().join(format!("zandor-create-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let f = create_entry(&base, "baru.md", false).unwrap();
+        assert!(f.is_file());
+        let d = create_entry(&base, "folder", true).unwrap();
+        assert!(d.is_dir());
+        assert!(create_entry(&base, "baru.md", false).is_err()); // tidak menimpa
+        for bad in ["", "..", "a/b", "a\\b", "x:y", "titik.", " spasi", "a*b"] {
+            assert!(create_entry(&base, bad, false).is_err(), "{bad}");
+        }
+        assert!(create_entry(&base, "skrip.exe", false).is_err());
+        assert!(create_entry(&base.join("tidak-ada"), "x.txt", false).is_err());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     fn setup(tag: &str) -> (PathBuf, PathBuf) {
         let base = std::env::temp_dir().join(format!("zandor-files-{tag}-{}", std::process::id()));
@@ -323,6 +500,46 @@ mod tests {
         std::fs::write(&big, "x").unwrap();
         assert!(write_text(&big, &"x".repeat(MAX_WRITE_BYTES + 1), None).is_err());
         assert!(write_text(&root, "x", None).is_err()); // direktori
+    }
+
+    #[test]
+    fn save_bytes_writes_and_refuses_executables_missing_folders_and_huge_data() {
+        let (base, _) = setup("savebytes");
+        let ok = base.join("hasil.png");
+        save_bytes(&ok, &[1, 2, 3]).unwrap();
+        assert_eq!(std::fs::read(&ok).unwrap(), vec![1, 2, 3]);
+        assert!(save_bytes(&base.join("x.exe"), &[1])
+            .unwrap_err()
+            .contains("dieksekusi"));
+        assert!(save_bytes(&base.join("tidak-ada").join("a.txt"), &[1])
+            .unwrap_err()
+            .contains("folder"));
+        let huge = vec![0u8; MAX_SAVE_BYTES + 1];
+        assert!(save_bytes(&base.join("besar.bin"), &huge)
+            .unwrap_err()
+            .contains("terlalu besar"));
+    }
+
+    #[test]
+    fn chat_folders_are_created_listed_and_only_removed_when_empty_and_direct_children() {
+        let (base, _) = setup("chatfolders");
+        let root = base.join("chats");
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(valid_chat_folder_name("chat-20261114-090507-abcd12"));
+        for bad in ["", ".x", "a/b", "a\\b", "..", "spasi nama", &"x".repeat(65)] {
+            assert!(!valid_chat_folder_name(bad), "{bad:?}");
+        }
+        assert!(chat_folder_create(&root, "../kabur").is_err());
+        let a = chat_folder_create(&root, "chat-a").unwrap();
+        let b = chat_folder_create(&root, "chat-b").unwrap();
+        assert_eq!(chat_folder_list(&root), vec![a.clone(), b.clone()]);
+        std::fs::write(b.join("hasil.md"), "isi").unwrap();
+        assert!(chat_folder_remove_if_empty(&root, &b).is_err()); // berisi berkas → tidak dihapus
+        assert!(b.join("hasil.md").exists());
+        chat_folder_remove_if_empty(&root, &a).unwrap(); // kosong → dihapus
+        assert!(!a.exists());
+        assert!(chat_folder_remove_if_empty(&root, &base).is_err()); // bukan anak langsung folder Chat
+        assert!(chat_folder_remove_if_empty(&root, &root).is_err());
     }
 
     #[test]

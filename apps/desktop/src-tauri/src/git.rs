@@ -230,6 +230,71 @@ fn parse_branch_header(head: &str, st: &mut GitStatus) {
     }
 }
 
+/// Folder yang tidak dimasuki saat mencari repo git di dalam project (besar dan tidak berisi repo milik project).
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    "build",
+    ".next",
+    ".nuxt",
+    ".venv",
+    "venv",
+    "vendor",
+    "__pycache__",
+    ".cache",
+    ".idea",
+    ".vscode",
+];
+const REPO_SEARCH_DEPTH: usize = 3;
+const REPO_SEARCH_MAX_DIRS: usize = 4000;
+const MAX_REPOS: usize = 50;
+
+/// Cari repo git di anak folder `root` (monorepo: akar bukan repo, tetapi anak folder diinisiasi git). Menelusuri maksimal
+/// 3 tingkat dan 4000 folder, melewati folder besar, dan berhenti masuk ke dalam repo yang ditemukan. Hasil: path absolut.
+pub fn find_repos(root: &Path) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    let mut queue: std::collections::VecDeque<(std::path::PathBuf, usize)> =
+        std::collections::VecDeque::new();
+    queue.push_back((root.to_path_buf(), 0));
+    let mut seen = 0usize;
+    while let Some((dir, depth)) = queue.pop_front() {
+        if depth > 0 && dir.join(".git").exists() {
+            found.push(dir.to_string_lossy().into_owned());
+            if found.len() >= MAX_REPOS {
+                break;
+            }
+            continue; // tidak masuk ke dalam repo
+        }
+        if depth >= REPO_SEARCH_DEPTH {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in rd.flatten() {
+            seen += 1;
+            if seen > REPO_SEARCH_MAX_DIRS {
+                found.sort();
+                return found;
+            }
+            let Ok(ft) = entry.file_type() else { continue };
+            if !ft.is_dir() || ft.is_symlink() {
+                continue;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if SKIP_DIRS.contains(&name.as_ref()) {
+                continue;
+            }
+            queue.push_back((entry.path(), depth + 1));
+        }
+    }
+    found.sort();
+    found
+}
+
 pub fn status(dir: &Path) -> Result<GitStatus, String> {
     let o = run(
         dir,
@@ -383,6 +448,38 @@ pub fn log(dir: &Path, n: usize) -> Result<Vec<CommitInfo>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn find_repos_menemukan_repo_anak_dan_melewati_folder_besar() {
+        let base = std::env::temp_dir().join(format!("zandor-repos-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        for d in [
+            "api/.git",
+            "web/.git",
+            "apps/mobile/.git",
+            "node_modules/x/.git",
+            "docs/plain",
+            "api/nested/.git",
+        ] {
+            std::fs::create_dir_all(base.join(d)).unwrap();
+        }
+        let repos = super::find_repos(&base);
+        let rel: Vec<String> = repos
+            .iter()
+            .map(|p| {
+                std::path::Path::new(p)
+                    .strip_prefix(&base)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        assert_eq!(rel, vec!["api", "apps/mobile", "web"]); // node_modules dilewati; tidak masuk ke dalam repo api
+                                                            // akar yang sendiri repo tidak dihitung (hanya anak folder)
+        std::fs::create_dir_all(base.join(".git")).unwrap();
+        assert_eq!(super::find_repos(&base).len(), 3);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     use super::*;
 
     fn repo(tag: &str) -> PathBuf {

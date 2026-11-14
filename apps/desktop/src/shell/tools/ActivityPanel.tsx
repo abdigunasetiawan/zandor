@@ -4,6 +4,7 @@ import { useI18n } from "@zandor/i18n/react";
 import { Button, Select } from "@zandor/ui";
 import { useEffect, useRef, useState } from "react";
 import { useActivity, useServices } from "../services";
+import { ToolNotice } from "./ToolNotice";
 
 const SOURCES: Array<ActivitySource | "all"> = ["all", "app", "engine", "chat", "tool", "git", "terminal"];
 
@@ -39,7 +40,7 @@ export function ActivityPanel() {
           {t("act.clear")}
         </Button>
       </div>
-      {shown.length === 0 && <p className="sidebar__note z-small">{t("act.empty")}</p>}
+      {shown.length === 0 && <ToolNotice inline>{t("act.empty")}</ToolNotice>}
       <ul className="actp__list" ref={scroller} aria-label={t("tools.log")} data-testid="activity">
         {shown.map((e) => (
           <li key={e.id} className="actp__row" data-level={e.level}>

@@ -156,11 +156,12 @@ test("section project: logo dan warna tampil di sidebar", async ({ page }) => {
   await expect(page.getByText(/karakter terlarang|maksimal/).first()).toBeVisible();
   await page.getByRole("button", { name: "Kembali ke chat" }).click();
   await expect(page.locator(".tree__logo")).toHaveText("🚀");
-  const border = await page
-    .locator(".tree__group[data-styled]")
+  // border project = cincin di dalam baris project (tanpa kartu pembungkus)
+  const ring = await page
+    .locator(".tree__row:has(.tree__logo)")
     .first()
-    .evaluate((e) => getComputedStyle(e).borderLeftColor);
-  expect(border).toBe("rgb(255, 0, 0)");
+    .evaluate((e) => getComputedStyle(e).boxShadow);
+  expect(ring).toContain("rgb(255, 0, 0)");
 });
 
 test("pintasan: combo baru benar-benar menjalankan perintah, yang lama tidak lagi; bertahan setelah muat ulang", async ({

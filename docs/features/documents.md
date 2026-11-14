@@ -39,3 +39,7 @@ notebook: output HTML/JS tidak ditampilkan; edit hanya UTF-8; fidelitas visual t
   `scripts/make-office-fixtures.py` (python-docx/openpyxl/python-pptx).
 - Manual: buka project berisi PDF/Markdown/CSV sungguhan; coba file besar (> 5 MB teks → ada catatan terpotong); coba
   `Ctrl+F` di tampilan teks; klik "Buka di aplikasi lain" pada `.docx`.
+
+## Tab, "Buka dengan", HTML sumber luar (ADR-048)
+
+Tab dokumen berikon jenis berkas, tanpa scrollbar, dengan menu klik kanan (tutup / lainnya / kanan / kiri / semua; perubahan belum tersimpan dikonfirmasi sekali). Tombol **Buka di aplikasi lain** membuka popover: aplikasi terdaftar untuk ekstensi (ikon asli, lencana Bawaan), Aplikasi bawaan sistem, Tampilkan di File Explorer; berkas teks juga menawarkan VS Code/Notepad bila terpasang. Pratinjau HTML default memblokir skrip dan sumber luar; saklar **Izinkan skrip dan sumber luar** (hanya desktop) memuatnya lewat skema `zpreview://` di iframe sandbox tanpa same-origin. Tes: `e2e/doc-tabs.spec.ts`, `docs/OpenWithMenu.test.tsx`, `openwith::tests`. Belum diuji di Tauri sungguhan: daftar aplikasi, peluncuran, `zpreview`.

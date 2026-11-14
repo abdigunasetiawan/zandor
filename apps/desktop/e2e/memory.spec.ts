@@ -14,7 +14,8 @@ async function setup(page: Page) {
 
 test("halaman Memori & Skill: dibuka dari sidebar, label pratinjau jujur, kembali ke chat", async ({ page }) => {
   await setup(page);
-  await page.getByRole("button", { name: "Memori & skill", exact: true }).click();
+  await page.getByRole("button", { name: "Menu pengguna" }).click();
+  await page.getByRole("menuitem", { name: "Memori & skill" }).click();
   await expect(page.getByRole("heading", { name: "Memori & Skill" })).toBeVisible();
   await expect(page.getByText(/TIDAK dibaca engine/)).toBeVisible();
   await expect(page.getByRole("switch", { name: "Aktifkan memori secara bawaan" })).toHaveAttribute(
@@ -37,15 +38,16 @@ test("palet perintah membuka halaman Memori & Skill", async ({ page }) => {
 test("opt-in per project dan per sesi; memori global menolak secret", async ({ page }) => {
   await setup(page);
   await page.getByRole("button", { name: "Sesi baru di alpha" }).click();
-  await expect(page.getByRole("log")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
 
   // Info sesi: bawaan mati → ikuti project/bawaan, status "nonaktif"
-  await page.getByRole("region", { name: "Tools", exact: true }).getByRole("tab", { name: "Info sesi" }).click();
+  await page.getByRole("navigation", { name: "Rel alat" }).getByRole("button", { name: "Info sesi" }).click();
   const info = page.getByTestId("info-memory");
   await expect(info).toContainText("Sekarang: nonaktif");
 
   // Aktifkan bawaan di halaman Memori → panel Info ikut berubah
-  await page.getByRole("button", { name: "Memori & skill", exact: true }).click();
+  await page.getByRole("button", { name: "Menu pengguna" }).click();
+  await page.getByRole("menuitem", { name: "Memori & skill" }).click();
   await page.getByRole("switch", { name: "Aktifkan memori secara bawaan" }).click();
   await expect(page.getByRole("switch", { name: "Aktifkan memori secara bawaan" })).toHaveAttribute(
     "aria-checked",

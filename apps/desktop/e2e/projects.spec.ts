@@ -18,7 +18,7 @@ test("tambah project, buat sesi, rename, cari, hapus; data bertahan setelah muat
 
   await page.getByRole("button", { name: "Sesi baru di alpha" }).click();
   await expect(page.locator(".tree__label", { hasText: "Sesi tanpa judul" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Chat", exact: true })).toContainText("Project: alpha");
+  await expect(page.getByRole("region", { name: "Chat", exact: true })).toContainText("Sesi tanpa judul");
 
   // rename lewat menu ⋯ (tombol menu bernama sama dengan judul sesi; yang terakhir adalah tombol menu)
   await page.getByRole("button", { name: "Menu untuk Sesi tanpa judul" }).click({ force: true });
@@ -28,6 +28,7 @@ test("tambah project, buat sesi, rename, cari, hapus; data bertahan setelah muat
   await expect(page.locator(".tree__label", { hasText: "Perbaiki login" }).first()).toBeVisible();
 
   // pencarian
+  await page.getByRole("button", { name: "Cari chat" }).click();
   const search = page.getByRole("searchbox", { name: "Cari sesi" });
   await search.fill("zzz");
   await expect(page.locator(".tree__label", { hasText: "Perbaiki login" })).toHaveCount(0);
@@ -67,17 +68,18 @@ test("sesi tanpa project dibuat di grup Chat", async ({ page }) => {
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
   await page.getByRole("button", { name: "Sesi baru di Chat (tanpa project)" }).click();
   await expect(page.locator(".tree__label", { hasText: "Sesi tanpa judul" })).toBeVisible();
-  expect(sessions[0]?.directory).toBe("C:\\data\\chats");
+  // sesi tanpa project punya folder kerja SENDIRI di dalam folder Chat (bukan folder Chat bersama)
+  expect(sessions[0]?.directory).toContain("C:\\data\\chats\\chat-");
 });
 
 test("tab Files menampilkan pohon file project aktif, dimuat malas", async ({ page }) => {
   await mockEngine(page);
   await page.goto("/");
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.getByRole("tab", { name: "Berkas" }).click();
   await expect(page.getByText("Pilih project untuk melihat file.")).toBeVisible();
-  await page.getByRole("tab", { name: "Sesi", exact: true }).click();
+  await page.getByRole("tab", { name: "Chat", exact: true }).click();
   await addProject(page, "C:\\Work\\gamma");
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.getByRole("tab", { name: "Berkas" }).click();
   await expect(page.getByText("README.md")).toBeVisible();
   await expect(page.getByText("main.ts")).toHaveCount(0);
   await page.getByRole("button", { name: "src", exact: true }).click();

@@ -1,9 +1,12 @@
 // Panel 4 — Info sesi: model, penggunaan token/konteks, biaya (bila dilaporkan engine), tool call, waktu.
-import { memoryEnabled, projectKey, sessionTitle, sessionUsage } from "@zandor/core";
+import { memoryEnabled, projectKey, sessionUsage } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { Select } from "@zandor/ui";
+import { InfoIcon, Select } from "@zandor/ui";
 import { useEffect, useState } from "react";
-import { useChat, useMemory, useProjects, useServices } from "../services";
+import { useChat, useMemory, useServices } from "../services";
+import { touchedFiles } from "../session-timeline";
+import { ToolNotice } from "./ToolNotice";
+import { useSelectedSession } from "./use-selected-session";
 
 const nf = new Intl.NumberFormat();
 
@@ -63,12 +66,10 @@ function SessionMemory({ sessionId, projectPath }: { sessionId: string; projectP
 
 export function InfoPanel() {
   const { t } = useI18n();
-  const { projects } = useServices();
-  const state = useProjects();
   const chat = useChat();
-  const sel = state.selection.sessionId ? projects.selected() : null;
-  const session = sel ? chat.sessions[sel.session.id] : undefined;
-  if (!sel || !session) return <p className="sidebar__note z-small">{t("info.empty")}</p>;
+  const sel = useSelectedSession();
+  if (!sel) return <ToolNotice icon={<InfoIcon size="lg" />}>{t("info.empty")}</ToolNotice>;
+  const session = sel.session;
 
   const model = chat.models.find((m) => m.providerID === chat.model?.providerID && m.modelID === chat.model?.modelID);
   const last = [...session.messages].reverse().find((m) => m.info.role === "assistant" && m.info.modelID);
@@ -78,12 +79,26 @@ export function InfoPanel() {
 
   return (
     <div className="infop">
-      <h3 className="z-label">{sessionTitle(sel.session) ?? t("sb.untitled")}</h3>
+      <h3 className="z-label">{sel.demo ? t("sess.demoTitle") : (sel.title ?? t("sb.untitled"))}</h3>
+      {sel.demo && <p className="z-small infop__note">{t("file.demoNote")}</p>}
       <dl className="infop__grid">
-        <Row label={t("info.project")}>{sel.project?.name ?? t("chat.noProject")}</Row>
-        <Row label={t("info.dir")}>
-          <code className="infop__path">{sel.session.directory}</code>
+        <Row label={t("info.status")} testId="info-status">
+          {t(
+            session.sending || session.status.type === "busy"
+              ? "info.status.busy"
+              : session.status.type === "retry"
+                ? "info.status.retry"
+                : "info.status.idle",
+          )}
+          {session.permissions.length + session.questions.length > 0 &&
+            ` · ${t("info.waiting", { n: session.permissions.length + session.questions.length })}`}
         </Row>
+        {!sel.demo && <Row label={t("info.project")}>{sel.projectName ?? t("chat.noProject")}</Row>}
+        {!sel.demo && (
+          <Row label={t("info.dir")}>
+            <code className="infop__path">{sel.directory}</code>
+          </Row>
+        )}
         <Row label={t("info.model")} testId="info-model">
           {u.model.modelID ? `${u.model.modelID} (${u.model.providerID})` : (usedModel?.name ?? "—")}
         </Row>
@@ -124,12 +139,24 @@ export function InfoPanel() {
           </Row>
         )}
         <Row label={t("info.work")}>{duration(u.workMs)}</Row>
+        <Row label={t("info.files")} testId="info-files">
+          {touchedFiles(session.messages).length}
+        </Row>
+        {session.todos.length > 0 && (
+          <Row label={t("info.plan")}>
+            {t("todo.title", {
+              done: session.todos.filter((x) => x.status === "completed").length,
+              total: session.todos.length,
+            })}
+          </Row>
+        )}
+        <Row label={t("info.permissionMode")}>{t(`chat.mode.${chat.permissionMode}` as never)}</Row>
         {u.firstAt !== null && <Row label={t("info.first")}>{new Date(u.firstAt).toLocaleString()}</Row>}
         <Row label={t("info.session")}>
-          <code>{sel.session.id}</code>
+          <code>{sel.id}</code>
         </Row>
       </dl>
-      <SessionMemory sessionId={sel.session.id} projectPath={sel.project?.path ?? null} />
+      {!sel.demo && <SessionMemory sessionId={sel.id} projectPath={sel.projectPath} />}
     </div>
   );
 }

@@ -18,6 +18,40 @@ export function Spinner({
   );
 }
 
+export type WorkingVariant = "wave" | "ripple" | "orbit";
+const WORKING_PARTS: Record<WorkingVariant, number> = { wave: 5, ripple: 3, orbit: 3 };
+
+/**
+ * Indikator "sedang bekerja" (pengganti spinner biasa): `wave` = gelombang batang, `ripple` = titik berdenyut dengan riak,
+ * `orbit` = tiga titik mengorbit. Murni CSS, mengikuti warna teks (`currentColor`), dan diam saat gerak dikurangi.
+ */
+export function Working({
+  variant = "wave",
+  size = "md",
+  label,
+  className,
+  ...rest
+}: Omit<HTMLAttributes<HTMLSpanElement>, "children"> & {
+  variant?: WorkingVariant;
+  size?: "dot" | "sm" | "md";
+  label?: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <span
+      role="status"
+      aria-label={label ?? t("ui.working")}
+      className={cx("z-working", `z-working--${variant}`, `z-working--${size}`, className)}
+      {...rest}
+    >
+      {Array.from({ length: WORKING_PARTS[variant] }, (_, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: bagian dekoratif statis
+        <i key={i} style={{ "--i": i } as React.CSSProperties} />
+      ))}
+    </span>
+  );
+}
+
 /** Placeholder bentuk konten saat memuat. Dekoratif: tidak dibaca pembaca layar. */
 export function Skeleton({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return <div aria-hidden="true" className={cx("z-skeleton", className)} {...rest} />;

@@ -5,12 +5,13 @@ import {
   Button,
   CloseIcon,
   CodeIcon,
+  ContextMenu,
   CopyIcon,
   DownloadIcon,
   EditIcon,
-  ExternalLinkIcon,
   EyeIcon,
   IconButton,
+  type MenuEntry,
   RefreshIcon,
   SaveIcon,
   SearchIcon,
@@ -20,7 +21,9 @@ import {
   WrapIcon,
 } from "@zandor/ui";
 import { lazy, type ReactNode, Suspense, useCallback, useState } from "react";
+import { FileTypeIcon } from "../FileTypeIcon";
 import { useDocs, useServices } from "../services";
+import { OpenWithMenu } from "./OpenWithMenu";
 import { BinaryViewer, HtmlViewer, ImageViewer, JsonViewer, MediaViewer, TableViewer } from "./simple-viewers";
 import type { ViewerHandle, ViewerProps } from "./types";
 
@@ -162,6 +165,37 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
     if (r === "saved") ok(t("doc.savedEdit"));
     else if (typeof r === "object") fail(r.error);
   };
+  /** Tutup beberapa tab sekaligus; yang belum disimpan dikonfirmasi satu kali. */
+  const closeMany = async (mode: "one" | "others" | "right" | "left" | "all", anchorId: string) => {
+    const tabs = docs.state().tabs;
+    const at = tabs.findIndex((x) => x.id === anchorId);
+    const targets = tabs.filter((x, i) =>
+      mode === "one"
+        ? x.id === anchorId
+        : mode === "others"
+          ? x.id !== anchorId
+          : mode === "right"
+            ? i > at
+            : mode === "left"
+              ? i < at
+              : true,
+    );
+    const dirty = targets.filter((x) => x.dirty);
+    if (dirty.length === 1 && dirty[0]) {
+      if (!(await confirmDiscard(dirty[0].name))) return;
+    } else if (dirty.length > 1) {
+      const proceed = await confirm({
+        title: t("doc.tabsCloseConfirmTitle", { n: dirty.length }),
+        description: t("doc.tabsCloseConfirmBody"),
+        confirmLabel: t("doc.discard"),
+        tone: "danger",
+      });
+      if (!proceed) return;
+    }
+    for (const x of targets) docs.close(x.id);
+    // tab yang diklik kanan tetap menjadi tab aktif bila masih ada
+    if (mode !== "one" && mode !== "all" && docs.state().tabs.some((x) => x.id === anchorId)) docs.activate(anchorId);
+  };
   const startEdit = () => {
     const why = docs.beginEdit(tab.id);
     if (why) toast.show({ title: t(`doc.noEdit.${why}` as never), tone: "danger" });
@@ -170,33 +204,63 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   return (
     <div className="docs">
       <nav className="stabs" aria-label={t("doc.tabs")}>
-        {state.tabs.map((x) => {
+        {state.tabs.map((x, index) => {
           const active = x.id === state.activeId;
+          const last = state.tabs.length - 1;
+          const entries: MenuEntry[] = [
+            { type: "item", id: "close", label: t("tabs.close"), onSelect: () => void closeMany("one", x.id) },
+            {
+              type: "item",
+              id: "others",
+              label: t("tabs.closeOthers"),
+              disabled: state.tabs.length < 2,
+              onSelect: () => void closeMany("others", x.id),
+            },
+            {
+              type: "item",
+              id: "right",
+              label: t("tabs.closeRight"),
+              disabled: index === last,
+              onSelect: () => void closeMany("right", x.id),
+            },
+            {
+              type: "item",
+              id: "left",
+              label: t("tabs.closeLeft"),
+              disabled: index === 0,
+              onSelect: () => void closeMany("left", x.id),
+            },
+            { type: "separator", id: "sep" },
+            { type: "item", id: "all", label: t("tabs.closeAll"), onSelect: () => void closeMany("all", x.id) },
+          ];
           return (
-            <div key={x.id} className="stabs__tab" data-active={active ? "" : undefined}>
-              <button
-                type="button"
-                className="stabs__label"
-                aria-current={active ? "true" : undefined}
-                title={x.path}
-                onClick={() => docs.activate(x.id)}
-              >
-                {x.dirty && (
-                  <span role="img" aria-label={t("doc.unsaved")} title={t("doc.unsaved")}>
-                    ●{" "}
-                  </span>
-                )}
-                {x.name}
-              </button>
-              <button
-                type="button"
-                className="stabs__close"
-                aria-label={t("doc.closeTab", { name: x.name })}
-                onClick={() => void guarded(x.id, x.name, () => docs.close(x.id))}
-              >
-                <CloseIcon size="sm" />
-              </button>
-            </div>
+            <ContextMenu key={x.id} entries={entries} className="stabs__ctx">
+              <div className="stabs__tab" data-active={active ? "" : undefined}>
+                <button
+                  type="button"
+                  className="stabs__label"
+                  aria-current={active ? "true" : undefined}
+                  title={x.path}
+                  onClick={() => docs.activate(x.id)}
+                >
+                  <FileTypeIcon name={x.name} type="file" />
+                  {x.dirty && (
+                    <span role="img" aria-label={t("doc.unsaved")} title={t("doc.unsaved")}>
+                      ●
+                    </span>
+                  )}
+                  <span className="stabs__text">{x.name}</span>
+                </button>
+                <button
+                  type="button"
+                  className="stabs__close"
+                  aria-label={t("doc.closeTab", { name: x.name })}
+                  onClick={() => void guarded(x.id, x.name, () => docs.close(x.id))}
+                >
+                  <CloseIcon size="sm" />
+                </button>
+              </div>
+            </ContextMenu>
           );
         })}
       </nav>
@@ -254,13 +318,7 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
           disabled={!bytes}
           onClick={() => void saveCopy()}
         />
-        <IconButton
-          label={t("doc.openExternal")}
-          size="sm"
-          icon={<ExternalLinkIcon />}
-          disabled={!docHost.native}
-          onClick={() => void openExternal()}
-        />
+        <OpenWithMenu host={docHost} root={tab.root} path={tab.path} textLike={isTextKind(tab.kind)} />
         {textual && !tab.editing && (
           <IconButton
             label={block ? t(`doc.noEdit.${block}` as never) : t("doc.edit")}

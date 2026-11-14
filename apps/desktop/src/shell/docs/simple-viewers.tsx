@@ -3,8 +3,11 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { decodeText, mimeFor } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
+import { Button, Switch, useToast } from "@zandor/ui";
 import Papa from "papaparse";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useServices } from "../services";
+import { requestBrowserOpen } from "../tools/browser-bridge";
 import type { ViewerProps } from "./types";
 
 /** Blob URL yang dilepas otomatis saat berkas/komponen berganti. */
@@ -71,12 +74,71 @@ export function MediaViewer({ tab, bytes }: ViewerProps) {
 
 export function HtmlViewer({ bytes }: ViewerProps) {
   const { t } = useI18n();
-  const decoded = decodeText(bytes);
+  const { docHost, panels } = useServices();
+  const toast = useToast();
+  const decoded = useMemo(() => decodeText(bytes), [bytes]);
+  const [external, setExternal] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const canExternal = typeof docHost.previewUrl === "function";
+  // Opt-in: skrip dan sumber https dimuat dari skema `zpreview` (CSP-nya sendiri) di iframe ber-sandbox tanpa same-origin.
+  useEffect(() => {
+    if (!external || !docHost.previewUrl) {
+      setUrl(null);
+      return;
+    }
+    let alive = true;
+    docHost.previewUrl(decoded.text).then(
+      (u) => alive && setUrl(u),
+      (e) => {
+        if (!alive) return;
+        setExternal(false);
+        toast.show({ title: t("sb.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" });
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [external, decoded.text, docHost, toast, t]);
+  /** Buka HTML ini di Browser Panel 4 (skrip dan sumber https berfungsi di sana). */
+  const openInBrowser = async () => {
+    try {
+      if (!docHost.previewUrl) return;
+      const target = await docHost.previewUrl(decoded.text);
+      panels.actions?.openTool("browser");
+      requestBrowserOpen(target);
+    } catch (e) {
+      toast.show({ title: t("sb.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" });
+    }
+  };
   return (
     <div className="docview docview--html">
-      <p className="docview__note z-small">{t("doc.htmlSandbox")}</p>
-      {/* sandbox kosong: tanpa skrip, tanpa form, tanpa akses origin; srcdoc mewarisi CSP aplikasi */}
-      <iframe className="docview__frame" title="HTML" sandbox="" srcDoc={decoded.text} data-testid="html-frame" />
+      <div className="docview__bar">
+        <Button size="sm" disabled={!canExternal} onClick={() => void openInBrowser()}>
+          {t("doc.openInBrowser")}
+        </Button>
+        <Switch
+          label={t("doc.htmlExternal")}
+          checked={external}
+          disabled={!canExternal}
+          onCheckedChange={setExternal}
+        />
+        <p className="docview__note z-small">
+          {!canExternal ? t("doc.htmlExternalDesktop") : external ? t("doc.htmlExternalHint") : t("doc.htmlSandbox")}
+        </p>
+      </div>
+      {external && url ? (
+        <iframe
+          className="docview__frame"
+          title="HTML"
+          sandbox="allow-scripts allow-popups"
+          src={url}
+          data-testid="html-frame"
+          data-external=""
+        />
+      ) : (
+        /* sandbox kosong: tanpa skrip, tanpa form, tanpa akses origin; srcdoc mewarisi CSP aplikasi */
+        <iframe className="docview__frame" title="HTML" sandbox="" srcDoc={decoded.text} data-testid="html-frame" />
+      )}
     </div>
   );
 }

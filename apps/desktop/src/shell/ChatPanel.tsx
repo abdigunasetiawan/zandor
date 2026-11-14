@@ -3,52 +3,81 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  CHAT_KEY,
   type ChatMessage,
   type FileAttachment,
+  initialChatState,
   type MessagePart,
+  mergeAssistantTurns,
   messageText,
   type PermissionMode,
   type PermissionRequest,
+  type QuestionRequest,
   type SessionChat,
   type Suggestion,
   sessionTitle,
   suggestPrompts,
+  type Todo,
   type ToolPart,
   visibleMessages,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
+  ArrowUpIcon,
   Badge,
   Button,
-  ChatIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CloseIcon,
-  CopyIcon,
-  GitIcon,
+  ContextMenu,
   GlobeIcon,
   IconButton,
+  Menu,
+  type MenuEntry,
+  MicIcon,
+  ModelLogo,
   PaperclipIcon,
-  RefreshIcon,
+  PinIcon,
+  PlusIcon,
   Select,
+  ShieldIcon,
   Spinner,
-  UndoIcon,
+  StopIcon,
   useToast,
 } from "@zandor/ui";
-import {
-  type FormEvent,
-  type KeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AssistantMessage } from "./AssistantMessage";
 import { ComposerInfo } from "./ComposerInfo";
+import { DemoChat } from "./DemoChat";
+import { useDemo } from "./demo-context";
+import { DEMO_KEY, demoById } from "./demo-sessions";
 import { Markdown } from "./Markdown";
+import { MessageToolbar } from "./MessageToolbar";
 import { ModelPicker } from "./ModelPicker";
+import {
+  clearMessageFocus,
+  messageDomId,
+  onMessageFocus,
+  peekMessageFocus,
+  requestMessageFocus,
+} from "./message-focus";
+import { toolSummary } from "./process-label";
 import { QuestionCard, TodoList } from "./QuestionCard";
-import { useChat, useDocs, useEngineState, useGit, useOpenDoc, useProjects, useServices } from "./services";
+import { QueueDock } from "./QueueDock";
+import { TabStatus } from "./SessionDot";
+import {
+  useChat,
+  useDocs,
+  useEngineState,
+  useGit,
+  useOpenDoc,
+  useProjects,
+  useServices,
+  useSettings,
+} from "./services";
+import { SessionFlagsContext } from "./session-context";
+import { dayPart, useOsUser } from "./use-os-user";
+import { loadVoiceDevice, saveVoiceDevice, speechLang, useAudioInputs, useDictation } from "./voice";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -58,7 +87,7 @@ function useErrorToast() {
   return (e: unknown) => toast.show({ title: t("sb.error", { error: errText(e) }), tone: "danger" });
 }
 
-export function ChatPanel({ empty }: { empty: ReactNode }) {
+export function ChatPanel() {
   const { t } = useI18n();
   const { projects, chat } = useServices();
   const state = useProjects();
@@ -67,33 +96,151 @@ export function ChatPanel({ empty }: { empty: ReactNode }) {
   const sessionId = sel?.session.id ?? null;
   const directory = sel?.session.directory ?? null;
 
-  // Buka sesi terpilih (memuat riwayat + berlangganan SSE); lepas saat berganti.
+  // Buka sesi terpilih DAN semua sesi di tab terbuka (memuat riwayat + berlangganan SSE), supaya sesi di latar belakang tetap
+  // dipantau (indikator status, notifikasi selesai/gagal/butuh aksi). Dilepas saat tabnya ditutup.
+  const opened = useRef(new Map<string, string>());
+  const wanted = new Map<string, string>();
+  if (sessionId && directory) wanted.set(sessionId, directory);
+  for (const tab of state.tabs) {
+    if (tab.key === DEMO_KEY) continue;
+    const dir = state.sessions[tab.key]?.items.find((x) => x.id === tab.sessionId)?.directory;
+    if (dir) wanted.set(tab.sessionId, dir);
+  }
+  const wantedKey = [...wanted].map(([id, dir]) => `${id}@${dir}`).join("|");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `wantedKey` merangkum daftar sesi yang dibutuhkan
   useEffect(() => {
-    if (!sessionId || !directory || !state.engineReady) return;
-    chat.open(directory, sessionId);
-    return () => chat.close(sessionId);
-  }, [chat, sessionId, directory, state.engineReady]);
+    if (!state.engineReady) {
+      for (const id of opened.current.keys()) chat.close(id);
+      opened.current.clear();
+      return;
+    }
+    for (const [id, dir] of wanted) {
+      if (opened.current.has(id)) continue;
+      chat.open(dir, id);
+      opened.current.set(id, dir);
+    }
+    for (const id of [...opened.current.keys()]) {
+      if (wanted.has(id)) continue;
+      chat.close(id);
+      opened.current.delete(id);
+    }
+  }, [chat, state.engineReady, wantedKey]);
+  // (sengaja tanpa pelepasan saat panel dilepas: sesi tetap dipantau saat Anda membuka halaman lain, mis. Pengaturan)
 
-  if (!sel) return <>{empty}</>;
+  // sesi demo bawaan (statis, hanya-baca): tidak berasal dari engine
+  const demoId = state.selection.key === DEMO_KEY ? state.selection.sessionId : null;
+  if (demoId && demoById(demoId)) {
+    return (
+      <div className="chat" data-demo="">
+        <SessionTabs />
+        <h2 className="z-visually-hidden">{t(demoById(demoId)?.titleKey ?? "demo.trajectory.title")}</h2>
+        <DemoChat key={demoId} id={demoId} />
+      </div>
+    );
+  }
+  // tanpa sesi terpilih/terbuka: halaman bawaan Panel 2 = seperti sesi baru (sapaan + composer); sesi dibuat saat pesan pertama dikirim
+  if (!sel) return <DraftChat />;
   const session = chatState.sessions[sel.session.id];
   const title = sessionTitle(sel.session) ?? t("sb.untitled");
 
+  const welcome = !!session && session.loaded && session.messages.length === 0 && !session.error;
+
   return (
-    <div className="chat">
+    <SessionFlagsContext.Provider value={{ hasProject: sel.project !== null }}>
+      <div className="chat" data-welcome={welcome ? "" : undefined}>
+        <SessionTabs />
+        <h2 className="z-visually-hidden">{title}</h2>
+        {welcome ? (
+          <div className="chat__welcome">
+            <Greeting />
+            <Composer session={session} />
+          </div>
+        ) : (
+          <>
+            {session ? <Transcript session={session} /> : <p className="sidebar__note z-small">{t("chat.loading")}</p>}
+            {session && (
+              <PromptDock
+                sessionId={session.sessionID}
+                permissions={session.permissions}
+                questions={session.questions}
+                todos={session.todos}
+              />
+            )}
+            {session && <Composer session={session} />}
+          </>
+        )}
+      </div>
+    </SessionFlagsContext.Provider>
+  );
+}
+
+/**
+ * Dok di atas composer (seperti rencana agent): izin yang diminta, pertanyaan agent, dan rencana tugas. Berada di luar isi
+ * respons agar tidak tenggelam di riwayat dan selalu terlihat sampai dijawab.
+ */
+export function PromptDock({
+  sessionId,
+  permissions,
+  questions,
+  todos,
+}: {
+  sessionId: string;
+  permissions: PermissionRequest[];
+  questions: QuestionRequest[];
+  todos: Todo[];
+}) {
+  const { t } = useI18n();
+  const pending = permissions.length + questions.length;
+  const queued = (useChat().queues[sessionId] ?? []).length;
+  if (pending === 0 && todos.length === 0 && queued === 0) return null;
+  return (
+    <section className="dock" aria-label={t("dock.label")} data-pending={pending > 0 ? "" : undefined}>
+      {questions.map((q) => (
+        <QuestionCard key={q.id} request={q} sessionId={sessionId} />
+      ))}
+      {permissions.map((p) => (
+        <PermissionCard key={p.id} request={p} sessionId={sessionId} />
+      ))}
+      <TodoList todos={todos} />
+      <QueueDock sessionId={sessionId} />
+    </section>
+  );
+}
+
+/** Halaman bawaan Panel 2 saat tidak ada sesi terbuka: tampilan sesi baru; sesi sungguhan dibuat saat pesan pertama dikirim. */
+function DraftChat() {
+  const stub = useMemo<SessionChat>(
+    () => ({
+      ...initialChatState("draft"),
+      loaded: true,
+      directory: "",
+      sending: false,
+      loading: false,
+      reconnecting: false,
+    }),
+    [],
+  );
+  return (
+    <div className="chat" data-welcome="" data-draft="">
       <SessionTabs />
-      <header className="chat__head">
-        <ChatIcon size="sm" />
-        <div className="chat__titles">
-          <h2 className="z-h4 chat__title">{title}</h2>
-          <p className="z-small chat__sub">
-            {sel.project ? t("chat.inProject", { name: sel.project.name }) : t("chat.noProject")}
-          </p>
-        </div>
-        <ModelPicker />
-      </header>
-      {session ? <Transcript session={session} /> : <p className="sidebar__note z-small">{t("chat.loading")}</p>}
-      {session && <TodoList todos={session.todos} />}
-      {session && <Composer session={session} />}
+      <div className="chat__welcome">
+        <Greeting />
+        <Composer session={stub} draft />
+      </div>
+    </div>
+  );
+}
+
+/** Sapaan di sesi baru: bagian hari + nama pengguna OS (tanpa nama bila tidak diketahui). */
+function Greeting() {
+  const { t } = useI18n();
+  const user = useOsUser();
+  const part = dayPart(new Date().getHours());
+  const name = user ? `, ${user}` : "";
+  return (
+    <div className="chat__greeting">
+      <h3 className="z-h2">{t(`chat.greet.${part}` as never, { name })}</h3>
+      <p className="z-p chat__sub">{t("chat.greet.sub")}</p>
     </div>
   );
 }
@@ -103,35 +250,91 @@ function SessionTabs() {
   const { t } = useI18n();
   const { projects } = useServices();
   const state = useProjects();
-  if (state.tabs.length < 2) return null;
+  const chatState = useChat();
+  const barRef = useRef<HTMLElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dijalankan saat tab aktif berubah agar tab itu terlihat
+  useEffect(() => {
+    barRef.current
+      ?.querySelector<HTMLElement>('[aria-current="true"]')
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [state.selection.sessionId, state.tabs.length]);
+  if (state.tabs.length < 1) return null;
+  // model sesi = model pesan asisten terakhir; bila belum ada, model terpilih saat ini
+  const modelOf = (sessionId: string) => {
+    const msgs = chatState.sessions[sessionId]?.messages ?? [];
+    const last = [...msgs].reverse().find((m) => m.info.role === "assistant" && m.info.modelID);
+    return last ? { providerID: last.info.providerID, modelID: last.info.modelID } : chatState.model;
+  };
   const titleOf = (key: string, id: string) => {
+    if (key === DEMO_KEY) {
+      const d = demoById(id);
+      return d ? t(d.titleKey) : t("sb.untitled");
+    }
     const s = state.sessions[key]?.items.find((i) => i.id === id);
     return s ? (sessionTitle(s) ?? t("sb.untitled")) : t("sb.untitled");
   };
   return (
-    <nav className="stabs" aria-label={t("chat.tabs")}>
-      {state.tabs.map((tab) => {
+    <nav className="stabs" aria-label={t("chat.tabs")} ref={barRef}>
+      {state.tabs.map((tab, index) => {
         const title = titleOf(tab.key, tab.sessionId);
         const active = state.selection.sessionId === tab.sessionId;
+        const last = state.tabs.length - 1;
+        const entries: MenuEntry[] = [
+          { type: "item", id: "close", label: t("tabs.close"), onSelect: () => projects.closeTab(tab.sessionId) },
+          {
+            type: "item",
+            id: "others",
+            label: t("tabs.closeOthers"),
+            disabled: state.tabs.length < 2,
+            onSelect: () => projects.closeTabsBy("others", tab.sessionId),
+          },
+          {
+            type: "item",
+            id: "right",
+            label: t("tabs.closeRight"),
+            disabled: index === last,
+            onSelect: () => projects.closeTabsBy("right", tab.sessionId),
+          },
+          {
+            type: "item",
+            id: "left",
+            label: t("tabs.closeLeft"),
+            disabled: index === 0,
+            onSelect: () => projects.closeTabsBy("left", tab.sessionId),
+          },
+          { type: "separator", id: "sep" },
+          { type: "item", id: "all", label: t("tabs.closeAll"), onSelect: () => projects.closeTabsBy("all") },
+        ];
         return (
-          <div key={tab.sessionId} className="stabs__tab" data-active={active ? "" : undefined}>
-            <button
-              type="button"
-              className="stabs__label"
-              aria-current={active ? "true" : undefined}
-              onClick={() => projects.select(tab.key, tab.sessionId)}
-            >
-              {title}
-            </button>
-            <button
-              type="button"
-              className="stabs__close"
-              aria-label={t("chat.closeTab", { title })}
-              onClick={() => projects.closeTab(tab.sessionId)}
-            >
-              <CloseIcon size="sm" />
-            </button>
-          </div>
+          <ContextMenu key={tab.sessionId} entries={entries} className="stabs__ctx">
+            <div className="stabs__tab" data-active={active ? "" : undefined}>
+              <button
+                type="button"
+                className="stabs__label"
+                aria-current={active ? "true" : undefined}
+                onClick={() => projects.select(tab.key, tab.sessionId)}
+              >
+                {tab.key === DEMO_KEY ? (
+                  <PinIcon size="sm" />
+                ) : (
+                  <ModelLogo
+                    providerID={modelOf(tab.sessionId)?.providerID}
+                    modelID={modelOf(tab.sessionId)?.modelID}
+                  />
+                )}
+                {tab.key !== DEMO_KEY && <TabStatus sessionId={tab.sessionId} />}
+                {title}
+              </button>
+              <button
+                type="button"
+                className="stabs__close"
+                aria-label={t("chat.closeTab", { title })}
+                onClick={() => projects.closeTab(tab.sessionId)}
+              >
+                <CloseIcon size="sm" />
+              </button>
+            </div>
+          </ContextMenu>
         );
       })}
     </nav>
@@ -142,9 +345,9 @@ function SessionTabs() {
 /** Di bawah ambang ini semua pesan dirender langsung; di atasnya transcript divirtualisasi (hanya yang terlihat). */
 export const VIRTUALIZE_FROM = 40;
 
-function useStickToBottom(dep: unknown) {
+function useStickToBottom(dep: unknown, follow = true) {
   const ref = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
+  const stick = useRef(follow);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `dep` adalah pemicu (isi transcript berubah), bukan nilai yang dibaca
   useLayoutEffect(() => {
     const el = ref.current;
@@ -152,18 +355,63 @@ function useStickToBottom(dep: unknown) {
   }, [dep]);
   const onScroll = () => {
     const el = ref.current;
-    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    if (el && follow) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
   };
   return { ref, onScroll };
 }
 
-function Transcript({ session }: { session: SessionChat }) {
+/** Daftar pesan yang disematkan di sesi (di atas transkrip); klik → gulir ke pesan, tombol lepas sematan. */
+function PinnedBar({ sessionId, messages }: { sessionId: string; messages: ChatMessage[] }) {
+  const { t } = useI18n();
+  const { chat } = useServices();
+  const { pinnedMessages } = useChat();
+  const ids = pinnedMessages[sessionId] ?? [];
+  const pinned = ids.map((id) => messages.find((m) => m.info.id === id)).filter((m): m is ChatMessage => !!m);
+  if (pinned.length === 0) return null;
+  return (
+    <details className="pins" data-no-export="">
+      <summary className="z-label">
+        <PinIcon size="sm" /> {t("msg.pinned", { n: pinned.length })}
+      </summary>
+      <ul className="pins__list">
+        {pinned.map((m) => {
+          const excerpt = messageText(m).replace(/\s+/g, " ").trim().slice(0, 90) || t("sb.untitled");
+          return (
+            <li key={m.info.id} className="pins__row">
+              <button type="button" className="pins__go" onClick={() => requestMessageFocus(m.info.id)}>
+                <span className="pins__role z-small">
+                  {m.info.role === "user" ? t("chat.you") : t("chat.assistant")}
+                </span>
+                <span className="pins__text">{excerpt}</span>
+              </button>
+              <IconButton
+                label={t("msg.unpin")}
+                size="sm"
+                className="pins__unpin"
+                icon={<PinIcon />}
+                aria-pressed
+                onClick={() => chat.toggleMessagePin(sessionId, m.info.id)}
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
+/** `follow=false`: tidak menempel ke dasar (dipakai sesi demo agar dibaca dari atas). */
+export function Transcript({ session, follow = true }: { session: SessionChat; follow?: boolean }) {
   const { t } = useI18n();
   const { chat } = useServices();
   const fail = useErrorToast();
   const busy = session.status.type !== "idle" || session.sending;
-  const messages = visibleMessages(session);
+  const allMessages = visibleMessages(session);
+  // pesan asisten berurutan = satu giliran (satu proses, satu jawaban, satu baris info/aksi)
+  const messages = useMemo(() => mergeAssistantTurns(allMessages), [allMessages]);
   const lastAssistant = [...messages].reverse().find((m) => m.info.role === "assistant");
+  // pesan yang sedang dikerjakan = pesan terakhir percakapan saat engine sibuk (bukan jawaban turn sebelumnya)
+  const active = busy && messages.at(-1) === lastAssistant ? lastAssistant : undefined;
   const virtual = messages.length >= VIRTUALIZE_FROM;
   const scrollRef = useRef<HTMLDivElement>(null);
   const rows = useVirtualizer({
@@ -174,13 +422,33 @@ function Transcript({ session }: { session: SessionChat }) {
     getItemKey: (i) => messages[i]?.info.id ?? i,
   });
   const total = virtual ? rows.getTotalSize() : 0;
-  const { ref, onScroll } = useStickToBottom([
-    session.messages,
-    total,
-    session.permissions.length,
-    session.questions.length,
-    busy,
-  ]);
+  const { ref, onScroll } = useStickToBottom(
+    [session.messages, total, session.permissions.length, session.questions.length, busy],
+    follow,
+  );
+  // gulir ke pesan yang diminta (tautan pesan / daftar sematan); menunggu sampai elemennya ada
+  const visibleCount = rows.getVirtualItems().length;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dijalankan ulang saat isi/virtualisasi berubah agar permintaan tertunda terpenuhi
+  useEffect(() => {
+    const run = () => {
+      const id = peekMessageFocus();
+      if (!id) return;
+      const index = messages.findIndex((m) => m.sourceIds?.includes(id) ?? m.info.id === id);
+      const target = messages[index];
+      if (!target) return;
+      const el = document.getElementById(messageDomId(target.info.id));
+      if (!el) {
+        if (virtual) rows.scrollToIndex(index, { align: "center" });
+        return;
+      }
+      clearMessageFocus();
+      el.scrollIntoView({ block: "center" });
+      el.setAttribute("data-flash", "");
+      setTimeout(() => el.removeAttribute("data-flash"), 1600);
+    };
+    run();
+    return onMessageFocus(run);
+  }, [messages, virtual, visibleCount]);
   const setRefs = (el: HTMLDivElement | null) => {
     ref.current = el;
     scrollRef.current = el;
@@ -195,6 +463,7 @@ function Transcript({ session }: { session: SessionChat }) {
       aria-label={t("panel.chat")}
       aria-busy={busy}
     >
+      <PinnedBar sessionId={session.sessionID} messages={allMessages} />
       {session.loading && session.messages.length === 0 && <p className="chat__note z-small">{t("chat.loading")}</p>}
       {session.loaded && messages.length === 0 && !session.loading && (
         <p className="chat__note z-small">{t("chat.empty")}</p>
@@ -216,7 +485,7 @@ function Transcript({ session }: { session: SessionChat }) {
                   message={m}
                   sessionId={session.sessionID}
                   isLastAssistant={m === lastAssistant && !busy}
-                  streaming={m === lastAssistant && busy}
+                  streaming={m === active}
                 />
               </div>
             );
@@ -229,7 +498,7 @@ function Transcript({ session }: { session: SessionChat }) {
             message={m}
             sessionId={session.sessionID}
             isLastAssistant={m === lastAssistant && !busy}
-            streaming={m === lastAssistant && busy}
+            streaming={m === active}
           />
         ))
       )}
@@ -241,13 +510,7 @@ function Transcript({ session }: { session: SessionChat }) {
           </Button>
         </div>
       )}
-      {session.questions.map((q) => (
-        <QuestionCard key={q.id} request={q} sessionId={session.sessionID} />
-      ))}
-      {session.permissions.map((p) => (
-        <PermissionCard key={p.id} request={p} sessionId={session.sessionID} />
-      ))}
-      {busy && (
+      {busy && !active && (
         <p className="chat__note z-small" role="status">
           <Spinner size="sm" />{" "}
           {session.status.type === "retry"
@@ -260,63 +523,6 @@ function Transcript({ session }: { session: SessionChat }) {
         <p className="chat__note chat__note--error z-small" role="alert">
           {session.error}
         </p>
-      )}
-    </div>
-  );
-}
-
-function MessageActions({
-  message,
-  sessionId,
-  isLastAssistant,
-}: {
-  message: ChatMessage;
-  sessionId: string;
-  isLastAssistant: boolean;
-}) {
-  const { t } = useI18n();
-  const { chat, projects } = useServices();
-  const state = useProjects();
-  const toast = useToast();
-  const fail = useErrorToast();
-  const text = messageText(message);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.show({ title: t("chat.copied"), tone: "success", timeoutMs: 1500 });
-    } catch (e) {
-      fail(e);
-    }
-  };
-  const fork = async () => {
-    try {
-      const s = await chat.fork(sessionId, message.info.id);
-      const key = state.selection.key;
-      if (key) projects.adoptSession(key, s);
-    } catch (e) {
-      fail(e);
-    }
-  };
-  return (
-    <div className="msg__actions">
-      {text && <IconButton label={t("chat.copy")} size="sm" icon={<CopyIcon />} onClick={() => void copy()} />}
-      <IconButton label={t("chat.fork")} size="sm" icon={<GitIcon />} onClick={() => void fork()} />
-      {message.info.role === "user" && (
-        <IconButton
-          label={t("chat.revert")}
-          size="sm"
-          icon={<UndoIcon />}
-          onClick={() => void chat.revertTo(sessionId, message.info.id).catch(fail)}
-        />
-      )}
-      {isLastAssistant && (
-        <IconButton
-          label={t("chat.regenerate")}
-          size="sm"
-          icon={<RefreshIcon />}
-          onClick={() => void chat.regenerate(sessionId).catch(fail)}
-        />
       )}
     </div>
   );
@@ -335,13 +541,12 @@ function Message({
 }) {
   const { t } = useI18n();
   const { info } = message;
-  const visible = message.parts.filter((p) => p.type !== "other" && p.type !== "step-finish");
   if (info.role === "user") {
     const text = messageText(message);
     const files = message.parts.filter((p) => p.type === "file");
     if (!text && files.length === 0) return null;
     return (
-      <article className="msg msg--user" aria-label={t("chat.you")}>
+      <article className="msg msg--user" aria-label={t("chat.you")} id={messageDomId(info.id)}>
         {files.length > 0 && (
           <ul className="chips">
             {files.map((f) =>
@@ -355,48 +560,16 @@ function Message({
           </ul>
         )}
         {text && <p className="msg__text">{text}</p>}
-        <MessageActions message={message} sessionId={sessionId} isLastAssistant={false} />
+        <MessageToolbar message={message} sessionId={sessionId} isLastAssistant={false} />
       </article>
     );
   }
   return (
-    <article className="msg msg--assistant" aria-label={t("chat.assistant")}>
-      {visible.map((p) => (
-        <Part key={p.id} part={p} streaming={streaming} />
-      ))}
-      {info.error && (
-        <p className="chat__note chat__note--error z-small" role="alert">
-          {info.error.name === "MessageAbortedError" ? t("chat.aborted") : info.error.message}
-        </p>
-      )}
-      <MessageMeta message={message} />
-      {info.time.completed !== undefined && (
-        <MessageActions message={message} sessionId={sessionId} isLastAssistant={isLastAssistant} />
-      )}
-    </article>
+    <AssistantMessage message={message} sessionId={sessionId} isLastAssistant={isLastAssistant} streaming={streaming} />
   );
 }
 
-function MessageMeta({ message }: { message: ChatMessage }) {
-  const { t } = useI18n();
-  const { info } = message;
-  if (!info.time.completed || !info.modelID) return null;
-  const secs = Math.max(0, (info.time.completed - info.time.created) / 1000);
-  const tokens = info.tokens;
-  const tip = [
-    new Date(info.time.completed).toLocaleString(),
-    tokens ? t("chat.meta.tokens", { input: tokens.input, output: tokens.output }) : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <p className="msg__meta z-small" title={tip}>
-      {info.modelID} · {secs.toFixed(1)}s
-    </p>
-  );
-}
-
-function Part({ part, streaming = false }: { part: MessagePart; streaming?: boolean }) {
+export function Part({ part, streaming = false }: { part: MessagePart; streaming?: boolean }) {
   const { t } = useI18n();
   if (part.type === "text")
     return part.synthetic || !part.text ? null : <Markdown text={part.text} streaming={streaming} />;
@@ -418,20 +591,11 @@ function Reasoning({ text, label }: { text: string; label: string }) {
   );
 }
 
+export { toolSummary };
+
 const WEB_TOOLS = new Set(["websearch", "webfetch", "codesearch"]);
 const FILE_TOOLS = new Set(["read", "edit", "write", "patch", "multiedit"]);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
-
-/** Ringkasan satu baris per jenis tool (pencarian web → kueri/URL; shell → perintah; file → path; dst). */
-export function toolSummary(tool: string, input: Record<string, unknown>, title?: string): string {
-  const pick = (...keys: string[]) => keys.map((k) => str(input[k])).find(Boolean) ?? "";
-  if (tool === "websearch" || tool === "codesearch") return pick("query") || title || "";
-  if (tool === "webfetch") return pick("url") || title || "";
-  if (tool === "bash") return pick("command", "description") || title || "";
-  if (tool === "glob" || tool === "grep") return pick("pattern") || title || "";
-  const fallback = pick("filePath", "path", "pattern", "command", "url", "query");
-  return title || fallback || (Object.values(input).find((v) => typeof v === "string") as string | undefined) || "";
-}
 
 function DiffView({ text }: { text: string }) {
   const lines = text.split("\n");
@@ -462,7 +626,9 @@ function ToolCard({ part }: { part: ToolPart }) {
   const web = WEB_TOOLS.has(part.tool);
   const openDoc = useOpenDoc();
   const toast = useToast();
-  const file = FILE_TOOLS.has(part.tool) ? str(state.input.filePath) || str(state.input.path) : "";
+  const demo = useDemo();
+  // di sesi demo berkasnya fiktif: tombol Buka tidak ditampilkan
+  const file = !demo && FILE_TOOLS.has(part.tool) ? str(state.input.filePath) || str(state.input.path) : "";
   const openFile = () => {
     if (!openDoc(file)) toast.show({ title: t("doc.outside"), tone: "warning" });
   };
@@ -505,9 +671,11 @@ function ToolCard({ part }: { part: ToolPart }) {
 function PermissionCard({ request, sessionId }: { request: PermissionRequest; sessionId: string }) {
   const { t } = useI18n();
   const { chat } = useServices();
+  const demo = useDemo();
   const fail = useErrorToast();
   const [busy, setBusy] = useState(false);
   const answer = async (reply: "once" | "always" | "reject") => {
+    if (demo) return demo.permission(request.id, reply);
     setBusy(true);
     try {
       await chat.reply(sessionId, request.id, reply);
@@ -550,7 +718,7 @@ function useSuggestions(enabled: boolean): Suggestion[] {
   const git = useGit();
   const docs = useDocs();
   const sel = state.selection.sessionId ? projects.selected() : null;
-  const projectPath = sel?.project?.path ?? null;
+  const projectPath = sel?.project?.path ?? state.projects.find((p) => p.id === state.selection.key)?.path ?? null;
   const [rootFiles, setRootFiles] = useState<string[] | null>(null);
   const engineReady = state.engineReady;
 
@@ -580,12 +748,14 @@ function useSuggestions(enabled: boolean): Suggestion[] {
   });
 }
 
-function Composer({ session }: { session: SessionChat }) {
+function Composer({ session, draft = false }: { session: SessionChat; draft?: boolean }) {
   const { t } = useI18n();
-  const { chat, host, nav } = useServices();
+  const { chat, host, nav, projects } = useServices();
+  const pstate = useProjects();
   const engine = useEngineState();
   const { model, models, modelsStatus, variant, permissionMode } = useChat();
   const toast = useToast();
+  const { sendKey } = useSettings();
   const [text, setText] = useState("");
   const [files, setFiles] = useState<FileAttachment[]>([]);
   const running = session.status.type !== "idle" || session.sending;
@@ -597,16 +767,66 @@ function Composer({ session }: { session: SessionChat }) {
   const showSuggestions = session.loaded && session.messages.length === 0 && text === "" && !running;
   const suggestions = useSuggestions(showSuggestions);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { locale } = useI18n();
+  const [voiceDevice, setVoiceDevice] = useState(loadVoiceDevice);
+  const { devices, refresh: refreshDevices } = useAudioInputs();
+  const voice = useDictation({
+    lang: speechLang(locale),
+    deviceId: voiceDevice,
+    onText: (chunk) => setText((prev) => (prev && !prev.endsWith(" ") ? `${prev} ${chunk}` : prev + chunk)),
+    onError: (error) => toast.show({ title: t("voice.error", { error }), tone: "danger" }),
+  });
+  const chooseDevice = (id: string) => {
+    setVoiceDevice(id);
+    saveVoiceDevice(id);
+  };
+  const deviceEntries: MenuEntry[] = [
+    {
+      type: "checkbox",
+      id: "default",
+      label: t("voice.defaultDevice"),
+      checked: voiceDevice === "",
+      onCheckedChange: () => chooseDevice(""),
+    },
+    ...devices.map((d, i) => ({
+      type: "checkbox" as const,
+      id: d.deviceId,
+      label: d.label || t("voice.deviceN", { n: i + 1 }),
+      checked: voiceDevice === d.deviceId,
+      onCheckedChange: () => chooseDevice(d.deviceId),
+    })),
+    ...(devices.length === 0
+      ? [{ type: "item" as const, id: "none", label: t("voice.noDevice"), disabled: true, onSelect: () => {} }]
+      : []),
+  ];
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
-    if (!canSend || running) return;
+    if (!canSend) return;
     const value = text;
     const attached = files;
+    if (running) {
+      // agent sedang bekerja: pesan masuk antrean (dok di atas composer), dikirim berurutan setelah selesai
+      try {
+        chat.enqueue(session.sessionID, value, attached);
+        setText("");
+        setFiles([]);
+      } catch (err) {
+        toast.show({ title: t("chat.sendError", { error: errText(err) }), tone: "danger" });
+      }
+      return;
+    }
     setText("");
     setFiles([]);
     try {
-      await chat.send(session.sessionID, value, attached);
+      let sessionId = session.sessionID;
+      if (draft) {
+        // halaman bawaan: buat sesi di project terpilih (atau Chat) lalu kirim pesan pertama
+        const created = await projects.createSession(pstate.selection.key ?? CHAT_KEY);
+        chat.open(created.directory, created.id);
+        sessionId = created.id;
+      }
+      await chat.send(sessionId, value, attached);
     } catch (err) {
       setText(value); // kembalikan agar tidak hilang
       setFiles(attached);
@@ -614,7 +834,10 @@ function Composer({ session }: { session: SessionChat }) {
     }
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    // "enter": Enter kirim, Shift+Enter baris baru. "ctrl-enter": Ctrl/Cmd+Enter kirim, Enter baris baru.
+    const send = sendKey === "ctrl-enter" ? e.ctrlKey || e.metaKey : !e.shiftKey;
+    if (send) {
       e.preventDefault();
       void submit();
     }
@@ -659,6 +882,128 @@ function Composer({ session }: { session: SessionChat }) {
           ))}
         </ul>
       )}
+      <div className="composer__card">
+        <textarea
+          ref={inputRef}
+          className="composer__input"
+          rows={2}
+          value={text}
+          placeholder={t("chat.placeholder")}
+          aria-label={t("chat.placeholder")}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKey}
+          disabled={disabled}
+        />
+        <div className="composer__actions">
+          {host.native ? (
+            <Menu
+              trigger={
+                <IconButton
+                  label={t("chat.attach")}
+                  size="sm"
+                  className="composer__round"
+                  icon={<PlusIcon />}
+                  disabled={disabled}
+                />
+              }
+              entries={[
+                { type: "item", id: "files", label: t("chat.attach"), onSelect: () => void attach("files") },
+                { type: "item", id: "folder", label: t("chat.attachFolder"), onSelect: () => void attach("folder") },
+              ]}
+            />
+          ) : (
+            <IconButton
+              label={t("chat.attach")}
+              size="sm"
+              className="composer__round"
+              icon={<PlusIcon />}
+              disabled={disabled}
+              onClick={() => void attach("files")}
+            />
+          )}
+          <Select
+            aria-label={t("chat.permissionMode")}
+            size="sm"
+            icon={<ShieldIcon size="sm" />}
+            className={permissionMode === "auto-all" ? "composer__mode composer__mode--full" : "composer__mode"}
+            items={(["ask", "auto-edit", "auto-all"] as PermissionMode[]).map((m) => ({
+              value: m,
+              label: t(`chat.mode.${m}` as never),
+            }))}
+            value={permissionMode}
+            onValueChange={(v) => chat.setPermissionMode(v as PermissionMode)}
+          />
+          <span className="composer__spacer" />
+          <ComposerInfo session={session} />
+          <div className="composer__model">
+            <ModelPicker />
+            {variants.length > 0 && (
+              <Select
+                aria-label={t("chat.variant")}
+                size="sm"
+                className="composer__variant"
+                items={[
+                  { value: "", label: t("chat.variant.default") },
+                  ...variants.map((v) => ({ value: v, label: v })),
+                ]}
+                value={variant ?? ""}
+                onValueChange={(v) => chat.setVariant(v || null)}
+              />
+            )}
+          </div>
+          <div className="composer__voice" data-listening={voice.listening ? "" : undefined}>
+            <IconButton
+              label={voice.listening ? t("voice.stop") : t("voice.start")}
+              size="sm"
+              icon={voice.listening ? <StopIcon /> : <MicIcon />}
+              aria-pressed={voice.listening}
+              disabled={disabled || !voice.supported}
+              title={voice.supported ? undefined : t("voice.unsupported")}
+              onClick={voice.toggle}
+            />
+            <Menu
+              trigger={
+                <IconButton
+                  label={t("voice.device")}
+                  size="sm"
+                  className="composer__voice-device"
+                  icon={<ChevronDownIcon />}
+                  disabled={!voice.supported}
+                  onClick={refreshDevices}
+                />
+              }
+              entries={deviceEntries}
+            />
+          </div>
+          {running && canSend && (
+            <IconButton
+              label={t("queue.add")}
+              variant="solid"
+              type="submit"
+              className="composer__round composer__send"
+              icon={<ArrowUpIcon />}
+            />
+          )}
+          {running ? (
+            <IconButton
+              label={t("chat.stop")}
+              variant="danger"
+              className="composer__round composer__send"
+              icon={<StopIcon />}
+              onClick={() => void chat.abort(session.sessionID)}
+            />
+          ) : (
+            <IconButton
+              label={t("chat.send")}
+              variant="solid"
+              type="submit"
+              className="composer__round composer__send"
+              icon={<ArrowUpIcon />}
+              disabled={!canSend}
+            />
+          )}
+        </div>
+      </div>
       {suggestions.length > 0 && (
         <ul className="chips suggest" aria-label={t("sugg.title")}>
           {suggestions.map((s) => (
@@ -679,63 +1024,6 @@ function Composer({ session }: { session: SessionChat }) {
           ))}
         </ul>
       )}
-      <textarea
-        ref={inputRef}
-        className="z-input composer__input"
-        rows={3}
-        value={text}
-        placeholder={t("chat.placeholder")}
-        aria-label={t("chat.placeholder")}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKey}
-        disabled={disabled}
-      />
-      <ComposerInfo session={session} />
-      <div className="composer__actions">
-        <IconButton
-          label={t("chat.attach")}
-          size="sm"
-          icon={<PaperclipIcon />}
-          disabled={disabled}
-          onClick={() => void attach("files")}
-        />
-        {host.native && (
-          <Button size="sm" disabled={disabled} onClick={() => void attach("folder")}>
-            {t("chat.attachFolder")}
-          </Button>
-        )}
-        <Select
-          aria-label={t("chat.permissionMode")}
-          size="sm"
-          className="composer__mode"
-          items={(["ask", "auto-edit", "auto-all"] as PermissionMode[]).map((m) => ({
-            value: m,
-            label: t(`chat.mode.${m}` as never),
-          }))}
-          value={permissionMode}
-          onValueChange={(v) => chat.setPermissionMode(v as PermissionMode)}
-        />
-        {variants.length > 0 && (
-          <Select
-            aria-label={t("chat.variant")}
-            size="sm"
-            className="composer__mode"
-            items={[{ value: "", label: t("chat.variant.default") }, ...variants.map((v) => ({ value: v, label: v }))]}
-            value={variant ?? ""}
-            onValueChange={(v) => chat.setVariant(v || null)}
-          />
-        )}
-        <span className="composer__spacer" />
-        {running ? (
-          <Button variant="danger" onClick={() => void chat.abort(session.sessionID)}>
-            {t("chat.stop")}
-          </Button>
-        ) : (
-          <Button variant="solid" type="submit" disabled={!canSend}>
-            {t("chat.send")}
-          </Button>
-        )}
-      </div>
     </form>
   );
 }

@@ -216,7 +216,7 @@ async function openChat(page: Page, models: MockOptions["models"], seedProvider 
   await page.getByLabel("Path folder").fill("C:/Work/alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
   await page.getByRole("button", { name: "Sesi baru di alpha" }).click();
-  await expect(page.getByRole("log")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
 }
 
 test("pemilih model: pencarian langsung fokus, saring, sematkan, pilih; prompt memakai model terpilih", async ({
@@ -252,7 +252,7 @@ test("pemilih model: pencarian langsung fokus, saring, sematkan, pilih; prompt m
 
   // sematan bertahan setelah muat ulang
   await page.reload();
-  await expect(page.getByRole("log")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
   await page.getByRole("button", { name: /^Model: Model Dua/ }).click();
   await expect(dialog(page).getByRole("region", { name: "Disematkan" })).toContainText("Model Dua");
 });

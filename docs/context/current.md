@@ -17,6 +17,7 @@
 - **Penyempurnaan chat (permintaan pemilik 14-11-2026):** render kaya, form pertanyaan agent, info pemakaian composer, Masuk dengan OpenWork — ADR-040; belum: login OpenWork penuh dengan akun nyata, kuota provider.
 - **Fase 11 — Panel 3 lanjutan & fitur ekstra:** sebagian selesai di lokal (ADR-039); belum: input suara, remote engine, model peran, manual konfigurasi agent.
 - **Fase 10 — Kustomisasi:** selesai di lokal; ADR-038, `docs/features/appearance.md`. Belum: paket ikon file Open VSX.
+- **Layout shell baru (permintaan pemilik 14-11-2026):** panel mengambang, sidebar bertingkat, sapaan sesi baru — ADR-041; belum: notifikasi, nama pengguna di pengaturan.
 - **Status MVP:** audit PRD §13 selesai — kelima kriteria terpenuhi (`docs/features/mvp.md`); menunggu keputusan rilis `0.1.0`.
 
 ## Checklist Fase 1

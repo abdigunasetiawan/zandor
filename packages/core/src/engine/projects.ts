@@ -115,8 +115,34 @@ function parseRegistry(text: string | null): { value: Persisted | null; error: s
   return { value: { version: REGISTRY_VERSION, projects, selection, tabs: tabs.slice(-MAX_TABS) }, error: null };
 }
 
+/**
+ * Folder khusus tiap sesi tanpa project ("Chat"): `chats/<nama>/`. Tanpa adapter ini (tes/legacy) semua sesi Chat berbagi
+ * folder Chat tunggal.
+ */
+export interface ChatFolderHost {
+  /** Buat folder `nama` di dalam folder Chat; mengembalikan path lengkapnya. */
+  create(name: string): Promise<string>;
+  /** Path lengkap semua folder sesi yang ada. */
+  list(): Promise<string[]>;
+  /** Hapus folder bila (dan hanya bila) kosong; galat diabaikan. */
+  removeIfEmpty(path: string): Promise<void>;
+}
+
+/** Nama folder sesi Chat: `chat-YYYYMMDD-HHMMSS-xxxx` (urut waktu, unik, aman untuk semua sistem berkas). */
+export function chatFolderName(at: Date, suffix: string): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}`;
+  return `chat-${stamp}-${
+    suffix
+      .replace(/[^a-z0-9]/gi, "")
+      .toLowerCase()
+      .slice(0, 6) || "x"
+  }`;
+}
+
 export type ProjectStoreOptions = {
   storage: RegistryStorage;
+  chatFolders?: ChatFolderHost;
   newId?: () => string;
   now?: () => number;
   onWarning?: (message: string) => void;
@@ -213,6 +239,41 @@ export class ProjectStore {
     await Promise.all([CHAT_KEY, ...this.snap.projects.map((p) => p.id)].map((k) => this.refresh(k)));
   }
 
+  /**
+   * Sesi satu kelompok. Project = satu folder. Chat = folder Chat itu sendiri (sesi lama yang berbagi folder) ditambah SEMUA
+   * folder sesi di bawahnya; folder yang gagal dibaca diabaikan selama minimal satu berhasil.
+   */
+  private async listAll(api: EngineApi, key: ProjectKey, dir: string): Promise<SessionInfo[]> {
+    const host = this.options.chatFolders;
+    if (key !== CHAT_KEY || !host) return api.listSessions(dir);
+    const dirs = [...new Set([dir, ...(await host.list().catch(() => []))])];
+    const results: SessionInfo[][] = [];
+    let firstError: unknown = null;
+    for (let i = 0; i < dirs.length; i += 6) {
+      const batch = await Promise.allSettled(dirs.slice(i, i + 6).map((d) => api.listSessions(d)));
+      for (const r of batch) {
+        if (r.status === "fulfilled") results.push(r.value);
+        else firstError ??= r.reason;
+      }
+    }
+    if (results.length === 0 && firstError) throw firstError;
+    const seen = new Set<string>();
+    return results.flat().filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+  }
+
+  /** Direktori kerja satu sesi: project → folder project; Chat → folder milik sesi itu (atau folder Chat untuk sesi lama). */
+  private dirForSession(key: ProjectKey, sessionId: string): string | null {
+    if (key === CHAT_KEY) {
+      const s = this.snap.sessions[key]?.items.find((x) => x.id === sessionId);
+      return s?.directory || this.snap.chatDir;
+    }
+    return this.directoryOf(key);
+  }
+
   /** Muat sesi satu project. Respons basi (permintaan lebih baru sudah dikirim) dibuang. */
   async refresh(key: ProjectKey): Promise<void> {
     const dir = this.directoryOf(key);
@@ -222,7 +283,7 @@ export class ProjectStore {
     this.requestSeq.set(key, seq);
     this.updateSessions(key, { status: "loading", error: null });
     try {
-      const items = (await api.listSessions(dir)).slice().sort(byRecent);
+      const items = (await this.listAll(api, key, dir)).slice().sort(byRecent);
       if (this.requestSeq.get(key) !== seq) return;
       this.updateSessions(key, { status: "ready", items, error: null });
       this.dropStaleSelection();
@@ -331,6 +392,28 @@ export class ProjectStore {
     void this.persist();
   }
 
+  /**
+   * Tutup banyak tab sekaligus: `others` (kecuali tab jangkar), `right`/`left` (di sebelah kanan/kiri jangkar, jangkar tetap),
+   * atau `all`. Bila tab terpilih ikut tertutup, pilihan pindah ke tab jangkar (atau kosong untuk `all`).
+   */
+  closeTabsBy(mode: "others" | "right" | "left" | "all", anchorId?: string) {
+    const tabs = this.snap.tabs;
+    const i = anchorId ? tabs.findIndex((t) => t.sessionId === anchorId) : -1;
+    if (mode !== "all" && i < 0) return;
+    const keep = tabs.filter((_, idx) =>
+      mode === "all" ? false : mode === "others" ? idx === i : mode === "right" ? idx <= i : idx >= i,
+    );
+    if (keep.length === tabs.length) return;
+    const sel = this.snap.selection;
+    let selection = sel;
+    if (sel.sessionId && !keep.some((t) => t.sessionId === sel.sessionId)) {
+      const anchor = i >= 0 ? tabs[i] : undefined;
+      selection = anchor ? { key: anchor.key, sessionId: anchor.sessionId } : { key: sel.key, sessionId: null };
+    }
+    this.update({ tabs: keep, selection });
+    void this.persist();
+  }
+
   /** Sesi hasil operasi engine di luar createSession (mis. fork): masukkan ke daftar dan pilih. */
   adoptSession(key: ProjectKey, session: SessionInfo) {
     const cur = this.snap.sessions[key] ?? emptySessions();
@@ -345,8 +428,12 @@ export class ProjectStore {
 
   /** `select: false` membuat sesi tanpa memindahkan fokus pengguna (dipakai automasi). */
   async createSession(key: ProjectKey, title?: string, options: { select?: boolean } = {}): Promise<SessionInfo> {
-    const dir = this.directoryOf(key);
+    let dir = this.directoryOf(key);
     if (!dir) throw new Error(key === CHAT_KEY ? "direktori Chat belum tersedia" : "project tidak ditemukan");
+    if (key === CHAT_KEY && this.options.chatFolders) {
+      // sesi tanpa project: folder kerja SENDIRI per sesi
+      dir = await this.options.chatFolders.create(chatFolderName(new Date(this.now()), this.newId()));
+    }
     const session = await this.requireApi().createSession(dir, title);
     const cur = this.snap.sessions[key] ?? emptySessions();
     this.updateSessions(key, { status: "ready", items: [session, ...cur.items.filter((s) => s.id !== session.id)] });
@@ -357,7 +444,7 @@ export class ProjectStore {
   async renameSession(key: ProjectKey, sessionId: string, title: string): Promise<void> {
     const t = title.trim();
     if (!t) throw new Error("judul sesi tidak boleh kosong");
-    const dir = this.directoryOf(key);
+    const dir = this.dirForSession(key, sessionId);
     if (!dir) throw new Error("project tidak ditemukan");
     const updated = await this.requireApi().renameSession(dir, sessionId, t);
     const cur = this.snap.sessions[key] ?? emptySessions();
@@ -365,9 +452,13 @@ export class ProjectStore {
   }
 
   async deleteSession(key: ProjectKey, sessionId: string): Promise<void> {
-    const dir = this.directoryOf(key);
+    const dir = this.dirForSession(key, sessionId);
     if (!dir) throw new Error("project tidak ditemukan");
     await this.requireApi().deleteSession(dir, sessionId);
+    // folder milik sesi Chat dibersihkan hanya bila kosong (berkas hasil kerja tidak pernah dihapus)
+    if (key === CHAT_KEY && this.snap.chatDir && dir !== this.snap.chatDir) {
+      void this.options.chatFolders?.removeIfEmpty(dir).catch(() => {});
+    }
     const cur = this.snap.sessions[key] ?? emptySessions();
     this.updateSessions(key, { items: cur.items.filter((s) => s.id !== sessionId) });
     this.closeTab(sessionId);

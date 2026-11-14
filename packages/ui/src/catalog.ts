@@ -12,9 +12,11 @@ export const ATOMS = [
   "Slider",
   "Badge",
   "Avatar",
+  "ModelLogo",
   "Kbd",
   "Tooltip",
   "Spinner",
+  "Working",
   "Skeleton",
 ] as const;
 

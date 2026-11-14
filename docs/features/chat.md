@@ -54,3 +54,11 @@ pesan (tidak langsung terkirim); chip hilang saat mulai mengetik. Tes: `suggesti
   tool `question` bergantung model.
 - **Tes:** `bun x vitest run packages/core/src/chat packages/core/src/tools`, `bun x playwright test e2e/rich e2e/questions
   e2e/composer-info`, smoke native (render dari model nyata, info composer, form pertanyaan bila model memakai tool).
+
+## Antrean pesan (ADR-047)
+
+Saat agent bekerja, pesan yang dikirim masuk **antrean** (dok di atas composer): ubah urutan dengan seret-lepas atau Alt+↑/↓ pada gagang, edit, hapus, atau **kirim langsung** (menghentikan giliran berjalan lalu mengirim item itu). Antrean dikirim berurutan saat agent selesai; **Stop menjeda** antrean (tombol Lanjutkan). Hanya di memori (hilang saat aplikasi ditutup). Tes: `e2e/queue.spec.ts`, `chat-extra.test.ts`.
+
+## Indikator sesi, notifikasi, dan suara (ADR-050)
+
+Titik di sidebar menunjukkan status sesi (bekerja = ripple, butuh aksi, selesai belum dilihat, gagal, batas penyedia). Saat sesi yang tidak dilihat selesai/gagal/butuh aksi: toast (tombol Buka sesi), notifikasi sistem (jendela tidak fokus), dan suara — diatur di Pengaturan > Notifikasi dan suara (nada bawaan atau berkas sendiri per peristiwa). Tes: `attention.test.ts`, `e2e/notify.spec.ts`. Belum diuji di Tauri sungguhan: notifikasi sistem dan pemutaran suara.

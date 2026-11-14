@@ -6,7 +6,8 @@ import { findViolations, type Violation } from "./design-token-rules";
 const root = join(import.meta.dir, "..");
 const ROOTS = ["packages/ui/src", "apps/desktop/src"];
 const EXT = /\.(css|tsx?|html)$/;
-const SKIP = /(\.test\.tsx?$|[\\/]test-utils\.tsx$|\.d\.ts$)/;
+// model-logos.generated.ts: aset logo merek pihak ketiga (warna merek), bukan gaya UI kita.
+const SKIP = /(\.test\.tsx?$|[\\/]test-utils\.tsx$|\.d\.ts$|model-logos\.generated\.ts$|demo-assets\.ts$)/;
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

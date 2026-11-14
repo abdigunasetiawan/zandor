@@ -42,6 +42,8 @@ export type SelectProps = {
   invalid?: boolean;
   size?: ControlSize;
   className?: string;
+  /** Ikon di awal pemicu (dekoratif). */
+  icon?: ReactNode;
 };
 
 export function Select({
@@ -53,6 +55,7 @@ export function Select({
   invalid,
   size = "md",
   className,
+  icon,
   ...aria
 }: SelectProps) {
   return (
@@ -69,6 +72,7 @@ export function Select({
         aria-label={aria["aria-label"]}
         aria-invalid={invalid || undefined}
       >
+        {icon}
         <BaseSelect.Value placeholder={placeholder} className="z-select__value" />
         <BaseSelect.Icon className="z-select__icon">
           <ChevronDownIcon size="sm" />

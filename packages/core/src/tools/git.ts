@@ -26,12 +26,19 @@ export interface GitHost {
   switchBranch(root: string, name: string): Promise<void>;
   createBranch(root: string, name: string): Promise<void>;
   log(root: string, count: number): Promise<CommitInfo[]>;
+  /** Repo git di anak folder `root` (monorepo yang akarnya bukan repo). Opsional: tanpa ini hanya akar yang diperiksa. */
+  repos?(root: string): Promise<string[]>;
 }
 
 export type DiffView = { path: string; staged: boolean; untracked: boolean; text: string | null; error: string | null };
 
 export type GitState = {
+  /** Folder project (akar terdaftar). */
+  projectRoot: string | null;
+  /** Repo aktif: akar project bila ia repo, atau salah satu repo di anak foldernya (monorepo). */
   root: string | null;
+  /** Repo di anak folder project (terisi hanya bila akarnya bukan repo). */
+  repos: string[];
   status: GitStatus | null;
   branches: Branch[];
   log: CommitInfo[];
@@ -43,7 +50,9 @@ export type GitState = {
 };
 
 const INITIAL: GitState = {
+  projectRoot: null,
   root: null,
+  repos: [],
   status: null,
   branches: [],
   log: [],
@@ -81,6 +90,8 @@ export class GitStore {
   private snap: GitState = INITIAL;
   private listeners = new Set<() => void>();
   private seq = 0;
+  /** Repo yang dipilih pengguna per project (bertahan selama aplikasi berjalan). */
+  private chosen = new Map<string, string>();
 
   constructor(private readonly host: GitHost) {}
 
@@ -106,10 +117,20 @@ export class GitStore {
 
   /** Project aktif berubah → muat ulang. `null` (mis. folder Chat tanpa git) mengosongkan. */
   async setRoot(root: string | null): Promise<void> {
-    if (root === this.snap.root) return;
+    if (root === this.snap.projectRoot) return;
     this.seq++;
-    this.update({ ...INITIAL, root });
+    this.update({ ...INITIAL, projectRoot: root, root });
     if (root) await this.refresh();
+  }
+
+  /** Pilih repo di anak folder project (monorepo). */
+  async selectRepo(dir: string): Promise<void> {
+    const { projectRoot, repos } = this.snap;
+    if (!projectRoot || !repos.includes(dir) || dir === this.snap.root) return;
+    this.chosen.set(projectRoot, dir);
+    this.seq++;
+    this.update({ root: dir, status: null, branches: [], log: [], diff: null, error: null });
+    await this.refresh();
   }
 
   async refresh(): Promise<void> {
@@ -118,15 +139,29 @@ export class GitStore {
     const n = ++this.seq;
     this.update({ loading: true, error: null });
     try {
-      const status = await this.host.status(root);
+      let status = await this.host.status(root);
+      let activeRoot = root;
+      let repos = this.snap.repos;
+      // Monorepo: akar project bukan repo, tetapi anak folder mungkin repo → cari dan pakai salah satunya.
+      if (!status.isRepo && root === this.snap.projectRoot && this.host.repos) {
+        repos = await this.host.repos(root).catch(() => []);
+        const pick = repos.find((r) => r === this.chosen.get(root)) ?? repos[0];
+        if (pick) {
+          activeRoot = pick;
+          status = await this.host.status(pick);
+        }
+      }
       const [branches, log] = status.isRepo
-        ? await Promise.all([this.host.branches(root).catch(() => []), this.host.log(root, 15).catch(() => [])])
+        ? await Promise.all([
+            this.host.branches(activeRoot).catch(() => []),
+            this.host.log(activeRoot, 15).catch(() => []),
+          ])
         : [[], []];
-      if (n !== this.seq || root !== this.snap.root) return;
+      if (n !== this.seq || (root !== this.snap.root && root !== this.snap.projectRoot)) return;
       // diff yang dibuka tetap ditampilkan hanya bila berkasnya masih berubah
       const d = this.snap.diff;
       const stillThere = d && status.files.some((f) => f.path === d.path);
-      this.update({ status, branches, log, loading: false, diff: stillThere ? d : null });
+      this.update({ root: activeRoot, repos, status, branches, log, loading: false, diff: stillThere ? d : null });
     } catch (e) {
       if (n !== this.seq) return;
       this.update({ loading: false, error: errMsg(e) });

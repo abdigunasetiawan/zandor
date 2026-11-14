@@ -1,5 +1,6 @@
 import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
 import { useI18n } from "@zandor/i18n/react";
+import type { Ref } from "react";
 import { Input } from "../atoms/Fields";
 import { cx } from "../cx";
 import { ChevronDownIcon, CloseIcon, SearchIcon } from "../icons";
@@ -60,16 +61,27 @@ export type SearchFieldProps = {
   "aria-label": string;
   className?: string;
   autoFocus?: boolean;
+  /** Ref ke <input> (mis. untuk fokus awal popover). */
+  inputRef?: Ref<HTMLInputElement>;
 };
 
 /** Kolom pencarian dengan ikon, tombol bersihkan, dan Esc untuk mengosongkan. */
-export function SearchField({ value, onValueChange, placeholder, className, autoFocus, ...aria }: SearchFieldProps) {
+export function SearchField({
+  value,
+  onValueChange,
+  placeholder,
+  className,
+  autoFocus,
+  inputRef,
+  ...aria
+}: SearchFieldProps) {
   const { t } = useI18n();
   return (
     <search className={cx("z-search", className)}>
       <SearchIcon size="sm" className="z-search__icon" />
       <Input
         type="search"
+        ref={inputRef}
         autoFocus={autoFocus}
         className="z-search__input"
         value={value}

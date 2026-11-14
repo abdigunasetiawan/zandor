@@ -16,6 +16,7 @@ import {
   isColor,
   type OpenVsxItem,
   PRESETS,
+  type Project,
   TYPE_PROPS,
   TYPE_VARS,
   type TypeProp,
@@ -37,6 +38,7 @@ import {
   useToast,
 } from "@zandor/ui";
 import { useEffect, useRef, useState } from "react";
+import { ProjectStyleDialog } from "./ProjectStyleDialog";
 import { useAppearance, useProjects, useServices, useSettings } from "./services";
 
 /** Input teks yang menerapkan nilai saat selesai (Enter/blur). Kosong = kembali ke default. Menampilkan galat validasi. */
@@ -460,6 +462,7 @@ function ProjectsTab({ a }: { a: Appearance }) {
   const { t } = useI18n();
   const { appearance: store } = useServices();
   const list = useProjects().projects;
+  const [styling, setStyling] = useState<Project | null>(null);
   if (list.length === 0) return <p className="z-small mempage__muted">{t("mem.settings.projectsEmpty")}</p>;
   return (
     <section className="mempage__section" aria-label={t("ap.tab.projects")}>
@@ -468,6 +471,9 @@ function ProjectsTab({ a }: { a: Appearance }) {
         {list.map((p) => (
           <li key={p.id} className="mempage__card" aria-label={p.name}>
             <h2 className="z-h4">{p.name}</h2>
+            <Button size="sm" onClick={() => setStyling(p)}>
+              {t("sb.customize")}
+            </Button>
             <ValueField
               label={`${p.name} · ${t("ap.projects.logo")}`}
               value={a.projects[p.id]?.logo ?? ""}
@@ -489,6 +495,7 @@ function ProjectsTab({ a }: { a: Appearance }) {
           </li>
         ))}
       </ul>
+      {styling && <ProjectStyleDialog project={styling} onClose={() => setStyling(null)} />}
     </section>
   );
 }

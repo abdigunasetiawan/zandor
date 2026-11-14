@@ -1,6 +1,6 @@
 import { ContextMenu as BaseContextMenu } from "@base-ui/react/context-menu";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import type { ReactElement, ReactNode } from "react";
+import type { CSSProperties, ReactElement, ReactNode } from "react";
 import { Kbd } from "../atoms/Kbd";
 import { cx } from "../cx";
 import { CheckIcon } from "../icons";
@@ -93,13 +93,17 @@ export type ContextMenuProps = {
   children: ReactNode;
   entries: MenuEntry[];
   className?: string;
+  /** Atribut tambahan untuk elemen pemicu (gaya inline dan atribut data-*). */
+  triggerProps?: { style?: CSSProperties; [key: `data-${string}`]: string | undefined };
 };
 
 /** Menu klik-kanan pada area `children`. */
-export function ContextMenu({ children, entries, className }: ContextMenuProps) {
+export function ContextMenu({ children, entries, className, triggerProps }: ContextMenuProps) {
   return (
     <BaseContextMenu.Root>
-      <BaseContextMenu.Trigger className={className}>{children}</BaseContextMenu.Trigger>
+      <BaseContextMenu.Trigger className={className} {...triggerProps}>
+        {children}
+      </BaseContextMenu.Trigger>
       <BaseContextMenu.Portal>
         <BaseContextMenu.Positioner className="z-popup-positioner">
           <BaseContextMenu.Popup className="z-popup" data-shortcut-scope="menu">

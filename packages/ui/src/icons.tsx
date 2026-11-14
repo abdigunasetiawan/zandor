@@ -2,12 +2,17 @@
 // komponen pemakai tidak berubah. Ukuran mengikuti token (--z-icon-*); dekoratif → aria-hidden.
 // Ikon TIPE FILE (.ts, .md, folder, ...) bukan dari sini: memakai Material Icon Theme (lihat file-icons).
 import {
+  Activity,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
+  Bookmark,
   Brain,
   Check,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Clock,
   Code,
   Copy,
@@ -16,15 +21,24 @@ import {
   ExternalLink,
   Eye,
   File,
+  FileDiff,
+  FilePlus,
+  Files,
   FileText,
   Folder,
   FolderOpen,
+  FolderPlus,
   GitBranch,
   Globe,
+  GripVertical,
+  Image,
+  ImageDown,
   Info,
+  Link2,
   List,
   type LucideIcon,
   MessageSquare,
+  Mic,
   Minus,
   PanelLeft,
   PanelRight,
@@ -36,6 +50,7 @@ import {
   Save,
   Search,
   Settings,
+  Shield,
   Square,
   Terminal,
   Trash2,
@@ -93,6 +108,14 @@ export const SaveIcon = icon(Save, "SaveIcon");
 export const FolderIcon = icon(Folder, "FolderIcon");
 export const FolderOpenIcon = icon(FolderOpen, "FolderOpenIcon");
 export const FileIcon = icon(File, "FileIcon");
+export const DiffIcon = icon(FileDiff, "DiffIcon");
+export const FilesIcon = icon(Files, "FilesIcon");
+export const ActivityIcon = icon(Activity, "ActivityIcon");
+export const GripIcon = icon(GripVertical, "GripIcon");
+export const FilePlusIcon = icon(FilePlus, "FilePlusIcon");
+export const FolderPlusIcon = icon(FolderPlus, "FolderPlusIcon");
+export const CollapseAllIcon = icon(ChevronsDownUp, "CollapseAllIcon");
+export const ExpandAllIcon = icon(ChevronsUpDown, "ExpandAllIcon");
 export const MoreIcon = icon(Ellipsis, "MoreIcon");
 export const RefreshIcon = icon(RotateCw, "RefreshIcon");
 export const ChatIcon = icon(MessageSquare, "ChatIcon");
@@ -107,3 +130,12 @@ export const DownloadIcon = icon(Download, "DownloadIcon");
 export const ExternalLinkIcon = icon(ExternalLink, "ExternalLinkIcon");
 export const EyeIcon = icon(Eye, "EyeIcon");
 export const WrapIcon = icon(WrapText, "WrapIcon");
+export const ArrowUpIcon = icon(ArrowUp, "ArrowUpIcon");
+export const ShieldIcon = icon(Shield, "ShieldIcon");
+export const StopIcon = icon(Square, "StopIcon");
+export const MicIcon = icon(Mic, "MicIcon");
+export const LinkIcon = icon(Link2, "LinkIcon");
+export const BookmarkIcon = icon(Bookmark, "BookmarkIcon");
+export const ImageDownIcon = icon(ImageDown, "ImageDownIcon");
+export const FileTextIcon = icon(FileText, "FileTextIcon");
+export const ImageIcon = icon(Image, "ImageIcon");
