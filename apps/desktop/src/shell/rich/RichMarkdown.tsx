@@ -7,8 +7,8 @@ import dockerfile from "highlight.js/lib/languages/dockerfile";
 import powershell from "highlight.js/lib/languages/powershell";
 import "katex/dist/katex.min.css";
 import { common } from "lowlight";
-import { type ReactNode, useState } from "react";
-import ReactMarkdown from "react-markdown";
+import { createContext, type ReactNode, useContext, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
@@ -56,53 +56,62 @@ function CodeBlock({ lang, raw, children }: { lang: string | null; raw: string; 
   );
 }
 
+/** Status streaming lewat konteks: objek `components` harus stabil (identitas tetap), jika tidak React me-remount seluruh blok
+ * kode/Mermaid pada setiap render dan state (ciut/lebar, diagram) hilang. */
+const StreamingContext = createContext(false);
+
+function Pre({ node, children }: { node?: unknown; children?: ReactNode }) {
+  const streaming = useContext(StreamingContext);
+  const code = (node as HastNode | undefined)?.children?.[0] as
+    | (HastNode & { properties?: { className?: string[] } })
+    | undefined;
+  const lang = code?.properties?.className?.find((c) => c.startsWith("language-"))?.slice("language-".length) ?? null;
+  const raw = hastText(code).replace(/\n$/, "");
+  // blok kode ("pre > code"): Mermaid dirender, sisanya blok berwarna dengan tombol salin
+  if (lang === "mermaid") return <Mermaid code={raw} streaming={streaming} />;
+  return (
+    <CodeBlock lang={lang} raw={raw}>
+      {children}
+    </CodeBlock>
+  );
+}
+
+const COMPONENTS: Components = {
+  a: ({ href, children }) =>
+    href && SAFE_LINK.test(href) ? (
+      <a href={href} target="_blank" rel="noreferrer noopener">
+        {children}
+      </a>
+    ) : (
+      <span>{children}</span>
+    ),
+  img: ({ alt }) => <span className="md__img">{alt ?? ""}</span>,
+  table: ({ children }) => (
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: area gulir harus bisa difokus agar tabel lebar bisa digulir dengan keyboard
+    <section className="md__table" tabIndex={0} aria-label="tabel">
+      <table>{children}</table>
+    </section>
+  ),
+  pre: Pre,
+};
+
+const REMARK = [remarkGfm, remarkMath];
+const REHYPE = [
+  [rehypeKatex, { throwOnError: false, strict: "ignore" }],
+  [
+    rehypeHighlight,
+    { languages: LANGUAGES, detect: false, ignoreMissing: true, plainText: ["mermaid", "text", "txt"] },
+  ],
+] as never;
+
 export default function RichMarkdown({ text, streaming = false }: { text: string; streaming?: boolean }) {
   return (
-    <div className="md">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[
-          [rehypeKatex, { throwOnError: false, strict: "ignore" }],
-          [
-            rehypeHighlight,
-            { languages: LANGUAGES, detect: false, ignoreMissing: true, plainText: ["mermaid", "text", "txt"] },
-          ],
-        ]}
-        components={{
-          a: ({ href, children }) =>
-            href && SAFE_LINK.test(href) ? (
-              <a href={href} target="_blank" rel="noreferrer noopener">
-                {children}
-              </a>
-            ) : (
-              <span>{children}</span>
-            ),
-          img: ({ alt }) => <span className="md__img">{alt ?? ""}</span>,
-          table: ({ children }) => (
-            // biome-ignore lint/a11y/noNoninteractiveTabindex: area gulir harus bisa difokus agar tabel lebar bisa digulir dengan keyboard
-            <section className="md__table" tabIndex={0} aria-label="tabel">
-              <table>{children}</table>
-            </section>
-          ),
-          // blok kode ("pre > code"): Mermaid dirender, sisanya blok berwarna dengan tombol salin
-          pre: ({ node, children }) => {
-            const code = (node as HastNode | undefined)?.children?.[0] as
-              | (HastNode & { properties?: { className?: string[] } })
-              | undefined;
-            const lang =
-              code?.properties?.className?.find((c) => c.startsWith("language-"))?.slice("language-".length) ?? null;
-            const raw = hastText(code).replace(/\n$/, "");
-            if (lang === "mermaid") return <Mermaid code={raw} streaming={streaming} />;
-            return (
-              <CodeBlock lang={lang} raw={raw}>
-                {children}
-              </CodeBlock>
-            );
-          },
-        }}
-      >
-        {text}
-      </ReactMarkdown>
-    </div>
+    <StreamingContext.Provider value={streaming}>
+      <div className="md">
+        <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={COMPONENTS}>
+          {text}
+        </ReactMarkdown>
+      </div>
+    </StreamingContext.Provider>
   );
 }
