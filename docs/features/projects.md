@@ -35,7 +35,7 @@ Diurutkan terbaru dulu. Judul bawaan engine tampil sebagai "Sesi tanpa judul". P
 
 ## Batasan (jujur)
 
-- UI gaya/warna project ada (ADR-051). Remote engine belum (Fase 11). Single-instance: instans kedua langsung keluar dan memunculkan jendela yang sudah berjalan (`tauri-plugin-single-instance`, ADR-057); belum diuji di aplikasi terpaket. Hanya Windows.
+- UI gaya/warna project ada (ADR-051). Remote engine belum (Fase 11). Single-instance: instans kedua langsung keluar dan memunculkan jendela yang sudah berjalan (`tauri-plugin-single-instance`, ADR-057); terbukti di build debug: instans kedua keluar sendiri dan hanya satu proses yang tersisa. Hanya Windows.
 
 ## Cara test
 

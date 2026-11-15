@@ -226,7 +226,7 @@ try {
   check("engine opencode siap (supervisor + plugin guard)", true, (await status.textContent())?.trim());
   // 1b1) Panel 3 (Fase 7): berkas project dibaca lewat Rust (fs_read), dirender, dan akses di luar project ditolak.
   await page.getByRole("button", { name: docProject, exact: true }).first().click();
-  await page.getByRole("tab", { name: "Files" }).click();
+  await page.getByRole("tab", { name: "Berkas", exact: true }).click();
   const docsPanel = page.getByRole("region", { name: "Dokumen", exact: true });
   await page.locator('.tree__file[title="README.md"]').click();
   await docsPanel.getByRole("heading", { name: "Judul Dokumen" }).waitFor({ timeout: 30000 });
@@ -338,7 +338,7 @@ try {
     Object.values(denied).every((v) => v !== "DIBACA"),
     JSON.stringify(denied).slice(0, 160),
   );
-  await page.getByRole("tab", { name: "Sesi", exact: true }).click();
+  await page.getByRole("tab", { name: "Chat", exact: true }).click();
   await page.evaluate(() => {
     window.location.hash = "";
   });
@@ -366,7 +366,7 @@ try {
   check("Panel 4: perintah dijalankan di folder project (cwd mengikuti project)", true);
   await toolsPanel.getByRole("button", { name: /^Tutup terminal/ }).click();
 
-  await toolsPanel.getByRole("tab", { name: "Git", exact: true }).click();
+  await page.getByRole("navigation", { name: "Rel alat" }).getByRole("button", { name: "Git", exact: true }).click();
   await toolsPanel.getByTestId("git-branch").getByText("main").waitFor({ timeout: 20000 });
   await toolsPanel.getByRole("button", { name: "Lihat perubahan README.md" }).waitFor({ timeout: 10000 });
   await toolsPanel.getByRole("button", { name: "Lihat perubahan baru.txt" }).waitFor({ timeout: 10000 });
@@ -399,7 +399,10 @@ try {
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const serverPort = (server.address() as AddressInfo).port;
   try {
-    await toolsPanel.getByRole("tab", { name: "Browser", exact: true }).click();
+    await page
+      .getByRole("navigation", { name: "Rel alat" })
+      .getByRole("button", { name: "Browser", exact: true })
+      .click();
     const addr = toolsPanel.getByRole("textbox", { name: "Alamat (URL)" });
     await addr.waitFor({ timeout: 10000 });
     await waitFor(
@@ -471,6 +474,17 @@ try {
         .filter((p) => p.url().startsWith(`http://127.0.0.1:${serverPort}`)) ?? [];
     await toolsPanel.getByRole("button", { name: "Tab browser baru" }).click();
     await toolsPanel.getByRole("button", { name: "Tutup tab Tab baru" }).waitFor({ timeout: 10000 });
+    // webview tab baru dibuat async: tunggu sampai ada dua webview browser sebelum menavigasi
+    await waitFor(
+      "webview tab baru dibuat",
+      async () =>
+        browser
+          ?.contexts()
+          .flatMap((c) => c.pages())
+          .filter((p) => !p.url().startsWith("http://tauri.localhost")).length ?? 0,
+      (n) => n >= 2,
+      20000,
+    );
     await addr.fill(`http://127.0.0.1:${serverPort}/dua`);
     await addr.press("Enter");
     const second = await waitFor(
@@ -498,12 +512,15 @@ try {
   } finally {
     server.close();
   }
-  await toolsPanel.getByRole("tab", { name: "Terminal", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Rel alat" })
+    .getByRole("button", { name: "Terminal", exact: true })
+    .click();
 
   // 1b1c) PRD §13 butir 4: minimal 3 project dan 10 sesi tanpa crash (engine nyata).
   const pageErrors: string[] = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
-  await page.getByRole("tab", { name: "Sesi", exact: true }).click();
+  await page.getByRole("tab", { name: "Chat", exact: true }).click();
   const groups: Array<[string, number]> = [
     [docProject, 4],
     [basename(extraDirs[0] as string), 3],

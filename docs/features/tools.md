@@ -31,7 +31,7 @@
 - URL yang diminta bagian lain aplikasi (mis. "Buka di browser" di pratinjau HTML) dibuka di tab aktif. Perintah Rust menerima
   `tab` opsional (tanpa `tab` = label lama `browser`); id tab divalidasi.
 - Tes: vitest `browser-tabs.test.ts` (state tab), cargo `tab_ids_become_safe_webview_labels`, smoke native (dua tab = dua
-  webview, tutup tab membuang webview). Smoke native yang baru belum dijalankan.
+  webview, tutup tab membuang webview). Smoke native (15-11-2026, build debug): tab kedua memuat halamannya sendiri, dua tab = dua webview, menutup tab membuang webview-nya — lulus. Catatan: langkah smoke sesudah Panel 4 (3 project/10 sesi dan seterusnya) basi terhadap UI baru (layar sapaan sesi baru tidak punya `role=log`) dan perlu diperbarui terpisah.
 
 ## Belum / terbatas
 
