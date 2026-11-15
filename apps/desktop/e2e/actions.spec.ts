@@ -72,8 +72,8 @@ test("simpan ke catatan: global dan sesi, dengan konfirmasi", async ({ page }) =
   await page.getByRole("menuitem", { name: "Catatan global" }).click();
   await expect(page.getByText("Disimpan ke Catatan global")).toBeVisible();
   await msg.getByRole("button", { name: "Simpan ke catatan" }).click();
-  await page.getByRole("menuitem", { name: "Catatan sesi" }).click();
-  await expect(page.getByText("Disimpan ke Catatan sesi")).toBeVisible();
+  await page.getByRole("menuitem", { name: "Sematkan ke konteks sesi" }).click();
+  await expect(page.getByText("Disimpan ke Sematkan ke konteks sesi")).toBeVisible();
   // sesi di luar project: tidak ada opsi "Catatan project"
   await msg.getByRole("button", { name: "Simpan ke catatan" }).click();
   await expect(page.getByRole("menuitem", { name: "Catatan project" })).toHaveCount(0);

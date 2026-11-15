@@ -200,6 +200,93 @@ describe("GitStore", () => {
   });
 });
 
+describe("GitStore: push, pull, stash, discard", () => {
+  const repo: GitStatus = {
+    isRepo: true,
+    branch: "main",
+    upstream: "origin/main",
+    ahead: 1,
+    behind: 0,
+    detached: false,
+    files: [f("a.txt", " ", "M")],
+  };
+  function host(extra: Partial<GitHost> = {}) {
+    const calls: string[] = [];
+    let stashes = 0;
+    const h: GitHost = {
+      available: true,
+      status: async () => repo,
+      diff: async () => "",
+      stage: async () => {},
+      unstage: async () => {},
+      commit: async () => "abc",
+      branches: async () => [{ name: "main", current: true }],
+      switchBranch: async () => {},
+      createBranch: async () => {},
+      log: async () => [],
+      push: async (_r) => {
+        calls.push("push");
+        return "ok";
+      },
+      pull: async () => {
+        calls.push("pull");
+        return "Already up to date.";
+      },
+      stashPush: async (_r, m) => {
+        calls.push(`stash:${m}`);
+        stashes++;
+        return "";
+      },
+      stashPop: async () => {
+        calls.push("pop");
+        stashes--;
+        return "";
+      },
+      stashCount: async () => stashes,
+      discard: async (_r, p) => {
+        calls.push(`discard:${p.join(",")}`);
+      },
+      ...extra,
+    };
+    return { h, calls };
+  }
+
+  test("operasi jaringan, stash, dan discard memanggil host lalu memuat ulang status dan jumlah stash", async () => {
+    const { h, calls } = host();
+    const s = new GitStore(h);
+    await s.setRoot("C:\r");
+    expect([s.canNetwork, s.canStash, s.canDiscard]).toEqual([true, true, true]);
+    expect(await s.push()).toBe("ok");
+    expect(await s.pull()).toBe("Already up to date.");
+    await s.stashPush("");
+    expect(s.state().stashes).toBe(1);
+    await s.stashPop();
+    expect(s.state().stashes).toBe(0);
+    await s.discard(["a.txt"]);
+    expect(calls).toEqual(["push", "pull", "stash:", "pop", "discard:a.txt"]);
+  });
+
+  test("galat host dilaporkan (state.error) dan dilempar; host tanpa dukungan menyembunyikan kemampuan", async () => {
+    const { h } = host({
+      push: async () => {
+        throw new Error("ditolak remote");
+      },
+    });
+    const s = new GitStore(h);
+    await s.setRoot("C:\r");
+    await expect(s.push()).rejects.toThrow("ditolak remote");
+    expect(s.state().error).toBe("ditolak remote");
+    expect(s.state().busy).toBe(false);
+
+    const { push: _p, pull: _l, stashPush: _a, stashPop: _o, discard: _d, stashCount: _c, ...bare } = host().h;
+    const plain = new GitStore(bare);
+    await plain.setRoot("C:\r");
+    expect([plain.canNetwork, plain.canStash, plain.canDiscard]).toEqual([false, false, false]);
+    await expect(plain.discard(["a"])).rejects.toThrow(/tidak tersedia/);
+    expect(plain.state().stashes).toBe(0);
+  });
+});
+
 describe("sessionUsage", () => {
   const msg = (over: Partial<ChatMessage["info"]>, parts: ChatMessage["parts"] = []): ChatMessage => ({
     info: { id: "m", sessionID: "s", role: "assistant", time: { created: 1000, completed: 3000 }, ...over },

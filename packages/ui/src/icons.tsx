@@ -3,6 +3,7 @@
 // Ikon TIPE FILE (.ts, .md, folder, ...) bukan dari sini: memakai Material Icon Theme (lihat file-icons).
 import {
   Activity,
+  Archive,
   ArrowLeft,
   ArrowRight,
   ArrowUp,
@@ -128,6 +129,7 @@ export const RefreshIcon = icon(RotateCw, "RefreshIcon");
 export const ChatIcon = icon(MessageSquare, "ChatIcon");
 export const CopyIcon = icon(Copy, "CopyIcon");
 export const UndoIcon = icon(Undo2, "UndoIcon");
+export const ArchiveIcon = icon(Archive, "ArchiveIcon");
 export const PaperclipIcon = icon(Paperclip, "PaperclipIcon");
 export const PinIcon = icon(Pin, "PinIcon");
 export const TrashIcon = icon(Trash2, "TrashIcon");

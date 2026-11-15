@@ -111,6 +111,6 @@
 - [x] Browser child webview (http/https, bounds mengikuti panel, sembunyi saat overlay, tanpa IPC untuk konten remote)
 - [x] Info sesi (token, konteks, biaya bila dilaporkan, tool call) dan Log aktivitas (ring buffer, filter)
 - [x] Tes: 466 unit, 95 e2e, 45 Rust, smoke native 30/30 (terminal & git nyata, browser, isolasi IPC)
-- [ ] Belum: airspace diuji otomatis, tab browser, Git lanjutan (push/pull/stash/discard), Git Bash di terminal
+- [ ] Belum: airspace diuji otomatis, tab browser, Git Bash di terminal (Git push/pull/stash/discard sudah ada, ADR-057)
 - [x] Audit PRD §13: 5/5 terpenuhi; smoke native 40/40 dengan model nyata (chat, tulis file, bash, webfetch + izin; 3 project/10 sesi)
 - Temuan: perintah Tauri yang membuat webview wajib `async` (jika tidak, child webview macet di about:blank).

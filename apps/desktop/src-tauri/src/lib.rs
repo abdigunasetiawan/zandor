@@ -763,6 +763,51 @@ async fn git_blocking<T: Send + 'static>(
 }
 
 #[tauri::command]
+async fn git_push(app: tauri::AppHandle, root: String) -> Result<String, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::push(&dir)).await
+}
+
+#[tauri::command]
+async fn git_pull(app: tauri::AppHandle, root: String) -> Result<String, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::pull(&dir)).await
+}
+
+#[tauri::command]
+async fn git_stash_push(
+    app: tauri::AppHandle,
+    root: String,
+    message: String,
+) -> Result<String, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::stash_push(&dir, &message)).await
+}
+
+#[tauri::command]
+async fn git_stash_pop(app: tauri::AppHandle, root: String) -> Result<String, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::stash_pop(&dir)).await
+}
+
+#[tauri::command]
+async fn git_stash_count(app: tauri::AppHandle, root: String) -> Result<usize, String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::stash_count(&dir)).await
+}
+
+/// Destruktif: UI wajib sudah meminta konfirmasi.
+#[tauri::command]
+async fn git_discard(
+    app: tauri::AppHandle,
+    root: String,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    let dir = git_dir(&app, &root)?;
+    git_blocking(move || git::discard(&dir, &paths)).await
+}
+
+#[tauri::command]
 async fn git_status(app: tauri::AppHandle, root: String) -> Result<git::GitStatus, String> {
     let dir = git_dir(&app, &root)?;
     git_blocking(move || git::status(&dir)).await
@@ -868,6 +913,16 @@ fn plugin_path(app: &tauri::AppHandle) -> PathBuf {
 pub fn run() {
     reset_ctrl_c_inheritance();
     let app = tauri::Builder::default()
+        // Harus plugin pertama: instans kedua langsung keluar (DB engine terkunci bila dua Zandor jalan) dan jendela
+        // instans pertama dimunculkan.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .register_uri_scheme_protocol("zpreview", |_ctx, request| preview_response(&request))
@@ -929,6 +984,12 @@ pub fn run() {
             fs_reveal,
             doc_preview_register,
             git_status,
+            git_push,
+            git_pull,
+            git_stash_push,
+            git_stash_pop,
+            git_stash_count,
+            git_discard,
             git_repos,
             git_diff,
             git_stage,

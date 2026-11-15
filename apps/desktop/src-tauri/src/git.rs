@@ -13,6 +13,8 @@ const MAX_OUTPUT: usize = 4 * 1024 * 1024;
 const MAX_DIFF: usize = 2 * 1024 * 1024;
 const T_READ: Duration = Duration::from_secs(20);
 const T_WRITE: Duration = Duration::from_secs(90);
+/// Operasi jaringan (push/pull): lebih longgar, tetap berbatas agar tidak menggantung.
+const T_NET: Duration = Duration::from_secs(180);
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -415,6 +417,104 @@ pub fn create_branch(dir: &Path, name: &str) -> Result<(), String> {
     ok(dir, &["switch", "-c", name], T_WRITE).map(|_| ())
 }
 
+/// Kirim cabang saat ini ke remote. Tanpa upstream: `push -u origin <cabang>` (hanya bila remote `origin` ada).
+/// Tidak pernah memakai `--force`. Kredensial lewat credential helper git; prompt terminal dimatikan.
+pub fn push(dir: &Path) -> Result<String, String> {
+    let has_upstream = run(
+        dir,
+        &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+        T_READ,
+        1024,
+    )?
+    .code
+        == 0;
+    let out = if has_upstream {
+        ok(dir, &["push"], T_NET)?
+    } else {
+        let branch = ok(dir, &["rev-parse", "--abbrev-ref", "HEAD"], T_READ)?;
+        let branch = String::from_utf8_lossy(&branch).trim().to_string();
+        validate_branch(dir, &branch)?;
+        let has_origin = ok(dir, &["remote"], T_READ)?
+            .split(|b| *b == b'\n')
+            .any(|l| String::from_utf8_lossy(l).trim() == "origin");
+        if !has_origin {
+            return Err("tidak ada remote \"origin\"; tambahkan remote lebih dulu".into());
+        }
+        ok(dir, &["push", "-u", "origin", &branch], T_NET)?
+    };
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
+/// Tarik perubahan remote hanya bila bisa fast-forward (tanpa merge/rebase otomatis yang bisa membuat konflik).
+pub fn pull(dir: &Path) -> Result<String, String> {
+    let out = ok(dir, &["pull", "--ff-only"], T_NET)?;
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
+/// Simpan perubahan (termasuk berkas baru) ke stash.
+pub fn stash_push(dir: &Path, message: &str) -> Result<String, String> {
+    let m = message.trim();
+    if m.len() > 500 || m.contains(' ') {
+        return Err("pesan stash tidak valid".into());
+    }
+    let mut args = vec!["stash", "push", "--include-untracked"];
+    if !m.is_empty() {
+        args.extend(["-m", m]);
+    }
+    let out = ok(dir, &args, T_WRITE)?;
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
+/// Kembalikan stash terbaru dan hapus dari daftar (`stash pop`); konflik dilaporkan apa adanya.
+pub fn stash_pop(dir: &Path) -> Result<String, String> {
+    let out = ok(dir, &["stash", "pop"], T_WRITE)?;
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
+/// Jumlah stash tersimpan.
+pub fn stash_count(dir: &Path) -> Result<usize, String> {
+    let out = ok(dir, &["stash", "list"], T_READ)?;
+    Ok(out.split(|b| *b == b'\n').filter(|l| !l.is_empty()).count())
+}
+
+/// Buang perubahan pada path: berkas terlacak dikembalikan ke HEAD (stage + worktree), berkas baru dihapus.
+/// DESTRUKTIF dan tidak bisa dibatalkan; UI wajib meminta konfirmasi.
+pub fn discard(dir: &Path, paths: &[String]) -> Result<(), String> {
+    for p in paths {
+        validate_rel(p)?;
+    }
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let has_head = run(dir, &["rev-parse", "--verify", "-q", "HEAD"], T_READ, 1024)?.code == 0;
+    let mut tracked: Vec<&str> = Vec::new();
+    let mut untracked: Vec<&str> = Vec::new();
+    for p in paths {
+        let in_index = run(dir, &["ls-files", "--error-unmatch", "--", p], T_READ, 4096)?.code == 0;
+        let in_head = has_head
+            && run(dir, &["cat-file", "-e", &format!("HEAD:{p}")], T_READ, 1024)?.code == 0;
+        if in_head {
+            tracked.push(p);
+        } else if in_index {
+            // baru di-stage (tidak ada di HEAD): keluarkan dari index lalu hapus dari disk
+            ok(dir, &["rm", "-f", "-q", "--", p], T_WRITE)?;
+        } else {
+            untracked.push(p);
+        }
+    }
+    if !tracked.is_empty() {
+        let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+        args.extend(tracked);
+        ok(dir, &args, T_WRITE)?;
+    }
+    if !untracked.is_empty() {
+        let mut args = vec!["clean", "-f", "-q", "--"];
+        args.extend(untracked);
+        ok(dir, &args, T_WRITE)?;
+    }
+    Ok(())
+}
+
 pub fn log(dir: &Path, n: usize) -> Result<Vec<CommitInfo>, String> {
     let count = format!("-{}", n.clamp(1, 100));
     let o = run(
@@ -634,5 +734,97 @@ mod tests {
         let r = run(&d, &["status"], Duration::from_millis(0), 1024);
         // bisa selesai sebelum cek pertama atau terkena batas waktu; keduanya valid, tidak boleh menggantung
         assert!(r.is_ok() || r.err().unwrap().contains("batas waktu"));
+    }
+
+    #[test]
+    fn push_pull_stash_and_discard_on_real_repos() {
+        let d = repo("net");
+        let remote = std::env::temp_dir().join(format!("zandor-git-remote-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&remote);
+        std::fs::create_dir_all(&remote).unwrap();
+        ok(&remote, &["init", "-q", "--bare", "-b", "main"], T_WRITE).unwrap();
+        std::fs::write(
+            d.join("a.txt"),
+            "satu
+",
+        )
+        .unwrap();
+        stage(&d, &["a.txt".into()]).unwrap();
+        commit(&d, "awal").unwrap();
+
+        // tanpa remote origin → galat jelas; dengan origin → push -u
+        assert!(push(&d).unwrap_err().contains("origin"));
+        let url = remote.to_string_lossy().to_string();
+        ok(&d, &["remote", "add", "origin", &url], T_WRITE).unwrap();
+        push(&d).unwrap();
+        assert_eq!(status(&d).unwrap().upstream.as_deref(), Some("origin/main"));
+
+        // klon kedua mendorong commit baru → pull fast-forward di repo pertama
+        let other = std::env::temp_dir().join(format!("zandor-git-other-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&other);
+        ok(
+            &std::env::temp_dir(),
+            &["clone", "-q", &url, &other.to_string_lossy()],
+            T_WRITE,
+        )
+        .unwrap();
+        ok(&other, &["config", "user.email", "b@zandor.test"], T_WRITE).unwrap();
+        ok(&other, &["config", "user.name", "B"], T_WRITE).unwrap();
+        ok(&other, &["config", "commit.gpgsign", "false"], T_WRITE).unwrap();
+        std::fs::write(
+            other.join("b.txt"),
+            "dari lain
+",
+        )
+        .unwrap();
+        stage(&other, &["b.txt".into()]).unwrap();
+        commit(&other, "dari klon").unwrap();
+        push(&other).unwrap();
+        ok(&d, &["fetch", "-q"], T_NET).unwrap();
+        assert_eq!(status(&d).unwrap().behind, 1);
+        pull(&d).unwrap();
+        assert!(d.join("b.txt").exists());
+
+        // stash menyimpan perubahan termasuk berkas baru, pop mengembalikannya
+        std::fs::write(
+            d.join("a.txt"),
+            "satu
+ubah
+",
+        )
+        .unwrap();
+        std::fs::write(
+            d.join("baru.txt"),
+            "x
+",
+        )
+        .unwrap();
+        assert_eq!(stash_count(&d).unwrap(), 0);
+        stash_push(&d, "uji").unwrap();
+        assert_eq!(stash_count(&d).unwrap(), 1);
+        assert!(!d.join("baru.txt").exists());
+        stash_pop(&d).unwrap();
+        assert!(d.join("baru.txt").exists());
+        assert_eq!(stash_count(&d).unwrap(), 0);
+
+        // discard: terlacak kembali ke HEAD, baru di-stage dihapus, tak terlacak dihapus
+        stage(&d, &["baru.txt".into()]).unwrap();
+        std::fs::write(
+            d.join("liar.txt"),
+            "y
+",
+        )
+        .unwrap();
+        discard(&d, &["a.txt".into(), "baru.txt".into(), "liar.txt".into()]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(d.join("a.txt"))
+                .unwrap()
+                .replace("\r\n", "\n"),
+            "satu\n"
+        );
+        assert!(!d.join("baru.txt").exists());
+        assert!(!d.join("liar.txt").exists());
+        assert!(status(&d).unwrap().files.is_empty());
+        assert!(discard(&d, &["../luar".into()]).is_err());
     }
 }

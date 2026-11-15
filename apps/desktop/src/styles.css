@@ -1918,6 +1918,11 @@
   font-family: var(--z-font-code);
   font-weight: 600;
 }
+.gitp__sync {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--z-space-2);
+}
 .gitp__select {
   max-width: 10rem;
 }

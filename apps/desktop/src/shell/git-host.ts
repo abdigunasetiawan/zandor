@@ -44,6 +44,14 @@ export async function loadGitHost(): Promise<GitHost> {
       await invoke("git_create_branch", { root, name });
     },
     log: (root, count) => invoke<CommitInfo[]>("git_log", { root, count }),
+    push: (root) => invoke<string>("git_push", { root }),
+    pull: (root) => invoke<string>("git_pull", { root }),
+    stashPush: (root, message) => invoke<string>("git_stash_push", { root, message }),
+    stashPop: (root) => invoke<string>("git_stash_pop", { root }),
+    stashCount: (root) => invoke<number>("git_stash_count", { root }),
+    async discard(root, paths) {
+      await invoke("git_discard", { root, paths });
+    },
     repos: (root) => invoke<string[]>("git_repos", { root }),
   };
 }

@@ -34,6 +34,6 @@ Smoke native menyentuh data memori asli (settings, `global.md`, antrean) dan mem
 - Kualitas skill dan kapan model memanggil `skill_propose` bergantung pada model; yang terbukti: mekanismenya dengan model
   tiruan, dan memori global dengan model nyata (`opencode/deepseek-v4.1-flash-free`; model smoke bawaan kini DeepSeek karena upstream Antigravity/Gemini tidak stabil — Gemini 3.8 Flash (High) tetap bisa dipilih lewat `ZANDOR_SMOKE_MODEL`).
 - Pemicu skill dengan model nyata (koreksi → draf sungguhan) belum diuji di aplikasi asli.
-- Belum: adapter Hindsight/Graphify, opt-in di dialog "Tambah project", tombol "Sematkan ke konteks" di chat (sematan hanya bisa
-  diedit/dihapus di tab Memori bila berkas `pins/<sesi>.md` sudah ada; UI belum bisa membuatnya), memori di mesin remote (Fase 11).
+- Belum: adapter Hindsight/Graphify, opt-in di dialog "Tambah project", memori di mesin remote (Fase 11).
+- Sematkan ke konteks: menu "Simpan ke catatan" pada pesan (chat) punya item **Sematkan ke konteks sesi** yang menambahkan isi ke `pins/<sesi>.md` (tahan kompaksi); bisa diedit/dihapus di tab Memori. Secret dipindai dan ditolak.
 - Antrean ditulis ulang utuh oleh UI (dibaca ulang tepat sebelum menulis); balapan dengan plugin sangat kecil tetapi mungkin.

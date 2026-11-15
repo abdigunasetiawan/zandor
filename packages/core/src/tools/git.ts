@@ -26,6 +26,15 @@ export interface GitHost {
   switchBranch(root: string, name: string): Promise<void>;
   createBranch(root: string, name: string): Promise<void>;
   log(root: string, count: number): Promise<CommitInfo[]>;
+  /** Jaringan: kirim cabang (tanpa force) / tarik fast-forward saja. Opsional: host tanpa ini menyembunyikan tombolnya. */
+  push?(root: string): Promise<string>;
+  pull?(root: string): Promise<string>;
+  /** Stash perubahan (termasuk berkas baru) / kembalikan stash terbaru / jumlah stash. */
+  stashPush?(root: string, message: string): Promise<string>;
+  stashPop?(root: string): Promise<string>;
+  stashCount?(root: string): Promise<number>;
+  /** DESTRUKTIF: buang perubahan pada path (terlacak → HEAD, baru → dihapus). UI wajib konfirmasi. */
+  discard?(root: string, paths: string[]): Promise<void>;
   /** Repo git di anak folder `root` (monorepo yang akarnya bukan repo). Opsional: tanpa ini hanya akar yang diperiksa. */
   repos?(root: string): Promise<string[]>;
 }
@@ -42,6 +51,8 @@ export type GitState = {
   status: GitStatus | null;
   branches: Branch[];
   log: CommitInfo[];
+  /** Jumlah stash tersimpan (0 bila host tidak mendukung). */
+  stashes: number;
   diff: DiffView | null;
   loading: boolean;
   /** Aksi (stage/commit/…) sedang berjalan. */
@@ -56,6 +67,7 @@ const INITIAL: GitState = {
   status: null,
   branches: [],
   log: [],
+  stashes: 0,
   diff: null,
   loading: false,
   busy: false,
@@ -151,17 +163,27 @@ export class GitStore {
           status = await this.host.status(pick);
         }
       }
-      const [branches, log] = status.isRepo
+      const [branches, log, stashes] = status.isRepo
         ? await Promise.all([
             this.host.branches(activeRoot).catch(() => []),
             this.host.log(activeRoot, 15).catch(() => []),
+            this.host.stashCount?.(activeRoot).catch(() => 0) ?? 0,
           ])
-        : [[], []];
+        : [[], [], 0];
       if (n !== this.seq || (root !== this.snap.root && root !== this.snap.projectRoot)) return;
       // diff yang dibuka tetap ditampilkan hanya bila berkasnya masih berubah
       const d = this.snap.diff;
       const stillThere = d && status.files.some((f) => f.path === d.path);
-      this.update({ root: activeRoot, repos, status, branches, log, loading: false, diff: stillThere ? d : null });
+      this.update({
+        root: activeRoot,
+        repos,
+        status,
+        branches,
+        log,
+        stashes,
+        loading: false,
+        diff: stillThere ? d : null,
+      });
     } catch (e) {
       if (n !== this.seq) return;
       this.update({ loading: false, error: errMsg(e) });
@@ -201,6 +223,58 @@ export class GitStore {
 
   switchBranch(name: string) {
     return this.act((r) => this.host.switchBranch(r, name));
+  }
+
+  /** Kemampuan opsional host (untuk menyembunyikan tombol yang tidak didukung). */
+  get canNetwork(): boolean {
+    return !!this.host.push && !!this.host.pull;
+  }
+  get canStash(): boolean {
+    return !!this.host.stashPush && !!this.host.stashPop;
+  }
+  get canDiscard(): boolean {
+    return !!this.host.discard;
+  }
+
+  private need<K extends "push" | "pull" | "stashPush" | "stashPop" | "discard">(k: K): NonNullable<GitHost[K]> {
+    const fn = this.host[k];
+    if (!fn) throw new Error("operasi ini tidak tersedia di lingkungan ini");
+    return fn.bind(this.host) as NonNullable<GitHost[K]>;
+  }
+
+  /** Mengembalikan keluaran git (ringkas) untuk ditampilkan. */
+  async push(): Promise<string> {
+    const fn = this.need("push");
+    let out = "";
+    await this.act(async (r) => {
+      out = await fn(r);
+    });
+    return out;
+  }
+
+  async pull(): Promise<string> {
+    const fn = this.need("pull");
+    let out = "";
+    await this.act(async (r) => {
+      out = await fn(r);
+    });
+    return out;
+  }
+
+  async stashPush(message: string): Promise<void> {
+    const fn = this.need("stashPush");
+    return this.act((r) => fn(r, message));
+  }
+
+  async stashPop(): Promise<void> {
+    const fn = this.need("stashPop");
+    return this.act((r) => fn(r));
+  }
+
+  /** DESTRUKTIF. Pemanggil (UI) wajib sudah meminta konfirmasi. */
+  async discard(paths: string[]): Promise<void> {
+    const fn = this.need("discard");
+    return this.act((r) => fn(r, paths));
   }
 
   createBranch(name: string) {

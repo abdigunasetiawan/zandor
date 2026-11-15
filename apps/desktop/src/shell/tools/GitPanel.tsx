@@ -2,7 +2,9 @@
 import { CHAT_KEY, type FileChange, groupChanges, isUntracked } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
+  ArchiveIcon,
   Button,
+  DownloadIcon,
   GitIcon,
   IconButton,
   Input,
@@ -11,6 +13,9 @@ import {
   Select,
   Spinner,
   Textarea,
+  UndoIcon,
+  UploadIcon,
+  useConfirm,
   useToast,
 } from "@zandor/ui";
 import { type FormEvent, useEffect, useState } from "react";
@@ -33,6 +38,7 @@ export function GitPanel() {
   const proj = useProjects();
   const g = useGit();
   const toast = useToast();
+  const confirm = useConfirm();
   const [message, setMessage] = useState("");
   const [newBranch, setNewBranch] = useState<string | null>(null);
 
@@ -104,6 +110,32 @@ export function GitPanel() {
     }
   };
 
+  const discard = async (paths: string[], label: string) => {
+    const ok = await confirm({
+      title: t("git.discardTitle", { name: label }),
+      description: t("git.discardBody"),
+      confirmLabel: t("git.discard"),
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await git.discard(paths);
+      activity.add("git", "info", `discard ${paths.length} berkas`);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  const net = async (kind: "push" | "pull") => {
+    try {
+      const out = kind === "push" ? await git.push() : await git.pull();
+      activity.add("git", "info", `${kind}: ${out || "ok"}`);
+      toast.show({ title: t(kind === "push" ? "git.pushed" : "git.pulled"), tone: "success" });
+    } catch (e) {
+      fail(e);
+    }
+  };
+
   const row = (f: FileChange, staged: boolean) => (
     <li key={`${staged ? "s" : "u"}:${f.path}`} className="gitp__file">
       <button
@@ -126,6 +158,15 @@ export function GitPanel() {
       >
         {staged ? "−" : "+"}
       </Button>
+      {!staged && git.canDiscard && (
+        <IconButton
+          size="sm"
+          label={t("git.discardFile", { name: f.path })}
+          icon={<UndoIcon />}
+          disabled={g.busy}
+          onClick={() => void discard([f.path], f.path)}
+        />
+      )}
     </li>
   );
 
@@ -177,6 +218,33 @@ export function GitPanel() {
           onClick={() => setNewBranch(newBranch === null ? "" : null)}
         />
       </div>
+      {(git.canNetwork || git.canStash) && (
+        <div className="gitp__sync" role="toolbar" aria-label={t("git.sync")}>
+          {git.canNetwork && (
+            <>
+              <Button size="sm" disabled={g.busy || !st.upstream} onClick={() => void net("pull")}>
+                <DownloadIcon size="sm" /> {t("git.pull")}
+                {st.behind > 0 && <span className="z-small"> ↓{st.behind}</span>}
+              </Button>
+              <Button size="sm" disabled={g.busy} onClick={() => void net("push")}>
+                <UploadIcon size="sm" /> {t("git.push")}
+                {st.ahead > 0 && <span className="z-small"> ↑{st.ahead}</span>}
+              </Button>
+            </>
+          )}
+          {git.canStash && (
+            <>
+              <Button size="sm" disabled={g.busy || st.files.length === 0} onClick={() => void run(git.stashPush(""))}>
+                <ArchiveIcon size="sm" /> {t("git.stash")}
+              </Button>
+              <Button size="sm" disabled={g.busy || g.stashes === 0} onClick={() => void run(git.stashPop())}>
+                {t("git.stashPop")}
+                {g.stashes > 0 && <span className="z-small"> ({g.stashes})</span>}
+              </Button>
+            </>
+          )}
+        </div>
+      )}
       {newBranch !== null && (
         <form
           className="pform__row"
@@ -227,6 +295,21 @@ export function GitPanel() {
             <Button size="sm" disabled={g.busy} onClick={() => void run(git.stage(groups.unstaged.map((f) => f.path)))}>
               {t("git.stageAll")}
             </Button>
+            {git.canDiscard && (
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={g.busy}
+                onClick={() =>
+                  void discard(
+                    groups.unstaged.map((f) => f.path),
+                    t("git.discardAllName", { n: groups.unstaged.length }),
+                  )
+                }
+              >
+                {t("git.discardAll")}
+              </Button>
+            )}
           </h3>
           <ul className="gitp__list">{groups.unstaged.map((f) => row(f, false))}</ul>
         </section>

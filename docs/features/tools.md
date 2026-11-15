@@ -15,9 +15,16 @@
   dilaporkan, panggilan tool per jenis, waktu kerja, ID sesi.
 - **Log aktivitas:** tool call, izin, retry, galat, status engine, warn/error aplikasi; filter sumber; bersihkan.
 
+## Git: push, pull, stash, discard (ADR-057)
+
+- **Push** (tanpa `--force`; tanpa upstream memakai `push -u origin <cabang>` hanya bila remote `origin` ada) dan **Pull** (`--ff-only`: tidak pernah membuat merge/rebase otomatis; bila tidak bisa fast-forward, galat git ditampilkan). Prompt kredensial terminal dimatikan (`GIT_TERMINAL_PROMPT=0`), jadi remote yang butuh login harus lewat credential helper git; kegagalan ditampilkan apa adanya.
+- **Stash** (termasuk berkas baru) dan **Pop stash** dengan jumlah stash.
+- **Buang perubahan** per berkas atau semua perubahan belum di-stage, selalu dengan konfirmasi (destruktif): berkas terlacak kembali ke HEAD, berkas baru dihapus.
+- Tombol disembunyikan bila host tidak mendukung. Tes: cargo `push_pull_stash_and_discard_on_real_repos`, vitest `GitStore: push, pull, stash, discard`.
+
 ## Belum / terbatas
 
-Tab di browser, discard/stash/push/pull di Git, Git Bash/WSL di terminal belum diuji, airspace belum diuji otomatis,
+Tab di browser dan Git Bash/WSL di terminal belum ada; push/pull/stash/discard di Git baru lulus tes Rust (repo nyata + remote bare lokal) dan belum dicoba di aplikasi Tauri atau ke remote sungguhan (butuh credential helper), airspace belum diuji otomatis,
 login Google di browser belum diuji ulang.
 
 ## Cara test
