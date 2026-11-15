@@ -22,9 +22,20 @@
 - **Buang perubahan** per berkas atau semua perubahan belum di-stage, selalu dengan konfirmasi (destruktif): berkas terlacak kembali ke HEAD, berkas baru dihapus.
 - Tombol disembunyikan bila host tidak mendukung. Tes: cargo `push_pull_stash_and_discard_on_real_repos`, vitest `GitStore: push, pull, stash, discard`.
 
+## Tab browser (ADR-058)
+
+- Browser Panel 4 punya **tab**: satu child webview native per tab (label `browser-<id>`), maksimal 8. Hanya tab aktif yang
+  tampil (Rust menyembunyikan yang lain saat tab dibuka); menutup tab menutup webview-nya (membebaskan memori); menutup tab
+  terakhir membuat satu tab kosong baru. Judul tab = host URL (tanpa `www.`), "Tab baru" sebelum dimuat.
+- Daftar tab bertahan saat berpindah tab alat, **tidak** dipulihkan setelah aplikasi ditutup (webview tidak persisten).
+- URL yang diminta bagian lain aplikasi (mis. "Buka di browser" di pratinjau HTML) dibuka di tab aktif. Perintah Rust menerima
+  `tab` opsional (tanpa `tab` = label lama `browser`); id tab divalidasi.
+- Tes: vitest `browser-tabs.test.ts` (state tab), cargo `tab_ids_become_safe_webview_labels`, smoke native (dua tab = dua
+  webview, tutup tab membuang webview). Smoke native yang baru belum dijalankan.
+
 ## Belum / terbatas
 
-Tab di browser dan Git Bash/WSL di terminal belum ada; push/pull/stash/discard di Git baru lulus tes Rust (repo nyata + remote bare lokal) dan belum dicoba di aplikasi Tauri atau ke remote sungguhan (butuh credential helper), airspace belum diuji otomatis,
+Git Bash/WSL di terminal belum ada; push/pull/stash/discard di Git baru lulus tes Rust (repo nyata + remote bare lokal) dan belum dicoba di aplikasi Tauri atau ke remote sungguhan (butuh credential helper), airspace belum diuji otomatis,
 login Google di browser belum diuji ulang.
 
 ## Cara test

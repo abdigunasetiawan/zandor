@@ -1,8 +1,29 @@
-// Panel 4 — Browser: child webview native (ADR-020). Webview anak berada DI ATAS UI, jadi diposisikan mengikuti elemen
-// pemandu dan disembunyikan saat ada overlay UI (dialog/menu/palet) agar tidak menutupinya. Konten remote tidak punya IPC.
-import { normalizeBrowserUrl } from "@zandor/core";
+// Panel 4 — Browser: child webview native (ADR-020), satu webview per tab (ADR-058). Webview anak berada DI ATAS UI, jadi
+// hanya tab aktif yang tampil, diposisikan mengikuti elemen pemandu, dan disembunyikan saat ada overlay UI
+// (dialog/menu/palet) agar tidak menutupinya. Konten remote tidak punya IPC.
+import {
+  addBrowserTab,
+  type BrowserTabs,
+  browserTabLabel,
+  closeBrowserTab,
+  initialBrowserTabs,
+  MAX_BROWSER_TABS,
+  normalizeBrowserUrl,
+  selectBrowserTab,
+  setBrowserTabUrl,
+} from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { ArrowLeftIcon, ArrowRightIcon, ExternalLinkIcon, IconButton, Input, RefreshIcon, useToast } from "@zandor/ui";
+import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  CloseIcon,
+  ExternalLinkIcon,
+  IconButton,
+  Input,
+  PlusIcon,
+  RefreshIcon,
+  useToast,
+} from "@zandor/ui";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { BROWSER_OPEN_EVENT, takePendingBrowserUrl } from "./browser-bridge";
 import { ToolNotice } from "./ToolNotice";
@@ -10,9 +31,9 @@ import { ToolNotice } from "./ToolNotice";
 type Core = typeof import("@tauri-apps/api/core");
 type Mode = "checking" | "native" | "system" | "none";
 
-// Bertahan antar pemasangan ulang panel (ganti tab alat): webview tidak dibuat ulang dan URL terakhir diingat.
-let created = false;
-let lastUrl = "";
+// Bertahan antar pemasangan ulang panel (ganti tab alat): webview tidak dibuat ulang dan daftar tab diingat.
+let store: BrowserTabs = initialBrowserTabs();
+const created = new Set<string>();
 
 const OVERLAY =
   '[data-shortcut-scope="modal"],[data-shortcut-scope="menu"],[data-shortcut-scope="palette"],[role="alertdialog"],.z-backdrop,.z-popup,.z-toast';
@@ -23,9 +44,18 @@ export function BrowserPanel() {
   const host = useRef<HTMLDivElement>(null);
   const core = useRef<Core | null>(null);
   const [mode, setMode] = useState<Mode>("checking");
-  const [input, setInput] = useState(lastUrl);
+  const [tabs, setTabsState] = useState<BrowserTabs>(store);
+  const activeTab = tabs.tabs.find((x) => x.id === tabs.active);
+  const [input, setInput] = useState(activeTab?.url ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeRef = useRef(tabs.active);
+  activeRef.current = tabs.active;
+
+  const setTabs = useCallback((next: BrowserTabs) => {
+    store = next;
+    setTabsState(next);
+  }, []);
 
   const call = useCallback(async (cmd: string, args?: Record<string, unknown>) => {
     const c = core.current;
@@ -61,7 +91,31 @@ export function BrowserPanel() {
     };
   }, []);
 
-  // buka/posisikan webview native
+  // tampilkan/buat webview tab aktif (tab lain disembunyikan oleh Rust)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hanya mode dan tab aktif yang relevan
+  useEffect(() => {
+    if (mode !== "native") return;
+    const id = tabs.active;
+    const tab = store.tabs.find((x) => x.id === id);
+    setInput(tab?.url ?? "");
+    setError(null);
+    const b0 = bounds();
+    if (!b0 || !tab) return;
+    let alive = true;
+    const wanted = takePendingBrowserUrl(); // URL yang diminta bagian lain aplikasi (mis. pratinjau HTML)
+    void call("browser_open", { tab: id, url: wanted ?? (created.has(id) ? null : tab.url || null), ...b0 })
+      .then(() => {
+        created.add(id);
+        const b = bounds();
+        if (b && alive) void call("browser_set_bounds", { tab: id, ...b }).catch(() => {}); // mitigasi race cold-start (ADR-020)
+      })
+      .catch((e) => alive && setError(String(e)));
+    return () => {
+      alive = false;
+    };
+  }, [mode, tabs.active]);
+
+  // posisi, overlay (airspace), URL masuk, dan peristiwa muat halaman
   // biome-ignore lint/correctness/useExhaustiveDependencies: efek dipasang sekali per mode native
   useEffect(() => {
     if (mode !== "native") return;
@@ -71,45 +125,38 @@ export function BrowserPanel() {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         const b = bounds();
-        if (b && alive) void call("browser_set_bounds", b).catch(() => {});
+        if (b && alive) void call("browser_set_bounds", { tab: activeRef.current, ...b }).catch(() => {});
       });
     };
-    const b0 = bounds();
-    if (b0) {
-      const wanted = takePendingBrowserUrl(); // URL yang diminta bagian lain aplikasi (mis. pratinjau HTML)
-      void call("browser_open", { url: wanted ?? (created ? null : lastUrl || null), ...b0 })
-        .then(() => {
-          created = true;
-          sync(); // sinkron ulang setelah dibuat (mitigasi race cold-start, ADR-020 temuan 1)
-        })
-        .catch((e) => alive && setError(String(e)));
-    }
     const ro = new ResizeObserver(sync);
     if (host.current) ro.observe(host.current);
     window.addEventListener("resize", sync);
-    // permintaan buka URL saat panel sudah terpasang
+    // permintaan buka URL saat panel sudah terpasang → tab aktif
     const onOpen = () => {
       const u = takePendingBrowserUrl();
-      if (u) void call("browser_navigate", { url: u }).catch((e) => alive && setError(String(e)));
+      if (u)
+        void call("browser_navigate", { tab: activeRef.current, url: u }).catch((e) => alive && setError(String(e)));
     };
     window.addEventListener(BROWSER_OPEN_EVENT, onOpen);
-    // overlay UI → sembunyikan webview (airspace)
+    // overlay UI → sembunyikan webview aktif (airspace)
     let hidden = false;
     const mo = new MutationObserver(() => {
       const overlay = document.querySelector(OVERLAY) !== null;
       if (overlay === hidden) return;
       hidden = overlay;
-      void call("browser_visible", { visible: !overlay }).catch(() => {});
+      void call("browser_visible", { tab: activeRef.current, visible: !overlay }).catch(() => {});
     });
     mo.observe(document.body, { childList: true, subtree: true });
     let off: (() => void) | null = null;
     void import("@tauri-apps/api/event").then(async ({ listen }) => {
-      const un = await listen<{ url: string; finished: boolean }>("browser-load", (e) => {
+      const un = await listen<{ tab: string; url: string; finished: boolean }>("browser-load", (e) => {
         if (!alive) return;
-        lastUrl = e.payload.url;
-        setInput(e.payload.url);
-        setLoading(!e.payload.finished);
-        sync();
+        setTabs(setBrowserTabUrl(store, e.payload.tab, e.payload.url));
+        if (e.payload.tab === activeRef.current) {
+          setInput(e.payload.url);
+          setLoading(!e.payload.finished);
+          sync();
+        }
       });
       if (alive) off = un;
       else un();
@@ -122,7 +169,7 @@ export function BrowserPanel() {
       window.removeEventListener("resize", sync);
       window.removeEventListener(BROWSER_OPEN_EVENT, onOpen);
       off?.();
-      void call("browser_visible", { visible: false }).catch(() => {});
+      void call("browser_visible", { tab: activeRef.current, visible: false }).catch(() => {});
     };
   }, [mode]);
 
@@ -131,8 +178,8 @@ export function BrowserPanel() {
     setError(null);
     try {
       if (mode === "native") {
-        const final = await call("browser_navigate", { url: input });
-        lastUrl = String(final);
+        const final = await call("browser_navigate", { tab: tabs.active, url: input });
+        setTabs(setBrowserTabUrl(store, tabs.active, String(final)));
       } else {
         const n = normalizeBrowserUrl(input);
         if (!n.ok) throw new Error(`${t("br.badUrl")} (${n.error})`);
@@ -144,15 +191,58 @@ export function BrowserPanel() {
     }
   };
   const history = (action: "back" | "forward" | "reload") =>
-    void call("browser_history", { action }).catch((e) => toast.show({ title: String(e), tone: "danger" }));
+    void call("browser_history", { tab: tabs.active, action }).catch((e) =>
+      toast.show({ title: String(e), tone: "danger" }),
+    );
   const external = () => {
-    const u = lastUrl || input;
+    const u = activeTab?.url || input;
     if (!/^https:\/\//i.test(u)) return;
     void call("open_external", { url: u }).catch((e) => toast.show({ title: String(e), tone: "danger" }));
+  };
+  const newTab = () => setTabs(addBrowserTab(store));
+  const closeTab = (id: string) => {
+    void call("browser_close", { tab: id }).catch(() => {});
+    created.delete(id);
+    setTabs(closeBrowserTab(store, id));
   };
 
   return (
     <div className="brw">
+      {mode === "native" && (
+        <nav className="stabs brw__tabs" aria-label={t("br.tabs")}>
+          {tabs.tabs.map((tab) => {
+            const title = browserTabLabel(tab.url) || t("br.newTab");
+            const active = tab.id === tabs.active;
+            return (
+              <div key={tab.id} className="stabs__tab" data-active={active ? "" : undefined}>
+                <button
+                  type="button"
+                  className="stabs__label"
+                  aria-current={active ? "true" : undefined}
+                  onClick={() => setTabs(selectBrowserTab(store, tab.id))}
+                >
+                  {title}
+                </button>
+                <button
+                  type="button"
+                  className="stabs__close"
+                  aria-label={t("br.closeTab", { title })}
+                  onClick={() => closeTab(tab.id)}
+                >
+                  <CloseIcon size="sm" />
+                </button>
+              </div>
+            );
+          })}
+          <IconButton
+            label={t("br.newTabAction")}
+            size="sm"
+            icon={<PlusIcon />}
+            disabled={tabs.tabs.length >= MAX_BROWSER_TABS}
+            onClick={newTab}
+          />
+        </nav>
+      )}
       <form className="brw__bar" onSubmit={(e) => void go(e)}>
         <IconButton
           label={t("br.back")}

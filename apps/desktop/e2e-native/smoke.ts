@@ -392,9 +392,9 @@ try {
   check("Panel 4: stage + commit lewat UI tercatat di repo git asli", log === "commit dari smoke", log);
 
   // Browser: child webview memuat server lokal (tanpa internet); IPC aplikasi tidak boleh bisa dipanggil dari halaman remote.
-  const server = createServer((_req, res) => {
+  const server = createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
-    res.end("<title>zandor-browser-uji</title><h1>halo browser</h1>");
+    res.end(`<title>${req.url === "/dua" ? "zandor-tab-dua" : "zandor-browser-uji"}</title><h1>halo browser</h1>`);
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const serverPort = (server.address() as AddressInfo).port;
@@ -462,6 +462,38 @@ try {
       "keamanan: halaman remote di browser tidak bisa memanggil perintah aplikasi",
       !String(ipc).includes("DIPANGGIL"),
       String(ipc),
+    );
+    // tab browser (ADR-058): tab baru punya webview sendiri; menutupnya membuang webview-nya, tab pertama tetap
+    const remotePages = () =>
+      browser
+        ?.contexts()
+        .flatMap((c) => c.pages())
+        .filter((p) => p.url().startsWith(`http://127.0.0.1:${serverPort}`)) ?? [];
+    await toolsPanel.getByRole("button", { name: "Tab browser baru" }).click();
+    await toolsPanel.getByRole("button", { name: "Tutup tab Tab baru" }).waitFor({ timeout: 10000 });
+    await addr.fill(`http://127.0.0.1:${serverPort}/dua`);
+    await addr.press("Enter");
+    const second = await waitFor(
+      "halaman tab kedua",
+      async () => remotePages().find((p) => p.url().endsWith("/dua")) ?? null,
+      (p) => p !== null,
+      30000,
+    );
+    check("Panel 4: tab browser kedua memuat halamannya sendiri", (await second?.title()) === "zandor-tab-dua");
+    check("Panel 4: dua tab = dua webview", remotePages().length === 2, `${remotePages().length} halaman`);
+    await toolsPanel.getByRole("button", { name: "Tutup tab 127.0.0.1" }).last().click();
+    await waitFor(
+      "webview tab ditutup",
+      async () => remotePages().length,
+      (n) => n === 1,
+      15000,
+    );
+    check(
+      "Panel 4: menutup tab membuang webview-nya; tab pertama tetap",
+      remotePages().length === 1 && remotePages()[0]?.url() === `http://127.0.0.1:${serverPort}/`,
+      remotePages()
+        .map((p) => p.url())
+        .join(","),
     );
   } finally {
     server.close();

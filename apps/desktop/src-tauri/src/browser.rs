@@ -1,6 +1,6 @@
 // PENTING: perintah yang membuat/mengubah webview WAJIB `async` — perintah sinkron berjalan di thread utama dan
 // membuat child webview WebView2 macet di about:blank (Tauri: pembuatan window/webview di perintah sinkron = deadlock).
-// Browser bawaan Panel 4 sebagai child webview Tauri (ADR-020, fitur `unstable`). Webview anak berisi konten remote
+// Browser bawaan Panel 4 sebagai child webview Tauri (ADR-020, fitur `unstable`); satu webview per tab (ADR-058). Webview anak berisi konten remote
 // TANPA capability apa pun (tidak ada IPC yang diizinkan); UI memantau posisi panel dan mengirim bounds. Hanya
 // http/https yang boleh dimuat. Di Linux Wayland (tanpa GDK_BACKEND=x11) child webview tidak dipakai (fallback sistem).
 use serde::Serialize;
@@ -12,8 +12,28 @@ const HOME: &str = "https://www.google.com/";
 
 #[derive(Serialize, Clone)]
 struct LoadPayload {
+    /// Id tab (kosong = tab bawaan tanpa id).
+    tab: String,
     url: String,
     finished: bool,
+}
+
+/// Label webview untuk sebuah tab. Id tab dari UI divalidasi (huruf kecil/angka/`-`/`_`, maks 24) karena menjadi bagian
+/// label webview Tauri; tanpa id memakai label lama `browser`.
+fn label_for(tab: Option<&str>) -> Result<String, String> {
+    match tab {
+        None | Some("") => Ok(LABEL.to_string()),
+        Some(t) => {
+            let ok = t.len() <= 24
+                && t.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+            if ok {
+                Ok(format!("{LABEL}-{t}"))
+            } else {
+                Err(format!("id tab tidak valid: {t:?}"))
+            }
+        }
+    }
 }
 
 pub fn mode() -> &'static str {
@@ -53,31 +73,41 @@ pub fn parse_url(input: &str) -> Result<Url, String> {
     Ok(url)
 }
 
-fn existing(app: &AppHandle) -> Option<tauri::Webview> {
-    app.get_webview(LABEL)
+fn existing(app: &AppHandle, label: &str) -> Option<tauri::Webview> {
+    app.get_webview(label)
+}
+
+/// Sembunyikan semua webview browser selain `keep` (hanya tab aktif yang tampil).
+fn hide_others(app: &AppHandle, keep: &str) {
+    for (label, wv) in app.webviews() {
+        if label.starts_with(LABEL) && label != keep {
+            let _ = wv.hide();
+        }
+    }
 }
 
 fn ensure(
     app: &AppHandle,
+    label: &str,
+    tab: &str,
     url: &Url,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
+    (x, y, w, h): (f64, f64, f64, f64),
 ) -> Result<tauri::Webview, String> {
-    if let Some(b) = existing(app) {
+    if let Some(b) = existing(app, label) {
         return Ok(b);
     }
     let window = app
         .get_window("main")
         .ok_or("jendela utama tidak ditemukan")?;
     let handle = app.clone();
-    let builder = WebviewBuilder::new(LABEL, WebviewUrl::External(url.clone()))
+    let tab = tab.to_string();
+    let builder = WebviewBuilder::new(label, WebviewUrl::External(url.clone()))
         .on_page_load(move |_wv, p| {
             let _ = handle.emit_to(
                 "main",
                 "browser-load",
                 LoadPayload {
+                    tab: tab.clone(),
                     url: p.url().to_string(),
                     finished: matches!(p.event(), PageLoadEvent::Finished),
                 },
@@ -108,6 +138,7 @@ pub fn browser_home() -> &'static str {
 #[tauri::command]
 pub async fn browser_open(
     app: AppHandle,
+    tab: Option<String>,
     url: Option<String>,
     x: f64,
     y: f64,
@@ -117,14 +148,22 @@ pub async fn browser_open(
     if mode() != "child-webview" {
         return Err("browser tertanam tidak tersedia di platform ini".into());
     }
-    let first = existing(&app).is_none();
+    let label = label_for(tab.as_deref())?;
+    let first = existing(&app, &label).is_none();
     let target = parse_url(url.as_deref().unwrap_or(HOME))?;
-    let b = ensure(&app, &target, x, y, w, h)?;
+    let b = ensure(
+        &app,
+        &label,
+        tab.as_deref().unwrap_or(""),
+        &target,
+        (x, y, w, h),
+    )?;
     b.set_position(LogicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
     b.set_size(LogicalSize::new(w.max(1.0), h.max(1.0)))
         .map_err(|e| e.to_string())?;
     b.show().map_err(|e| e.to_string())?;
+    hide_others(&app, &label);
     // Webview baru: navigasi eksplisit juga (WebView2 anak kadang tetap di about:blank bila hanya mengandalkan URL awal).
     if first || url.is_some() {
         b.navigate(target).map_err(|e| e.to_string())?;
@@ -135,12 +174,13 @@ pub async fn browser_open(
 #[tauri::command]
 pub async fn browser_set_bounds(
     app: AppHandle,
+    tab: Option<String>,
     x: f64,
     y: f64,
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    let Some(b) = existing(&app) else {
+    let Some(b) = existing(&app, &label_for(tab.as_deref())?) else {
         return Ok(());
     };
     b.set_position(LogicalPosition::new(x, y))
@@ -150,39 +190,51 @@ pub async fn browser_set_bounds(
 }
 
 #[tauri::command]
-pub async fn browser_visible(app: AppHandle, visible: bool) -> Result<(), String> {
-    let Some(b) = existing(&app) else {
+pub async fn browser_visible(
+    app: AppHandle,
+    tab: Option<String>,
+    visible: bool,
+) -> Result<(), String> {
+    let Some(b) = existing(&app, &label_for(tab.as_deref())?) else {
         return Ok(());
     };
     if visible { b.show() } else { b.hide() }.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn browser_navigate(app: AppHandle, url: String) -> Result<String, String> {
+pub async fn browser_navigate(
+    app: AppHandle,
+    tab: Option<String>,
+    url: String,
+) -> Result<String, String> {
     let target = parse_url(&url)?;
-    let b = existing(&app).ok_or("browser belum dibuka")?;
+    let b = existing(&app, &label_for(tab.as_deref())?).ok_or("browser belum dibuka")?;
     b.navigate(target.clone()).map_err(|e| e.to_string())?;
     Ok(target.to_string())
 }
 
 #[tauri::command]
-pub async fn browser_history(app: AppHandle, action: String) -> Result<(), String> {
+pub async fn browser_history(
+    app: AppHandle,
+    tab: Option<String>,
+    action: String,
+) -> Result<(), String> {
     let js = match action.as_str() {
         "back" => "history.back()",
         "forward" => "history.forward()",
         "reload" => "location.reload()",
         _ => return Err("aksi tidak dikenal".into()),
     };
-    existing(&app)
+    existing(&app, &label_for(tab.as_deref())?)
         .ok_or("browser belum dibuka")?
         .eval(js)
         .map_err(|e| e.to_string())
 }
 
-/// Tutup webview browser (membebaskan sumber daya).
+/// Tutup webview satu tab (membebaskan sumber daya).
 #[tauri::command]
-pub async fn browser_close(app: AppHandle) -> Result<(), String> {
-    if let Some(b) = existing(&app) {
+pub async fn browser_close(app: AppHandle, tab: Option<String>) -> Result<(), String> {
+    if let Some(b) = existing(&app, &label_for(tab.as_deref())?) {
         b.close().map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -191,6 +243,16 @@ pub async fn browser_close(app: AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tab_ids_become_safe_webview_labels() {
+        assert_eq!(label_for(None).unwrap(), "browser");
+        assert_eq!(label_for(Some("")).unwrap(), "browser");
+        assert_eq!(label_for(Some("b3")).unwrap(), "browser-b3");
+        for bad in ["B3", "a b", "../x", "x/y", "a:b", &"x".repeat(25)] {
+            assert!(label_for(Some(bad)).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn parse_url_normalizes_and_restricts_schemes() {
