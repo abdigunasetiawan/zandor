@@ -41,6 +41,10 @@ function decide(body: { messages?: Array<{ role: string; content: unknown }>; to
       delta: toolCall("memory_write", { scope: "project", content: "Proyek ini memakai Tauri 2 dan Bun." }),
       finish: "tool_calls",
     };
+  const q = t.match(/MEMTEST_SEARCHQ:([A-Za-z0-9]+)/);
+  if (q) return { delta: toolCall("memory_search", { query: q[1] }), finish: "tool_calls" };
+  if (t.includes("MEMTEST_SEARCH"))
+    return { delta: toolCall("memory_search", { query: "Tauri" }), finish: "tool_calls" };
   if (t.includes("MEMTEST_SECRET"))
     return {
       delta: toolCall("memory_write", { scope: "global", content: "kunci sk-CONTOHPALSU0123456789abcdefghij" }),
@@ -275,4 +279,177 @@ describe("Fase 9 di opencode 1.19.5 asli", () => {
     await say("lanjut");
     expect(lastMain().system).toContain("ZANDOR-PIN-42");
   }, 90000);
+});
+
+// ---------- Cakupan tambahan: isolasi project, lintas sesi, skill creator per project/sesi, pemicu ----------
+describe("Cakupan memori dan skill creator (engine asli, model tiruan)", () => {
+  const ws2 = tmp("ws2");
+  const key2 = projectKey(ws2);
+  const queueFile = join(memoryDir, "skill-queue.jsonl");
+  const model = { providerID: "zmock", modelID: "m1" };
+  async function apiAt(dir: string, method: string, path: string, body?: unknown) {
+    const r = await fetch(`${base}${path}${path.includes("?") ? "&" : "?"}directory=${encodeURIComponent(dir)}`, {
+      method,
+      headers: { ...authH, ...(body ? { "content-type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const t = await r.text();
+    if (!r.ok) throw new Error(`${method} ${path} → ${r.status} ${t.slice(0, 300)}`);
+    return t ? JSON.parse(t) : null;
+  }
+  const newSession = async (dir: string): Promise<string> => (await apiAt(dir, "POST", "/session", {})).id;
+  const sayAt = (dir: string, session: string, text: string) =>
+    apiAt(dir, "POST", `/session/${session}/message`, { model, parts: [{ type: "text", text }] });
+  const toolOutput = async (dir: string, session: string, name: string): Promise<string> => {
+    const msgs = (await apiAt(dir, "GET", `/session/${session}/message`)) as Array<{ parts: unknown[] }>;
+    const part = msgs
+      .flatMap((m) => m.parts)
+      .reverse()
+      .find((p) => (p as { type: string; tool?: string }).type === "tool" && (p as { tool?: string }).tool === name);
+    return String((part as { state?: { output?: string } } | undefined)?.state?.output ?? "");
+  };
+  const resetQueue = () => writeFileSync(queueFile, "");
+  const queue = () => readQueue(queueFile);
+
+  afterAll(() => {
+    try {
+      rmSync(ws2, { recursive: true, force: true });
+    } catch {}
+  });
+
+  test("isolasi: memori project A tidak bocor ke project B; global tetap berlaku di keduanya", async () => {
+    mkdirSync(join(memoryDir, "projects"), { recursive: true });
+    writeFileSync(join(memoryDir, "projects", `${key}.md`), "- Project A memakai RAHASIA-A-111\n");
+    setSettings({ defaultEnabled: true });
+    const sB = await newSession(ws2);
+    await sayAt(ws2, sB, "halo dari B");
+    expect(lastMain().system).toContain("Suka jawaban singkat"); // global
+    expect(lastMain().system).not.toContain("RAHASIA-A-111");
+    const sA = await newSession(ws);
+    await say("halo dari A", sA);
+    expect(lastMain().system).toContain("RAHASIA-A-111");
+  }, 90000);
+
+  test("aktif hanya di project A: project B tidak disuntik dan tool menolak menulis", async () => {
+    setSettings({ projects: { [key]: true } });
+    const sB = await newSession(ws2);
+    await sayAt(ws2, sB, "halo");
+    expect(lastMain().system).not.toContain("<zandor-memory>");
+    await sayAt(ws2, sB, "MEMTEST_WRITE coba di B");
+    expect(await toolOutput(ws2, sB, "memory_write")).toContain("dinonaktifkan");
+    expect(existsSync(join(memoryDir, "projects", `${key2}.md`))).toBe(false);
+  }, 90000);
+
+  test("semua sesi satu project berbagi pengaturan; yang ditulis di sesi A terbaca di sesi baru dan lewat memory_search", async () => {
+    setSettings({ projects: { [key]: true } });
+    const sA = await newSession(ws);
+    await say("MEMTEST_WRITE simpan di A", sA);
+    expect(await toolOutput(ws, sA, "memory_write")).toContain("Tersimpan");
+    const sNew = await newSession(ws);
+    await say("halo sesi baru", sNew);
+    expect(lastMain().system).toContain("Tauri 2 dan Bun");
+    await say("MEMTEST_SEARCH cari", sNew);
+    const found = await toolOutput(ws, sNew, "memory_search");
+    expect(found).toContain("2 dan Bun"); // kata yang cocok disorot [..] oleh FTS
+    expect(found.split(/\r?\n/).filter((l) => l.includes("2 dan Bun"))).toHaveLength(1); // tanpa duplikat
+  }, 90000);
+
+  test("indeks pencarian mengikuti berkas: memori yang diketik/diedit lewat UI bisa dicari, yang dihapus tidak muncul", async () => {
+    setSettings({ projects: { [key]: true } });
+    const file = join(memoryDir, "projects", `${key}.md`);
+    const s = await newSession(ws);
+    writeFileSync(file, "- Kode rahasia proyek uji: BIRUXYZ77\n"); // seperti diketik pengguna di halaman Memori
+    await say("MEMTEST_SEARCHQ:BIRUXYZ77", s);
+    expect(await toolOutput(ws, s, "memory_search")).toContain("[BIRUXYZ77]");
+    writeFileSync(file, "- Fakta pengganti tanpa kode\n"); // pengguna menghapus baris itu
+    await say("MEMTEST_SEARCHQ:BIRUXYZ77", s);
+    expect(await toolOutput(ws, s, "memory_search")).toContain("Tidak ditemukan");
+  }, 90000);
+
+  test("memory_write tidak menggandakan fakta yang sama persis", async () => {
+    setSettings({ projects: { [key]: true } });
+    const file = join(memoryDir, "projects", `${key}.md`);
+    writeFileSync(file, "");
+    const s = await newSession(ws);
+    await say("MEMTEST_WRITE satu", s);
+    await say("MEMTEST_WRITE dua", s);
+    const lines = readFileSync(file, "utf8")
+      .split(String.fromCharCode(10))
+      .filter((l) => l.includes("Tauri 2 dan Bun"));
+    expect(lines).toHaveLength(1);
+  }, 90000);
+
+  test("project B punya memori sendiri yang tidak terlihat di A", async () => {
+    setSettings({ projects: { [key]: true, [key2]: true } });
+    const sB = await newSession(ws2);
+    await sayAt(ws2, sB, "MEMTEST_WRITE simpan di B");
+    expect(await toolOutput(ws2, sB, "memory_write")).toContain("Tersimpan");
+    expect(readFileSync(join(memoryDir, "projects", `${key2}.md`), "utf8")).toContain("Tauri 2 dan Bun");
+    expect(readFileSync(join(memoryDir, "projects", `${key}.md`), "utf8")).not.toContain("RAHASIA-B");
+  }, 90000);
+
+  test("skill creator per project: mati global, hanya project A → koreksi tercatat di A, tidak di B", async () => {
+    resetQueue();
+    setSettings({
+      projects: { [key]: true, [key2]: true },
+      skillCreator: false,
+      skillCreatorProjects: { [key]: true },
+    });
+    await say("salah, bukan begitu", await newSession(ws));
+    expect(queue()).toHaveLength(1);
+    expect(queue()[0]).toMatchObject({ trigger: "correction", project: key });
+    await sayAt(ws2, await newSession(ws2), "salah, bukan begitu");
+    expect(queue()).toHaveLength(1);
+  }, 90000);
+
+  test("skill creator per sesi menimpa project", async () => {
+    resetQueue();
+    const off = await newSession(ws);
+    const on = await newSession(ws);
+    setSettings({
+      projects: { [key]: true },
+      skillCreatorProjects: { [key]: true },
+      skillCreatorSessions: { [off]: false },
+    });
+    await say("salah, bukan begitu", off);
+    expect(queue()).toHaveLength(0);
+    await say("salah, bukan begitu", on);
+    expect(queue()).toHaveLength(1);
+    expect(queue()[0]?.sessionID).toBe(on);
+  }, 90000);
+
+  test("/reflect mencatat kandidat bertrigger reflect; kalimat biasa tidak", async () => {
+    resetQueue();
+    setSettings({ projects: { [key]: true }, skillCreator: true });
+    const s = await newSession(ws);
+    await say("tolong rangkum ini", s);
+    expect(queue()).toHaveLength(0);
+    await say("/reflect", s);
+    expect(queue()).toHaveLength(1);
+    expect(queue()[0]).toMatchObject({ trigger: "reflect", sessionID: s });
+  }, 90000);
+
+  test("pemicu ≥ 5 tool call dalam satu sesi mencatat kandidat tool-count", async () => {
+    resetQueue();
+    setSettings({ projects: { [key]: true }, skillCreator: true });
+    const s = await newSession(ws);
+    for (let i = 0; i < 5; i++) await say(`MEMTEST_SEARCH ke-${i + 1}`, s);
+    const q = queue().filter((e) => e.sessionID === s);
+    expect(q).toHaveLength(1);
+    expect(q[0]).toMatchObject({ trigger: "tool-count" });
+  }, 180000);
+
+  test("skill yang baru dipasang baru terlihat engine setelah instance dimuat ulang (dispose)", async () => {
+    const dir = join(xdg, "config", "opencode", "skills", "skill-setujui");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      skillMarkdown({ name: "skill-setujui", description: "Skill uji hasil persetujuan.", body: "Langkah uji." }),
+    );
+    const list = async () => ((await api("GET", "/skill")) as Array<{ name: string }>).map((s) => s.name);
+    // Engine menyimpan cache skill per instance: tanpa dispose, skill baru tidak terlihat (dasar ADR-063).
+    expect(await list()).not.toContain("skill-setujui");
+    await api("POST", "/instance/dispose");
+    expect(await list()).toContain("skill-setujui");
+  }, 60000);
 });

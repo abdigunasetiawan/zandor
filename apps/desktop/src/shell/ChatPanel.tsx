@@ -18,20 +18,17 @@ import {
   sessionTitle,
   suggestPrompts,
   type Todo,
-  type ToolPart,
   visibleMessages,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
   ArrowUpIcon,
-  Badge,
   Button,
   ChevronDownIcon,
   ChevronRightIcon,
   CloseIcon,
   ContextMenu,
   Dialog,
-  GlobeIcon,
   IconButton,
   MaximizeIcon,
   Menu,
@@ -77,6 +74,7 @@ import {
   peekMessageFocus,
   requestMessageFocus,
 } from "./message-focus";
+import { useOpenState } from "./open-state";
 import { PanelTabBar } from "./PanelTabBar";
 import { toolSummary } from "./process-label";
 import { QuestionCard, TodoList } from "./QuestionCard";
@@ -87,13 +85,14 @@ import {
   useDocs,
   useEngineState,
   useGit,
-  useOpenDoc,
   usePanelState,
   useProjects,
   useServices,
   useSettings,
 } from "./services";
 import { SessionFlagsContext } from "./session-context";
+import { DiffBlock, ToolCard } from "./ToolStep";
+import { parseDiff } from "./tool-view";
 import { dayPart, useOsUser } from "./use-os-user";
 import { loadVoiceDevice, saveVoiceDevice, speechLang, useAudioInputs, useDictation } from "./voice";
 
@@ -376,6 +375,9 @@ function SessionTabs({ closePanel }: { closePanel: () => void }) {
 /** Di bawah ambang ini semua pesan dirender langsung; di atasnya transcript divirtualisasi (hanya yang terlihat). */
 export const VIRTUALIZE_FROM = 40;
 
+/** Apakah posisi gulir berada di dekat dasar (ambang 48 px). */
+const nearBottom = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+
 function useStickToBottom(dep: unknown, follow = true) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(follow);
@@ -384,9 +386,35 @@ function useStickToBottom(dep: unknown, follow = true) {
     const el = ref.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [dep]);
+  // Isi bisa tumbuh tanpa perubahan data (langkah proses dibuka/ditambah, teks mengalir, gambar/diagram selesai dimuat):
+  // amati DOM supaya posisi tetap mengikuti ke bawah selama pengguna memang berada di dasar.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !follow) return;
+    let raf = 0;
+    const toBottom = () => {
+      raf = 0;
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(toBottom);
+    };
+    const observer = new MutationObserver(schedule);
+    observer.observe(el, { childList: true, subtree: true, characterData: true });
+    // klik pengguna (mis. membuka lipatan) memperbesar isi tanpa scroll: hitung ulang apakah masih di dasar
+    const onClick = () => setTimeout(() => (stick.current = nearBottom(el)), 0);
+    el.addEventListener("click", onClick);
+    el.addEventListener("load", schedule, true);
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("click", onClick);
+      el.removeEventListener("load", schedule, true);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [follow]);
   const onScroll = () => {
     const el = ref.current;
-    if (el && follow) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+    if (el && follow) stick.current = nearBottom(el);
   };
   return { ref, onScroll };
 }
@@ -431,6 +459,12 @@ function PinnedBar({ sessionId, messages }: { sessionId: string; messages: ChatM
   );
 }
 
+/**
+ * Kunci React satu giliran asisten. Pesan gabungan memakai ID pesan engine TERAKHIR sebagai `info.id`, yang berganti tiap
+ * pesan engine baru bergabung; kunci harus mengikuti pesan PERTAMA agar giliran tidak dipasang ulang (state lipatan hilang).
+ */
+export const turnKey = (m: ChatMessage & { sourceIds?: string[] }): string => m.sourceIds?.[0] ?? m.info.id;
+
 /** `follow=false`: tidak menempel ke dasar (dipakai sesi demo agar dibaca dari atas). */
 export function Transcript({ session, follow = true }: { session: SessionChat; follow?: boolean }) {
   const { t } = useI18n();
@@ -450,7 +484,7 @@ export function Transcript({ session, follow = true }: { session: SessionChat; f
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 140,
     overscan: 6,
-    getItemKey: (i) => messages[i]?.info.id ?? i,
+    getItemKey: (i) => (messages[i] ? turnKey(messages[i]) : i),
   });
   const total = virtual ? rows.getTotalSize() : 0;
   const { ref, onScroll } = useStickToBottom(
@@ -525,7 +559,7 @@ export function Transcript({ session, follow = true }: { session: SessionChat; f
       ) : (
         messages.map((m) => (
           <Message
-            key={m.info.id}
+            key={turnKey(m)}
             message={m}
             sessionId={session.sessionID}
             isLastAssistant={m === lastAssistant && !busy}
@@ -622,13 +656,14 @@ export function Part({ part, streaming = false }: { part: MessagePart; streaming
   const { t } = useI18n();
   if (part.type === "text")
     return part.synthetic || !part.text ? null : <Markdown text={part.text} streaming={streaming} />;
-  if (part.type === "reasoning") return part.text ? <Reasoning text={part.text} label={t("chat.thinking")} /> : null;
+  if (part.type === "reasoning")
+    return part.text ? <Reasoning id={part.id} text={part.text} label={t("chat.thinking")} /> : null;
   if (part.type === "tool") return <ToolCard part={part} />;
   return null;
 }
 
-function Reasoning({ text, label }: { text: string; label: string }) {
-  const [open, setOpen] = useState(false);
+function Reasoning({ id, text, label }: { id: string; text: string; label: string }) {
+  const [open, setOpen] = useOpenState(`think:${id}`);
   return (
     <div className="fold">
       <button type="button" className="fold__head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -641,81 +676,6 @@ function Reasoning({ text, label }: { text: string; label: string }) {
 }
 
 export { toolSummary };
-
-const WEB_TOOLS = new Set(["websearch", "webfetch", "codesearch"]);
-const FILE_TOOLS = new Set(["read", "edit", "write", "patch", "multiedit"]);
-const str = (v: unknown): string => (typeof v === "string" ? v : "");
-
-function DiffView({ text }: { text: string }) {
-  const lines = text.split("\n");
-  return (
-    <pre className="fold__pre diff">
-      {lines.map((l, i) => {
-        const kind =
-          l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : "ctx";
-        return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: baris diff statis, urutan tetap
-          <span key={i} className={`diff__line diff__line--${kind}`}>
-            {l}
-            {"\n"}
-          </span>
-        );
-      })}
-    </pre>
-  );
-}
-
-function ToolCard({ part }: { part: ToolPart }) {
-  const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const { state } = part;
-  const tone = state.status === "error" ? "danger" : state.status === "completed" ? "success" : "outline";
-  const body = state.status === "error" ? (state.error ?? "") : (state.output ?? "");
-  const diff = typeof state.metadata?.diff === "string" ? state.metadata.diff : "";
-  const web = WEB_TOOLS.has(part.tool);
-  const openDoc = useOpenDoc();
-  const toast = useToast();
-  const demo = useDemo();
-  // di sesi demo berkasnya fiktif: tombol Buka tidak ditampilkan
-  const file = !demo && FILE_TOOLS.has(part.tool) ? str(state.input.filePath) || str(state.input.path) : "";
-  const openFile = () => {
-    if (!openDoc(file)) toast.show({ title: t("doc.outside"), tone: "warning" });
-  };
-  return (
-    <div className="fold fold--tool" data-status={state.status}>
-      <button type="button" className="fold__head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        {open ? <ChevronDownIcon size="sm" /> : <ChevronRightIcon size="sm" />}
-        {web && <GlobeIcon size="sm" />}
-        <code className="fold__tool">{web ? t("chat.webSearch") : part.tool}</code>
-        <span className="fold__summary z-small">{toolSummary(part.tool, state.input, state.title)}</span>
-        <Badge tone={tone}>{t(`chat.tool.${state.status}` as never)}</Badge>
-      </button>
-      {file && (
-        <Button size="sm" onClick={openFile} aria-label={t("doc.open", { name: file.split(/[\\/]/).at(-1) ?? file })}>
-          {t("doc.openShort")}
-        </Button>
-      )}
-      {open && (
-        <div className="fold__body">
-          {diff && (
-            <>
-              <p className="z-small fold__label">{t("chat.diff")}</p>
-              <DiffView text={diff} />
-            </>
-          )}
-          <p className="z-small fold__label">{t("chat.input")}</p>
-          <pre className="fold__pre">{JSON.stringify(state.input, null, 2)}</pre>
-          {body && (
-            <>
-              <p className="z-small fold__label">{t("chat.output")}</p>
-              <pre className="fold__pre">{body.length > 20000 ? `${body.slice(0, 20000)}\n…` : body}</pre>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function PermissionCard({ request, sessionId }: { request: PermissionRequest; sessionId: string }) {
   const { t } = useI18n();
@@ -742,7 +702,7 @@ function PermissionCard({ request, sessionId }: { request: PermissionRequest; se
     >
       <h3 className="z-label">{t("chat.permission.title", { permission: request.permission })}</h3>
       {request.patterns.length > 0 && <pre className="fold__pre">{request.patterns.join("\n")}</pre>}
-      {typeof request.metadata.diff === "string" && <DiffView text={request.metadata.diff} />}
+      {typeof request.metadata.diff === "string" && <DiffBlock rows={parseDiff(request.metadata.diff)} />}
       <div className="perm__actions">
         <Button size="sm" variant="solid" disabled={busy} onClick={() => void answer("once")}>
           {t("chat.permission.once")}

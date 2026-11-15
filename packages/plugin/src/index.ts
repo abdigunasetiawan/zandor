@@ -1,12 +1,12 @@
 // Plugin opencode Zandor: guard env (wajib, ADR-022) + memori dan skill creator (ADR-023, Fase 9).
 // Memori/skill hanya aktif bila opsi `memoryDir` diberikan; tanpa itu plugin hanya menjadi guard.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { scrubEnv } from "./env-guard";
 import { projectKey } from "./keys";
-import { createMemoryStore, type Indexer, scanIndexer } from "./memory";
+import { createMemoryStore, type Indexer, memoryFacts, scanIndexer } from "./memory";
 import {
   addCandidate,
   CORRECTION,
@@ -31,16 +31,34 @@ async function openIndexer(dir: string, key: string): Promise<Indexer> {
     const { Database } = (await import(/* @vite-ignore */ modName)) as { Database: new (file: string) => SqliteDb };
     const db = new Database(join(dir, "index.sqlite"));
     db.run("CREATE VIRTUAL TABLE IF NOT EXISTS mem USING fts5(scope, project, content, created UNINDEXED)");
+    // Indeks hanyalah turunan dari berkas Markdown (sumber kebenaran): disinkronkan ulang bila berkas berubah, sehingga
+    // memori yang diketik/diedit/dihapus lewat UI atau tangan ikut tercermin (bukan hanya yang ditulis lewat memory_write).
+    const files = { global: join(dir, "global.md"), project: join(dir, "projects", `${key}.md`) } as const;
+    const stamp = (f: string) => {
+      try {
+        const st = statSync(f);
+        return `${st.mtimeMs}:${st.size}`;
+      } catch {
+        return "-";
+      }
+    };
+    let signature = "";
+    const sync = () => {
+      const now = `${stamp(files.global)}|${stamp(files.project)}`;
+      if (now === signature) return;
+      db.query("DELETE FROM mem WHERE scope = 'global' OR project = ?").run(key);
+      const ins = db.query("INSERT INTO mem(scope, project, content, created) VALUES (?, ?, ?, ?)");
+      const at = Date.now();
+      for (const fact of memoryFacts(files.global)) ins.run("global", key, fact, at);
+      for (const fact of memoryFacts(files.project)) ins.run("project", key, fact, at);
+      signature = now;
+    };
     return {
-      add(scope, project, content) {
-        db.query("INSERT INTO mem(scope, project, content, created) VALUES (?, ?, ?, ?)").run(
-          scope,
-          project,
-          content,
-          Date.now(),
-        );
+      add() {
+        // diindeks lewat sync() saat pencarian (berkas = sumber kebenaran)
       },
       search(query, project, limit) {
+        sync();
         const q = query
           .replace(/["*^:()]/g, " ")
           .trim()

@@ -215,7 +215,21 @@ export class MemoryStore {
   private listeners = new Set<() => void>();
   private projectPaths: string[] = [];
 
-  constructor(private readonly host: MemoryHost) {}
+  constructor(
+    private readonly host: MemoryHost,
+    private readonly options: {
+      /** Dipanggil setelah skill terpasang/diubah/dihapus: engine menyimpan cache skill, jadi perlu dimuat ulang. */
+      onSkillsChanged?: (scope: MemoryScope, projectPath: string | null) => void;
+    } = {},
+  ) {}
+
+  private skillsChanged(scope: MemoryScope, projectPath: string | null) {
+    try {
+      this.options.onSkillsChanged?.(scope, projectPath);
+    } catch {
+      // pengamat tidak boleh menggagalkan penyimpanan
+    }
+  }
 
   get connected(): boolean {
     return this.host.connected;
@@ -406,6 +420,7 @@ export class MemoryStore {
       return e instanceof Error ? e.message : String(e);
     }
     await this.mutateQueue((q) => q.map((x) => (x.id === id ? { ...x, status: "approved" } : x)));
+    this.skillsChanged(scope, scope === "project" ? projectPath : null);
     await this.refresh();
     return null;
   }
@@ -428,12 +443,14 @@ export class MemoryStore {
     } catch (e) {
       return e instanceof Error ? e.message : String(e);
     }
+    this.skillsChanged(scope, project);
     await this.refresh();
     return null;
   }
 
   async skillRemove(scope: MemoryScope, project: string | null, name: string): Promise<void> {
     await this.host.skillDelete(scope, project, name);
+    this.skillsChanged(scope, project);
     await this.refresh();
   }
 }

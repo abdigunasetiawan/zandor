@@ -243,6 +243,37 @@ describe("MemoryStore", () => {
     expect(store.state().installed.global).toEqual([]);
   });
 
+  test("skill disetujui/diubah/dihapus memberi tahu pengamat agar engine memuat ulang cache skill", async () => {
+    const host = createFakeMemoryHost();
+    const seen: Array<[string, string | null]> = [];
+    const store = new MemoryStore(host, { onSkillsChanged: (scope, path) => seen.push([scope, path]) });
+    host.files.set(FILE_QUEUE, serializeQueue([pending("a"), pending("b", { name: "skill-lain" })]));
+    await store.refresh(["C:/Work/a"]);
+    expect(await store.approve("a", "project", "C:/Work/a")).toBeNull();
+    expect(seen).toEqual([["project", "C:/Work/a"]]);
+    expect(await store.approve("b", "global", null)).toBeNull();
+    expect(seen.at(-1)).toEqual(["global", null]);
+    expect(await store.skillSave("global", null, "skill-lain", "teks bebas tanpa frontmatter")).toBeNull();
+    await store.skillRemove("global", null, "skill-lain");
+    expect(seen).toHaveLength(4);
+    // gagal (tanpa project / bukan pending) tidak memberi tahu
+    const n = seen.length;
+    expect(await store.approve("a", "project", null)).not.toBeNull();
+    expect(seen).toHaveLength(n);
+  });
+
+  test("pengamat yang melempar tidak menggagalkan persetujuan", async () => {
+    const host = createFakeMemoryHost();
+    const store = new MemoryStore(host, {
+      onSkillsChanged: () => {
+        throw new Error("boom");
+      },
+    });
+    host.files.set(FILE_QUEUE, serializeQueue([pending("a")]));
+    await store.refresh();
+    expect(await store.approve("a", "global", null)).toBeNull();
+  });
+
   test("galat host dilaporkan di state, bukan dilempar", async () => {
     const host = createFakeMemoryHost();
     host.list = async () => {

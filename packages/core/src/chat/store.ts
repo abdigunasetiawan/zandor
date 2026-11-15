@@ -97,6 +97,8 @@ export class ChatStore {
   private listeners = new Set<() => void>();
   private api: EngineApi | null = null;
   private subs = new Map<string, { unsub: () => void; sessions: Set<string> }>();
+  /** Direktori yang instance engine-nya perlu dimuat ulang (menunggu sampai tidak ada sesi sibuk di sana). */
+  private reloadPending = new Set<string>();
   private dirty = new Set<string>();
   private reloading = new Set<string>();
   private preferred: ModelRef | null;
@@ -223,6 +225,30 @@ export class ChatStore {
       this.options.prefs.set(key, value);
     } catch (e) {
       this.options.onWarning?.(`gagal menyimpan preferensi: ${errMsg(e)}`);
+    }
+  }
+
+  /**
+   * Muat ulang instance engine (cache skill/config dibaca ulang) untuk direktori tertentu, atau semua yang dikenal bila
+   * kosong. Ditunda sampai tidak ada sesi sibuk di direktori itu supaya giliran yang berjalan tidak terputus.
+   */
+  reloadInstances(directories?: string[]) {
+    const known = new Set([...this.subs.keys(), ...Object.values(this.snap.sessions).map((s) => s.directory)]);
+    for (const d of directories ?? [...known]) this.reloadPending.add(d);
+    this.flushReloads();
+  }
+
+  private flushReloads() {
+    const api = this.api;
+    if (!api || this.reloadPending.size === 0) return;
+    const sessions = Object.values(this.snap.sessions);
+    for (const d of [...this.reloadPending]) {
+      const busy = sessions.some((s) => s.directory === d && (s.sending || s.status.type !== "idle"));
+      if (busy) continue;
+      this.reloadPending.delete(d);
+      void api.disposeInstance(d).catch((e) => {
+        this.options.onWarning?.(`gagal memuat ulang instance engine: ${errMsg(e)}`);
+      });
     }
   }
 
@@ -385,6 +411,7 @@ export class ChatStore {
     }
     // Izin yang dijawab otomatis tidak pernah masuk state (lihat maybeAutoReply).
     if (ev.type === "permission.asked" && this.maybeAutoReply(directory, ev.request)) return;
+    if (this.reloadPending.size > 0) queueMicrotask(() => this.flushReloads());
     const isMessageEvent = MESSAGE_EVENTS.has(ev.type);
     for (const id of this.sessionsOf(directory)) {
       if (isMessageEvent && this.reloading.has(id)) {

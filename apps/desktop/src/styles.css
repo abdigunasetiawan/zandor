@@ -1426,6 +1426,162 @@
 .diff__line--ctx {
   color: var(--z-color-fg-muted);
 }
+.diff__line--hunk {
+  background: var(--z-color-hover);
+  color: var(--z-color-fg-subtle);
+}
+.diffb {
+  padding: 0;
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-bg);
+}
+.diffb__row {
+  display: flex;
+  gap: var(--z-space-2);
+}
+.diffb__row.diff__line--add {
+  background: color-mix(in srgb, var(--z-color-success) 12%, transparent);
+}
+.diffb__row.diff__line--del {
+  background: color-mix(in srgb, var(--z-color-danger) 12%, transparent);
+}
+.diffb__no {
+  flex: none;
+  width: 4ch;
+  padding-left: var(--z-space-1);
+  color: var(--z-color-fg-subtle);
+  text-align: right;
+  user-select: none;
+}
+.diffb__text {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Langkah tool di proses agent (ToolStep): ikon · tool · target · ringkasan · status ---------- */
+.tstep {
+  border-color: transparent;
+}
+.tstep:has(> .tstep__body) {
+  border-color: var(--z-color-border-soft);
+}
+.tstep__row {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-1);
+  min-width: 0;
+}
+.tstep__head {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--z-radius-md);
+}
+.tstep__head:hover {
+  background: var(--z-color-hover);
+}
+.tstep__icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--z-color-fg-muted);
+}
+.tstep__tool {
+  flex: none;
+  color: var(--z-color-fg-muted);
+}
+.tstep__target {
+  color: var(--z-color-fg);
+}
+.tstep__path {
+  font-family: var(--z-font-code);
+}
+.tstep__dir {
+  color: var(--z-color-fg-subtle);
+}
+.tstep__meta {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--z-space-2);
+  font-family: var(--z-font-code);
+}
+.tstep__chip {
+  padding: 0 var(--z-space-2);
+  border-radius: var(--z-radius-full);
+  background: var(--z-color-hover);
+  color: var(--z-color-fg-muted);
+  white-space: nowrap;
+}
+.tstep__chip--bad {
+  color: var(--z-color-danger);
+}
+.tstep__time {
+  color: var(--z-color-fg-subtle);
+}
+.tstep__chg {
+  display: inline-flex;
+  gap: var(--z-space-1);
+  margin-left: var(--z-space-1);
+  font-family: var(--z-font-code);
+}
+.tstep__add {
+  color: var(--z-color-success);
+}
+.tstep__del {
+  color: var(--z-color-danger);
+}
+.tstep__ok {
+  display: inline-flex;
+  flex: none;
+  color: var(--z-color-fg-subtle);
+}
+.tstep__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  white-space: normal;
+}
+.tstep__label,
+.tstep__note {
+  margin: 0;
+  color: var(--z-color-fg-subtle);
+}
+.tstep__pre,
+.tstep__cmd {
+  padding: var(--z-space-2);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-bg);
+  color: var(--z-color-fg);
+}
+.tstep__prompt {
+  color: var(--z-color-fg-subtle);
+  user-select: none;
+}
+.tstep__error {
+  margin: 0;
+  color: var(--z-color-danger);
+}
+.tstep__groups,
+.tstep__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+}
+.tstep__files,
+.tstep__todos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tstep__todos li[data-status="completed"],
+.tstep__todos li[data-status="cancelled"] {
+  color: var(--z-color-fg-muted);
+  text-decoration: line-through;
+}
 .vlist {
   position: relative;
   flex: none;
@@ -3526,10 +3682,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.work__tally {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--z-color-fg-subtle);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .work__list {
   display: flex;
   flex-direction: column;
-  gap: var(--z-space-2);
+  gap: var(--z-space-1);
   margin: var(--z-space-1) 0 var(--z-space-2);
 }
 .msg__foot {

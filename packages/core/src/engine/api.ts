@@ -125,6 +125,8 @@ export interface EngineApi {
   unrevert(directory: string, sessionId: string): Promise<void>;
   fork(directory: string, sessionId: string, messageId: string): Promise<SessionInfo>;
   abort(directory: string, sessionId: string): Promise<void>;
+  /** Buang instance engine satu direktori agar cache (skill, config) dibaca ulang; dibuat ulang otomatis saat dipakai. */
+  disposeInstance(directory: string): Promise<void>;
   replyPermission(directory: string, requestId: string, reply: PermissionReply): Promise<void>;
   listCatalog(): Promise<CatalogProvider[]>;
   /** Metode autentikasi per id provider (OAuth/API) menurut engine. */
@@ -302,6 +304,9 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
     },
     async abort(directory, sessionId) {
       await client.session.abort({ sessionID: sessionId, directory });
+    },
+    async disposeInstance(directory) {
+      await client.instance.dispose({ directory });
     },
     async replyPermission(directory, requestId, reply) {
       await client.permission.reply({ requestID: requestId, directory, reply });

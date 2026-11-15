@@ -23,6 +23,8 @@ export type MockEngine = {
   project: Map<string, { text?: string; base64?: string }>;
   /** Selesaikan giliran yang sedang berjalan (jawaban singkat + status idle), atau gagalkan dengan galat. */
   finishTurn(sessionId: string, error?: { name: string; message: string }): void;
+  /** Tambah langkah (tool part) ke giliran yang sedang berjalan sebagai PESAN ASISTEN BARU (seperti engine asli memecah giliran). */
+  addStep(sessionId: string, part: Record<string, unknown>): void;
   /** Perubahan berkas per sesi untuk GET /session/:id/diff. */
   sessionDiffs: Map<
     string,
@@ -95,6 +97,7 @@ export const RICH_MD = [
 export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<MockEngine> {
   const state: MockEngine = {
     finishTurn: () => {},
+    addStep: () => {},
     sessions: [],
     prompts: [],
     aborted: [],
@@ -142,6 +145,30 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
   });
 
   const emit = (type: string, properties: unknown) => queue.push({ id: id("evt"), type, properties });
+  state.addStep = (sid, part) => {
+    const list = messages.get(sid) ?? [];
+    const prev = list.at(-1);
+    if (!prev) return;
+    prev.info.time = { ...(prev.info.time as object), completed: ++clock } as never;
+    emit("message.updated", { sessionID: sid, info: prev.info });
+    const next: Msg = {
+      info: {
+        id: id("msg"),
+        sessionID: sid,
+        role: "assistant",
+        parentID: prev.info.parentID as string,
+        modelID: "m-satu",
+        providerID: "mock",
+        time: { created: ++clock },
+      },
+      parts: [],
+    };
+    list.push(next);
+    emit("message.updated", { sessionID: sid, info: next.info });
+    const p = { id: id("prt"), messageID: next.info.id, sessionID: sid, ...part } as unknown as Part;
+    next.parts.push(p);
+    emit("message.part.updated", { sessionID: sid, part: p });
+  };
   state.finishTurn = (sid, error) => {
     const last = (messages.get(sid) ?? []).at(-1);
     if (last) {
@@ -214,6 +241,30 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
       }
     };
 
+    if (text.includes("bertahap")) {
+      // giliran berjalan: satu langkah baca selesai; langkah berikutnya ditambahkan test lewat addStep
+      const part = {
+        id: id("prt"),
+        messageID: asst.info.id,
+        sessionID,
+        type: "tool",
+        tool: "read",
+        callID: id("call"),
+        state: {
+          status: "completed",
+          input: { filePath: ["C:", "Work", "alpha", "src", "a.ts"].join("/"), offset: 1, limit: 3 },
+          output: ["<path>a.ts</path>", "<content>", "1: satu", "2: dua", "3: tiga", "</content>"].join(
+            String.fromCharCode(10),
+          ),
+          title: "a.ts",
+          metadata: { display: { lineStart: 1, lineEnd: 3, totalLines: 9 } },
+          time: { start: 1, end: 2 },
+        },
+      } as Part;
+      asst.parts.push(part);
+      emit("message.part.updated", { sessionID, part });
+      return; // tetap sibuk
+    }
     if (text.includes("bekerja")) {
       // giliran yang sedang berjalan dengan proses (berpikir + pencarian web) dan belum ada jawaban
       for (const part of [

@@ -114,6 +114,34 @@ describe("mode izin", () => {
   });
 });
 
+describe("memuat ulang instance engine (cache skill)", () => {
+  test("direktori idle langsung di-dispose; yang sibuk menunggu sampai idle", async () => {
+    const { engine, store } = await setup();
+    store.reloadInstances([DIR]);
+    await flush();
+    expect(engine.disposed).toEqual([DIR]);
+
+    engine.emit(DIR, { type: "session.status", sessionID: "s1", status: { type: "busy" } });
+    await flush();
+    store.reloadInstances([DIR]);
+    await flush();
+    expect(engine.disposed).toEqual([DIR]); // belum: giliran masih berjalan
+    engine.emit(DIR, { type: "session.status", sessionID: "s1", status: { type: "idle" } });
+    await flush();
+    expect(engine.disposed).toEqual([DIR, DIR]);
+  });
+
+  test("tanpa argumen: semua direktori yang dikenal; galat dispose hanya jadi peringatan", async () => {
+    const { engine, store } = await setup();
+    store.reloadInstances();
+    await flush();
+    expect(engine.disposed).toContain(DIR);
+    engine.failWith = "putus";
+    expect(() => store.reloadInstances([DIR])).not.toThrow();
+    await flush();
+  });
+});
+
 describe("varian reasoning", () => {
   test("varian dikirim bersama prompt; ganti ke model tanpa varian itu mengosongkannya", async () => {
     const { engine, store } = await setup();

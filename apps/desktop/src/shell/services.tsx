@@ -224,7 +224,10 @@ export function createServices(options: {
     docHost: options.docHost,
     terminals: new TerminalStore(),
     git: new GitStore(options.gitHost),
-    memory: new MemoryStore(options.memoryHost),
+    memory: new MemoryStore(options.memoryHost, {
+      // Engine menyimpan cache skill per instance: skill yang baru disetujui/diubah/dihapus harus dimuat ulang (ADR-063).
+      onSkillsChanged: (scope, path) => chat.reloadInstances(scope === "project" && path ? [path] : undefined),
+    }),
     appearance: new AppearanceStore(options.appearanceStorage),
     automation: new AutomationStore(options.automationStorage),
     notify: options.notifyHost,

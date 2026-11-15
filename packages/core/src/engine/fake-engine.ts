@@ -50,6 +50,7 @@ export type FakeEngine = EngineApi & {
   diffs: Map<string, SessionFileDiff[]>;
   forks: Array<{ sessionId: string; messageId: string }>;
   replies: Array<{ requestId: string; reply: PermissionReply }>;
+  disposed: string[];
   aborted: string[];
   /** Dipanggil saat prompt diterima; test memakainya untuk menjalankan skenario respons lewat `emit`. */
   onPrompt: ((directory: string, sessionId: string, text: string) => void) | null;
@@ -88,6 +89,7 @@ export function createFakeEngine(): FakeEngine {
     diffs: new Map(),
     forks: [],
     replies: [],
+    disposed: [],
     aborted: [],
     onPrompt: null,
     pty: createFakePty(),
@@ -193,6 +195,10 @@ export function createFakeEngine(): FakeEngine {
       if (e.failWith) throw new Error(e.failWith);
       e.forks.push({ sessionId, messageId });
       return e.createSession(dir, `Cabang dari ${sessionId}`);
+    },
+    async disposeInstance(directory) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.disposed.push(directory);
     },
     async abort(_dir, sessionId) {
       if (e.failWith) throw new Error(e.failWith);

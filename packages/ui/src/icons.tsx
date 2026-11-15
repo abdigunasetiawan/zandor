@@ -9,6 +9,7 @@ import {
   ArrowUp,
   Bell,
   Bookmark,
+  Bot,
   Brain,
   Check,
   ChevronDown,
@@ -57,6 +58,7 @@ import {
   Search,
   Settings,
   Shield,
+  Sparkles,
   Square,
   Terminal,
   Trash2,
@@ -155,3 +157,5 @@ export const FileTextIcon = icon(FileText, "FileTextIcon");
 export const ImageIcon = icon(Image, "ImageIcon");
 export const EyeOffIcon = icon(EyeOff, "EyeOffIcon");
 export const UploadIcon = icon(Upload, "UploadIcon");
+export const BotIcon = icon(Bot, "BotIcon");
+export const SparklesIcon = icon(Sparkles, "SparklesIcon");

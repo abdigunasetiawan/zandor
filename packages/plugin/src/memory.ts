@@ -48,6 +48,14 @@ export function memoryPaths(dir: string, key: string) {
 
 const readText = (p: string) => (existsSync(p) ? readFileSync(p, "utf8").trim() : "");
 
+/** Fakta di berkas memori: satu per baris tidak kosong, awalan "- " dibuang. Sumber kebenaran pencarian. */
+export function memoryFacts(file: string): string[] {
+  return readText(file)
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^-\s*/, "").trim())
+    .filter(Boolean);
+}
+
 export function readSettings(dir: string): MemorySettings {
   try {
     const raw = JSON.parse(readText(join(dir, "settings.json")) || "{}");
@@ -122,7 +130,16 @@ export function createMemoryStore(dir: string, worktree: string, indexer: Indexe
       if (found.length) return { ok: false, reason: `Ditolak: teks tampak memuat secret (${found.join(", ")}).` };
       const clean = content.replace(/\s*\n+\s*/g, " ").trim();
       if (!clean) return { ok: false, reason: "Ditolak: isi kosong." };
-      appendFileSync(scope === "global" ? paths.global : paths.project, `- ${clean}\n`);
+      const file = scope === "global" ? paths.global : paths.project;
+      // Fakta yang sama persis (abaikan besar/kecil huruf) tidak ditambahkan lagi: model sering menulis ulang yang sudah ada.
+      const norm = (l: string) => l.replace(/^-\s*/, "").trim().toLowerCase();
+      if (
+        readText(file)
+          .split("\n")
+          .some((l) => norm(l) === clean.toLowerCase())
+      )
+        return { ok: true };
+      appendFileSync(file, `- ${clean}\n`);
       indexer.add(scope, key, clean);
       return { ok: true };
     },

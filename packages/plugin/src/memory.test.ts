@@ -87,6 +87,16 @@ describe("MemoryStore", () => {
     expect(m.block()).not.toContain("Bahasa Indonesia");
   });
 
+  test("fakta yang sama persis (abaikan huruf besar/kecil) tidak ditulis dua kali", () => {
+    const m = make();
+    expect(m.write("project", "Proyek memakai Tauri dan Bun.")).toEqual({ ok: true });
+    expect(m.write("project", "  proyek MEMAKAI tauri dan bun.  ")).toEqual({ ok: true });
+    expect(m.write("project", "Proyek memakai Tauri dan Bun.\n")).toEqual({ ok: true });
+    expect(readFileSync(m.paths.project, "utf8").trim().split("\n")).toHaveLength(1);
+    expect(m.write("project", "Fakta lain.")).toEqual({ ok: true });
+    expect(readFileSync(m.paths.project, "utf8").trim().split("\n")).toHaveLength(2);
+  });
+
   test("menolak secret dan isi kosong", () => {
     const m = make();
     const r = m.write("global", "kunci sk-CONTOHPALSU0123456789abcdefghij");

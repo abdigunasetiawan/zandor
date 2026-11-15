@@ -68,3 +68,19 @@ Saat agent bekerja, pesan yang dikirim masuk **antrean** (dok di atas composer):
 ## Indikator sesi, notifikasi, dan suara (ADR-050)
 
 Titik di sidebar menunjukkan status sesi (bekerja = ripple, butuh aksi, selesai belum dilihat, gagal, batas penyedia). Saat sesi yang tidak dilihat selesai/gagal/butuh aksi: toast (tombol Buka sesi), notifikasi sistem (jendela tidak fokus), dan suara — diatur di Pengaturan > Notifikasi dan suara (nada bawaan atau berkas sendiri per peristiwa). Tes: `attention.test.ts`, `e2e/notify.spec.ts`. Belum diuji di Tauri sungguhan: notifikasi sistem dan pemutaran suara.
+
+## Langkah tool ala agent harness (ADR-064)
+
+Di dalam "Proses · n langkah" tiap tool tampil sebagai satu baris: ikon jenis · nama tool · target (folder redup + nama berkas,
+perintah, kueri) · ringkasan (rentang baris yang dibaca, `+n −m`, jumlah hasil, jenis sub-agen, kode keluar bila gagal, durasi
+≥ 1,5 dtk) · status. Dibuka menampilkan: **diff unified bernomor baris** (edit), isi berkas baru (tulis), **baris yang dibaca**
+(read), **perintah + keluaran** (bash), **hasil grep per berkas** dan daftar berkas (glob), **tugas + hasil sub-agen** (`task`),
+dan daftar rencana (todowrite). Tool lain memakai cadangan generik (masukan + keluaran). Ringkasan proses menambahkan hitungan
+("12 dibaca · 3 diedit +45 −12 · 8 perintah").
+
+- **Tertutup bawaan; yang dibuka pengguna tidak menutup sendiri** saat langkah/pesan engine baru bergabung (state lipatan di
+  `open-state.ts`, kunci giliran `turnKey`). **Gulir mengikuti** langkah baru selama pengguna di dasar; membaca ke atas tidak direbut.
+- **Sub-agen:** engine mendukung tool `task` (agent `general`/`explore`, sesi anak ber-`parentID`); model bisa menyuruh spawn.
+  Belum: sesi anak tampil sebagai sesi biasa di sidebar dan belum bisa dibuka dari langkahnya.
+- **Tes:** `bun x vitest run apps/desktop/src/shell/tool-view.test.ts`; e2e `bun x playwright test e2e/turn.spec.ts` (langkah,
+  tidak menutup sendiri, gulir). Bentuk data tool diambil dari engine asli opencode 1.19.5.

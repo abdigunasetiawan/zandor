@@ -10,9 +10,11 @@ import { FileCard } from "./FileCard";
 import { SAFE_IMAGE_URI } from "./image-uri";
 import { MessageToolbar } from "./MessageToolbar";
 import { messageDomId } from "./message-focus";
+import { useOpenState } from "./open-state";
 import { countSteps, createdDocuments, elapsedSeconds, splitElapsed, splitTurn, stepOf } from "./process-label";
 import { useChat } from "./services";
 import { useSessionFlags } from "./session-context";
+import { tallyProcess } from "./tool-view";
 
 /** Waktu sekarang yang diperbarui tiap detik hanya saat `active` (menghitung durasi "Bekerja selama"). */
 function useNow(active: boolean): number {
@@ -34,18 +36,47 @@ function useFormatSeconds() {
   };
 }
 
+/** Ringkasan hitungan proses ala agent harness: "12 dibaca · 3 diedit +45 −12 · 8 perintah" (hanya yang ada). */
+function Tally({ process }: { process: ChatMessage["parts"] }) {
+  const { t } = useI18n();
+  const k = tallyProcess(process);
+  const bits: string[] = [];
+  if (k.read) bits.push(t("work.tally.read", { n: k.read }));
+  if (k.edit) bits.push(t("work.tally.edit", { n: k.edit }));
+  if (k.write) bits.push(t("work.tally.write", { n: k.write }));
+  if (k.shell) bits.push(t("work.tally.shell", { n: k.shell }));
+  if (k.search) bits.push(t("work.tally.search", { n: k.search }));
+  if (k.web) bits.push(t("work.tally.web", { n: k.web }));
+  if (k.task) bits.push(t("work.tally.task", { n: k.task }));
+  if (bits.length === 0 && k.adds === 0 && k.dels === 0) return null;
+  return (
+    <span className="work__tally z-small">
+      {bits.join(" · ")}
+      {(k.adds > 0 || k.dels > 0) && (
+        <span className="tstep__chg">
+          {k.adds > 0 && <span className="tstep__add">+{k.adds}</span>}
+          {k.dels > 0 && <span className="tstep__del">−{k.dels}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function ProcessBlock({
   process,
   working,
   info,
+  turnId,
 }: {
   process: ChatMessage["parts"];
   working: boolean;
   info: MessageInfo;
+  /** ID stabil giliran (pesan engine pertama): kunci state lipatan agar tidak menutup sendiri saat proses baru datang. */
+  turnId: string;
 }) {
   const { t } = useI18n();
   const fmt = useFormatSeconds();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useOpenState(`proc:${turnId}`);
   const now = useNow(working);
   const seconds = elapsedSeconds((working ? now : (info.time.completed ?? now)) - info.time.created);
   const steps = countSteps(process);
@@ -68,6 +99,7 @@ function ProcessBlock({
         <button type="button" className="work__sum" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
           {chevron}
           <span>{t("work.done", { n: steps, time: fmt(seconds) })}</span>
+          <Tally process={process} />
         </button>
         {list}
       </div>
@@ -107,6 +139,7 @@ export function AssistantMessage({
   const { hasProject } = useSessionFlags();
   const { models, model } = useChat();
   const { info } = message;
+  const turnId = (message as ChatMessage & { sourceIds?: string[] }).sourceIds?.[0] ?? info.id;
   const answerRef = useRef<HTMLDivElement>(null);
   const parts = message.parts.filter((p) => p.type !== "other" && p.type !== "step-finish");
   const { process, answer } = splitTurn(parts);
@@ -129,7 +162,9 @@ export function AssistantMessage({
 
   return (
     <article className="msg msg--assistant" aria-label={t("chat.assistant")} id={messageDomId(info.id)}>
-      {(process.length > 0 || streaming) && <ProcessBlock process={process} working={streaming} info={info} />}
+      {(process.length > 0 || streaming) && (
+        <ProcessBlock process={process} working={streaming} info={info} turnId={turnId} />
+      )}
       <div className="msg__answer" ref={answerRef}>
         {answer.map((p) => {
           if (p.type !== "file") return <Part key={p.id} part={p} streaming={streaming} />;
