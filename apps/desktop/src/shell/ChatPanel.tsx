@@ -48,6 +48,7 @@ import {
 import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AssistantMessage } from "./AssistantMessage";
 import { ComposerInfo } from "./ComposerInfo";
+import { ComposerMemory, type PendingMemory } from "./ComposerMemory";
 import { DemoChat } from "./DemoChat";
 import { useDemo } from "./demo-context";
 import { DEMO_KEY, demoById } from "./demo-sessions";
@@ -125,6 +126,10 @@ export function ChatPanel() {
       opened.current.delete(id);
     }
   }, [chat, state.engineReady, wantedKey]);
+  // sesi yang dipilih lagi harus punya aliran event (folder yang lama tak dipakai dilepas oleh batas aliran)
+  useEffect(() => {
+    if (state.engineReady && sessionId) chat.resume(sessionId);
+  }, [chat, state.engineReady, sessionId]);
   // (sengaja tanpa pelepasan saat panel dilepas: sesi tetap dipantau saat Anda membuka halaman lain, mis. Pengaturan)
 
   // sesi demo bawaan (statis, hanya-baca): tidak berasal dari engine
@@ -750,8 +755,12 @@ function useSuggestions(enabled: boolean): Suggestion[] {
 
 function Composer({ session, draft = false }: { session: SessionChat; draft?: boolean }) {
   const { t } = useI18n();
-  const { chat, host, nav, projects } = useServices();
+  const { chat, host, nav, projects, memory } = useServices();
   const pstate = useProjects();
+  const [pendingMemory, setPendingMemory] = useState<PendingMemory>({});
+  const projectPath = draft
+    ? (pstate.projects.find((p) => p.id === pstate.selection.key)?.path ?? null)
+    : (projects.selected()?.project?.path ?? null);
   const engine = useEngineState();
   const { model, models, modelsStatus, variant, permissionMode } = useChat();
   const toast = useToast();
@@ -825,6 +834,12 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
         const created = await projects.createSession(pstate.selection.key ?? CHAT_KEY);
         chat.open(created.directory, created.id);
         sessionId = created.id;
+        // pilihan memori/skill creator untuk sesi Chat baru (di project, pengaturan project yang berlaku)
+        for (const kind of ["memory", "skill"] as const) {
+          const on = pendingMemory[kind];
+          if (on !== undefined && !projectPath) void memory.setScoped(kind, on, created.id, null).catch(() => {});
+        }
+        setPendingMemory({});
       }
       await chat.send(sessionId, value, attached);
     } catch (err) {
@@ -932,6 +947,12 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
             }))}
             value={permissionMode}
             onValueChange={(v) => chat.setPermissionMode(v as PermissionMode)}
+          />
+          <ComposerMemory
+            sessionId={draft ? null : session.sessionID}
+            projectPath={projectPath}
+            pending={pendingMemory}
+            onPending={setPendingMemory}
           />
           <span className="composer__spacer" />
           <ComposerInfo session={session} />

@@ -7,14 +7,15 @@ import { useI18n } from "@zandor/i18n/react";
 import {
   ArrowLeftIcon,
   BellIcon,
+  BookmarkIcon,
   BrainIcon,
   Button,
   ChatIcon,
+  ClockIcon,
   DatabaseIcon,
   EyeIcon,
   IconButton,
   LayoutIcon,
-  MoreIcon,
   SearchField,
   Select,
   SettingsIcon,
@@ -24,14 +25,19 @@ import {
   WrenchIcon,
 } from "@zandor/ui";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { AppearancePage } from "./AppearancePage";
+import { AutomationPage } from "./AutomationPage";
+import { MemoryPage } from "./MemoryPage";
 import { ModelSettings } from "./ModelSettings";
 import { NotificationExtras } from "./NotificationSettings";
 import { useServices, useSettings } from "./services";
 
 const GROUPS = ["general", "appearance", "chat", "notifications", "tools", "layout"] as const;
 type Group = (typeof GROUPS)[number];
-const EXTRA_SECTIONS = ["models", "more", "data"] as const;
+const EXTRA_SECTIONS = ["models", "memory", "automation", "data"] as const;
 type Section = Group | (typeof EXTRA_SECTIONS)[number];
+/** Kategori tambahan yang bisa dituju dari rute (#/settings/models, alias /memory, /appearance, /automation). */
+export type SettingsSection = Section;
 
 const SECTION_ICONS: Record<Section, ReactNode> = {
   general: <SettingsIcon size="sm" />,
@@ -41,7 +47,8 @@ const SECTION_ICONS: Record<Section, ReactNode> = {
   tools: <WrenchIcon size="sm" />,
   layout: <LayoutIcon size="sm" />,
   models: <BrainIcon size="sm" />,
-  more: <MoreIcon size="sm" />,
+  memory: <BookmarkIcon size="sm" />,
+  automation: <ClockIcon size="sm" />,
   data: <DatabaseIcon size="sm" />,
 };
 
@@ -95,7 +102,7 @@ function download(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function SettingsPage({ initial = null }: { initial?: "models" | null }) {
+export function SettingsPage({ initial = null }: { initial?: SettingsSection | null }) {
   const { t } = useI18n();
   const { settings, nav, panels } = useServices();
   const all: Settings = useSettings();
@@ -167,32 +174,19 @@ export function SettingsPage({ initial = null }: { initial?: "models" | null }) 
     }
   };
 
-  const linkCards: Array<{ path: string; title: MessageKey; body: MessageKey }> = [
-    { path: "/appearance", title: "settings.more.appearance", body: "settings.more.appearanceBody" },
-    { path: "/memory", title: "settings.more.memory", body: "settings.more.memoryBody" },
-    { path: "/automation", title: "settings.more.automation", body: "settings.more.automationBody" },
-  ];
-
   const navItems: Array<{ id: Section; label: string }> = [
     ...GROUPS.map((g) => ({ id: g as Section, label: t(`settings.${g}` as MessageKey) })),
     { id: "models", label: t("settings.models") },
-    { id: "more", label: t("settings.more") },
+    { id: "memory", label: t("settings.more.memory") },
+    { id: "automation", label: t("settings.more.automation") },
     { id: "data", label: t("settings.data") },
   ];
 
   const groupExtra = (g: Group): ReactNode => {
     if (g === "appearance")
-      return matchesText(t("settings.more.appearance"), t("settings.more.appearanceBody")) ? (
-        <div className="settings__row" data-setting="appearanceLink">
-          <div className="settings__text">
-            <span className="z-label">{t("settings.more.appearance")}</span>
-            <span className="z-small">{t("settings.more.appearanceBody")}</span>
-          </div>
-          <div className="settings__control">
-            <Button size="sm" onClick={() => nav.push("/appearance")}>
-              {t("settings.open")}
-            </Button>
-          </div>
+      return matchesText(t("settings.more.appearance"), t("settings.more.appearanceBody"), t("ap.title")) ? (
+        <div id="settings-appearanceAdv">
+          <AppearancePage embedded />
         </div>
       ) : null;
     if (g === "notifications")
@@ -247,7 +241,14 @@ export function SettingsPage({ initial = null }: { initial?: "models" | null }) 
           </nav>
         </aside>
         <div className="settings__scroll">
-          <div className="settings__content" data-wide={!q && active === "models" ? "" : undefined}>
+          <div
+            className="settings__content"
+            data-wide={
+              !q && (active === "models" || active === "appearance" || active === "memory" || active === "automation")
+                ? ""
+                : undefined
+            }
+          >
             <p className="z-small settings__note">{t("settings.schemaNote")}</p>
 
             {GROUPS.map((group) => {
@@ -301,24 +302,19 @@ export function SettingsPage({ initial = null }: { initial?: "models" | null }) 
                 </div>
               )}
 
-            {show("more") && matchesText(t("settings.more"), ...linkCards.map((c) => t(c.title))) && (
-              <section className="settings__group" id="settings-more" aria-labelledby="settings-h-more">
-                <h2 id="settings-h-more" className="z-h4">
-                  {t("settings.more")}
-                </h2>
-                <div className="settings__cards">
-                  {linkCards
-                    .filter((c) => matchesText(t(c.title), t(c.body)))
-                    .map((c) => (
-                      <button key={c.path} type="button" className="settings__card" onClick={() => nav.push(c.path)}>
-                        <SettingsIcon size="sm" />
-                        <span className="z-label">{t(c.title)}</span>
-                        <span className="z-small">{t(c.body)}</span>
-                      </button>
-                    ))}
+            {show("memory") &&
+              matchesText(t("settings.more.memory"), t("settings.more.memoryBody"), t("mem.title")) && (
+                <div id="settings-memory">
+                  <MemoryPage embedded />
                 </div>
-              </section>
-            )}
+              )}
+
+            {show("automation") &&
+              matchesText(t("settings.more.automation"), t("settings.more.automationBody"), t("auto.title")) && (
+                <div id="settings-automation">
+                  <AutomationPage embedded />
+                </div>
+              )}
 
             {show("data") &&
               matchesText(t("settings.data"), t("settings.export"), t("settings.import"), t("settings.resetAll")) && (

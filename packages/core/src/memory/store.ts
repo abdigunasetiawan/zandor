@@ -29,7 +29,10 @@ export type MemorySettings = {
   defaultEnabled: boolean;
   projects: Record<string, boolean>;
   sessions: Record<string, boolean>;
+  /** Bawaan skill creator; project/sesi bisa menimpanya (sama seperti memori). */
   skillCreator: boolean;
+  skillCreatorProjects: Record<string, boolean>;
+  skillCreatorSessions: Record<string, boolean>;
 };
 
 export type SkillStatus = "candidate" | "pending" | "approved" | "rejected";
@@ -67,6 +70,8 @@ export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
   projects: {},
   sessions: {},
   skillCreator: false,
+  skillCreatorProjects: {},
+  skillCreatorSessions: {},
 };
 
 const INITIAL: MemoryState = {
@@ -105,9 +110,19 @@ export function parseSettings(text: string): MemorySettings {
       projects: typeof raw.projects === "object" && raw.projects ? raw.projects : {},
       sessions: typeof raw.sessions === "object" && raw.sessions ? raw.sessions : {},
       skillCreator: raw.skillCreator === true,
+      skillCreatorProjects:
+        typeof raw.skillCreatorProjects === "object" && raw.skillCreatorProjects ? raw.skillCreatorProjects : {},
+      skillCreatorSessions:
+        typeof raw.skillCreatorSessions === "object" && raw.skillCreatorSessions ? raw.skillCreatorSessions : {},
     };
   } catch {
-    return { ...DEFAULT_MEMORY_SETTINGS, projects: {}, sessions: {} };
+    return {
+      ...DEFAULT_MEMORY_SETTINGS,
+      projects: {},
+      sessions: {},
+      skillCreatorProjects: {},
+      skillCreatorSessions: {},
+    };
   }
 }
 
@@ -134,6 +149,14 @@ export function memoryEnabled(s: MemorySettings, key: string | null, sessionID?:
   if (sessionID && typeof s.sessions[sessionID] === "boolean") return s.sessions[sessionID] as boolean;
   if (key && typeof s.projects[key] === "boolean") return s.projects[key] as boolean;
   return s.defaultEnabled;
+}
+
+/** Skill creator: sesi → project → bawaan (sama dengan plugin). */
+export function skillCreatorEnabled(s: MemorySettings, key: string | null, sessionID?: string): boolean {
+  if (sessionID && typeof s.skillCreatorSessions[sessionID] === "boolean")
+    return s.skillCreatorSessions[sessionID] as boolean;
+  if (key && typeof s.skillCreatorProjects[key] === "boolean") return s.skillCreatorProjects[key] as boolean;
+  return s.skillCreator;
 }
 
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -276,6 +299,45 @@ export class MemoryStore {
       if (on === null) delete projects[key];
       else projects[key] = on;
       return { ...s, projects };
+    });
+  /** `null` = ikuti bawaan. */
+  setSkillCreatorProject = (key: string, on: boolean | null) =>
+    this.patchSettings((s) => {
+      const m = { ...s.skillCreatorProjects };
+      if (on === null) delete m[key];
+      else m[key] = on;
+      return { ...s, skillCreatorProjects: m };
+    });
+  setSkillCreatorSession = (sessionId: string, on: boolean | null) =>
+    this.patchSettings((s) => {
+      const m = { ...s.skillCreatorSessions };
+      if (on === null) delete m[sessionId];
+      else m[sessionId] = on;
+      return { ...s, skillCreatorSessions: m };
+    });
+  /**
+   * Pengaturan dari composer. Sesi dalam project berbagi pengaturan project (override sesi dibuang agar tidak
+   * bertentangan); sesi tanpa project (Chat) diatur per sesi.
+   */
+  setScoped = (kind: "memory" | "skill", on: boolean, sessionId: string, projectKey: string | null) =>
+    this.patchSettings((s) => {
+      const out = { ...s };
+      if (kind === "memory") {
+        out.sessions = { ...s.sessions };
+        out.projects = { ...s.projects };
+        if (projectKey) {
+          out.projects[projectKey] = on;
+          delete out.sessions[sessionId];
+        } else out.sessions[sessionId] = on;
+      } else {
+        out.skillCreatorSessions = { ...s.skillCreatorSessions };
+        out.skillCreatorProjects = { ...s.skillCreatorProjects };
+        if (projectKey) {
+          out.skillCreatorProjects[projectKey] = on;
+          delete out.skillCreatorSessions[sessionId];
+        } else out.skillCreatorSessions[sessionId] = on;
+      }
+      return out;
     });
   setSessionEnabled = (sessionId: string, on: boolean | null) =>
     this.patchSettings((s) => {

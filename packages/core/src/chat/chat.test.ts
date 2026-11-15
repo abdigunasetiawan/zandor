@@ -406,6 +406,26 @@ describe("ChatStore", () => {
     expect(store.state().sessions.s1).toBeUndefined();
   });
 
+  test("aliran event dibatasi (batas koneksi WebView): folder terlama yang idle dilepas, dipasang lagi saat dibuka", async () => {
+    const { engine, store } = await setup();
+    const dirs = ["/a", "/b", "/c", "/d", "/e", "/f", "/g"];
+    for (const [i, d] of dirs.entries()) {
+      store.open(d, `s${i}`);
+      await flush();
+    }
+    const open = () => dirs.filter((d) => (engine.subscribers.get(d)?.size ?? 0) > 0);
+    expect(open().length).toBeLessThanOrEqual(4);
+    expect(open()).toContain("/g"); // yang terbaru tetap terhubung
+    expect(open()).not.toContain("/a"); // yang terlama dilepas
+    store.open("/a", "s0"); // dibuka lagi → berlangganan lagi (dan yang terlama berikutnya dilepas)
+    await flush();
+    expect(engine.subscribers.get("/a")?.size).toBe(1);
+    expect(open().length).toBeLessThanOrEqual(4);
+    store.resume("s1"); // sesi terbuka yang foldernya dilepas: dipasang lagi tanpa open()
+    await flush();
+    expect(engine.subscribers.get("/b")?.size).toBe(1);
+  });
+
   test("engine mati → langganan dilepas; engine kembali → sesi terbuka berlangganan lagi", async () => {
     const { engine, store } = await setup();
     store.open(DIR, "s1");

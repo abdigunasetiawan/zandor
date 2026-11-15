@@ -1,6 +1,8 @@
 import type { Messages } from "./id";
 
 export const en: Messages = {
+  "app.devLabel": "Dev",
+  "app.devHint": "Zandor development copy (data separate from the production copy)",
   "app.name": "Zandor",
   "app.version": "Version {version}",
   "shell.emptyTitle": "Application shell",
@@ -879,6 +881,18 @@ export const en: Messages = {
   "mem.skills.delete": "Delete skill",
   "mem.skills.deleteTitle": "Delete skill {name}?",
   "mem.skills.deleteBody": "The SKILL.md file is deleted from this machine.",
+  "memtoggle.memory": "Remember memory",
+  "memtoggle.skill": "Skill creator",
+  "memtoggle.on": "on",
+  "memtoggle.off": "off",
+  "memtoggle.scopeProject": "Applies to every session in this project.",
+  "memtoggle.scopeSession": "Applies to this session only.",
+  "mem.session.projectShared":
+    "This session shares its project's setting. Now: {state}. Change it with the memory button in the composer or on the Memory & skills page.",
+  "mem.settings.skillOfProject": "Skill creator for project {name}",
+  "mem.settings.skillFollow": "Skill: follow default",
+  "mem.settings.skillOn": "Skill: on",
+  "mem.settings.skillOff": "Skill: off",
   "mem.session.title": "Memory for this session",
   "mem.session.follow": "Follow project/default",
   "mem.session.on": "On for this session",

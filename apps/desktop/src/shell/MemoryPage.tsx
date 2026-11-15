@@ -9,21 +9,9 @@ import {
   scanSecrets,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import {
-  ArrowLeftIcon,
-  Badge,
-  Button,
-  Field,
-  IconButton,
-  Input,
-  Select,
-  Switch,
-  Tabs,
-  Textarea,
-  useConfirm,
-  useToast,
-} from "@zandor/ui";
+import { Badge, Button, Field, Input, Select, Switch, Tabs, Textarea, useConfirm, useToast } from "@zandor/ui";
 import { useEffect, useMemo, useState } from "react";
+import { PageFrame } from "./PageFrame";
 import { useMemory, useProjects, useServices } from "./services";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -56,9 +44,9 @@ function useProjectRefs(): ProjectRef[] {
     .map((p) => ({ id: p.id, name: p.name, path: p.path, key: keys[p.id] as string }));
 }
 
-export function MemoryPage() {
+export function MemoryPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
-  const { nav, memory } = useServices();
+  const { memory } = useServices();
   const state = useMemory();
   const refs = useProjectRefs();
   const pathsSig = refs.map((r) => r.path).join("\u0000");
@@ -68,11 +56,7 @@ export function MemoryPage() {
   }, [memory, pathsSig]);
 
   return (
-    <main className="mempage">
-      <header className="mempage__head">
-        <IconButton label={t("mem.back")} icon={<ArrowLeftIcon />} onClick={() => nav.push("/")} />
-        <h1 className="z-h3 mempage__title">{t("mem.title")}</h1>
-      </header>
+    <PageFrame title={t("mem.title")} embedded={embedded}>
       {!memory.connected && (
         <p className="chat__note z-small" role="note">
           {t("mem.preview")}
@@ -100,7 +84,7 @@ export function MemoryPage() {
           ]}
         />
       )}
-    </main>
+    </PageFrame>
   );
 }
 
@@ -112,6 +96,8 @@ function SettingsTab({ state, refs }: TabProps) {
   const fail = useFail();
   const s = state.settings;
   const choice = (key: string) => (typeof s.projects[key] === "boolean" ? (s.projects[key] ? "on" : "off") : "follow");
+  const skillChoice = (key: string) =>
+    typeof s.skillCreatorProjects[key] === "boolean" ? (s.skillCreatorProjects[key] ? "on" : "off") : "follow";
   return (
     <section className="mempage__section" aria-label={t("mem.tab.settings")}>
       <p className="z-small mempage__muted">{t("mem.settings.intro")}</p>
@@ -145,6 +131,18 @@ function SettingsTab({ state, refs }: TabProps) {
                   { value: "follow", label: t("mem.settings.follow") },
                   { value: "on", label: t("mem.settings.on") },
                   { value: "off", label: t("mem.settings.off") },
+                ]}
+              />
+              <Select
+                aria-label={t("mem.settings.skillOfProject", { name: r.name })}
+                value={skillChoice(r.key)}
+                onValueChange={(v) =>
+                  void memory.setSkillCreatorProject(r.key, v === "follow" ? null : v === "on").catch(fail)
+                }
+                items={[
+                  { value: "follow", label: t("mem.settings.skillFollow") },
+                  { value: "on", label: t("mem.settings.skillOn") },
+                  { value: "off", label: t("mem.settings.skillOff") },
                 ]}
               />
             </li>

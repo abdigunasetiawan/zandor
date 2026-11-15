@@ -90,11 +90,12 @@ test("halaman Pengaturan: kategori, pencarian, suara kustom, dan data", async ({
     "Notifikasi dan suara",
     "Alat",
     "Tata letak",
-    "Lainnya",
+    "Memori dan skill",
+    "Automasi",
     "Data dan cadangan",
   ])
     await expect(
-      page.getByRole("navigation", { name: "Kategori pengaturan" }).getByRole("button", { name }),
+      page.getByRole("navigation", { name: "Kategori pengaturan" }).getByRole("button", { name, exact: true }),
     ).toBeVisible();
   await page.getByRole("searchbox", { name: "Cari pengaturan…" }).fill("suara");
   await expect(page.locator('[data-setting="soundDone"]')).toBeVisible();

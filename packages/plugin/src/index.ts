@@ -100,7 +100,7 @@ export const ZandorPlugin: Plugin = async (input, options) => {
       }
       const sid = i.sessionID;
       const trigger = sid ? hinted.get(sid) : undefined;
-      if (sid && trigger && store.skillCreatorOn()) {
+      if (sid && trigger && store.skillCreatorOn(sid)) {
         output.system.push(skillHint(trigger));
         hinted.delete(sid);
       }
@@ -118,7 +118,7 @@ export const ZandorPlugin: Plugin = async (input, options) => {
 
     // Pemicu skill creator: koreksi dari user dan /reflect.
     "chat.message": async (i, output) => {
-      if (!store.skillCreatorOn()) return;
+      if (!store.skillCreatorOn(i.sessionID)) return;
       const text = output.parts.map((p) => (p.type === "text" ? p.text : "")).join(" ");
       const trigger = REFLECT.test(text) ? "reflect" : CORRECTION.test(text) ? "correction" : null;
       if (!trigger) return;
@@ -135,7 +135,7 @@ export const ZandorPlugin: Plugin = async (input, options) => {
     "tool.execute.after": async (i) => {
       const n = (toolCalls.get(i.sessionID) ?? 0) + 1;
       toolCalls.set(i.sessionID, n);
-      if (n === TOOL_COUNT_THRESHOLD && store.skillCreatorOn()) {
+      if (n === TOOL_COUNT_THRESHOLD && store.skillCreatorOn(i.sessionID)) {
         addCandidate(store.paths.queue, { trigger: "tool-count", sessionID: i.sessionID, project: key, count: n });
         hinted.set(i.sessionID, "tool-count");
       }
@@ -175,7 +175,7 @@ export const ZandorPlugin: Plugin = async (input, options) => {
           body: tool.schema.string().describe("Langkah-langkah dalam Markdown singkat"),
         },
         async execute(args, ctx) {
-          if (!store.skillCreatorOn()) return "Skill creator dinonaktifkan; tidak ada yang diajukan.";
+          if (!store.skillCreatorOn(ctx.sessionID)) return "Skill creator dinonaktifkan; tidak ada yang diajukan.";
           const err = validateDraft(args);
           if (err) return err;
           const e = submitDraft(store.paths.queue, args, ctx.sessionID, key);

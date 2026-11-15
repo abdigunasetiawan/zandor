@@ -19,6 +19,11 @@ if (!exe) {
 }
 const exePath: string = exe;
 const PORT = 9333;
+// Identifier aplikasi = nama folder data di %APPDATA%. Bawaan: build dev (`bun run tauri:build:dev`, identifier terpisah)
+// supaya smoke TIDAK menyentuh data nyata. Untuk menguji data nyata: ZANDOR_SMOKE_APP_ID=id.web.zandor.app.
+const APP_ID = process.env.ZANDOR_SMOKE_APP_ID ?? "id.web.zandor.dev";
+/** PID proses yang diluncurkan smoke ini (hanya ini yang dimatikan di akhir, bukan Zandor lain milik pengguna). */
+const launched: number[] = [];
 // Tidak semua model di endpoint pengembang berfungsi; model ini diketahui bisa dipakai (bisa diganti lewat env).
 const SMOKE_MODEL = process.env.ZANDOR_SMOKE_MODEL ?? "DeepSeek";
 
@@ -81,7 +86,7 @@ async function approveUntilCompleted(page: Page, filter?: string | RegExp, timeo
 let app: ChildProcess | undefined;
 
 // Project uji untuk Panel 3: folder sementara didaftarkan ke registry aplikasi, lalu registry asli dipulihkan di akhir.
-const registryFile = join(process.env.APPDATA ?? "", "id.web.zandor.app", "projects.json");
+const registryFile = join(process.env.APPDATA ?? "", APP_ID, "projects.json");
 const docDir = mkdtempSync(join(tmpdir(), "zandor-smoke-docs-"));
 const docProject = basename(docDir);
 const extraDirs = [
@@ -89,7 +94,7 @@ const extraDirs = [
   mkdtempSync(join(tmpdir(), "zandor-smoke-docs-c-")),
 ];
 // Fase 9: smoke menyentuh data memori asli (settings, global.md, antrean skill); semuanya dicadangkan dan dipulihkan.
-const appDataDir = join(process.env.APPDATA ?? "", "id.web.zandor.app");
+const appDataDir = join(process.env.APPDATA ?? "", APP_ID);
 const memoryDir = join(appDataDir, "memory");
 const smokeSkillDir = join(appDataDir, "engine", "config", "opencode", "skills", "smoke-skill");
 const MEMORY_FILES = ["settings.json", "global.md", "skill-queue.jsonl"];
@@ -162,7 +167,7 @@ for (const f of ["contoh.docx", "contoh.xlsx", "contoh.pptx", "contoh.ipynb"])
       addedAt: Date.now(),
     })),
   ];
-  mkdirSync(join(process.env.APPDATA ?? "", "id.web.zandor.app"), { recursive: true });
+  mkdirSync(join(process.env.APPDATA ?? "", APP_ID), { recursive: true });
   writeFileSync(registryFile, JSON.stringify(reg));
 }
 
@@ -174,6 +179,7 @@ async function launch() {
   });
   app = child;
   const pid = child.pid as number;
+  launched.push(pid);
 
   const browser = await waitFor(
     "CDP WebView2",
@@ -529,7 +535,7 @@ try {
   for (const [name, count] of groups) {
     for (let i = 0; i < count; i++) {
       await page.getByRole("button", { name: `Sesi baru di ${name}` }).click();
-      await page.getByRole("log").waitFor({ timeout: 15000 });
+      await page.getByRole("textbox", { name: /^Tulis pesan/ }).waitFor({ timeout: 15000 });
     }
   }
   const sessionRows = page.locator(".tree__children .tree__session");
@@ -543,7 +549,7 @@ try {
     const n = await sessionRows.count();
     for (let i = 0; i < n; i++) {
       await sessionRows.nth(i).click();
-      await page.getByRole("log").waitFor({ timeout: 10000 });
+      await page.getByRole("textbox", { name: /^Tulis pesan/ }).waitFor({ timeout: 10000 });
     }
   }
   check(
@@ -553,6 +559,8 @@ try {
   );
 
   // Fase 11: saran prompt dihitung dari konteks nyata (git di repo uji + berkas di akar project).
+  // Saran berbasis git memakai status dari Panel Git: buka Git dulu agar project aktif termuat (lihat catatan di docs/features/tools.md).
+  await page.getByRole("navigation", { name: "Rel alat" }).getByRole("button", { name: "Git", exact: true }).click();
   await page.getByRole("button", { name: `Sesi baru di ${docProject}` }).click();
   const sugg = page.getByRole("list", { name: "Saran" });
   await sugg.getByRole("button", { name: /^Tinjau \d+ perubahan$/ }).waitFor({ timeout: 30000 });
@@ -584,7 +592,8 @@ try {
     20000,
   );
   check("plugin Zandor memuat opsi memoryDir di engine asli (meta.json dibuat)", true);
-  await page.getByRole("button", { name: "Memori & skill", exact: true }).click();
+  await page.getByRole("button", { name: "Menu pengguna" }).click();
+  await page.getByRole("menuitem", { name: "Memori & skill" }).click();
   await page.getByRole("heading", { name: "Memori & Skill" }).waitFor({ timeout: 10000 });
   check(
     "halaman Memori & Skill tanpa label pratinjau (host Tauri terhubung)",
@@ -723,45 +732,45 @@ try {
   let providerHealthy = false;
   // 1b2) Provider (Fase 6): kunci di keychain, ping nyata lewat Rust. Hanya bila mesin ini punya koneksi terkonfigurasi.
   await page.evaluate(() => {
-    window.location.hash = "#/providers";
+    window.location.hash = "#/settings/models";
   });
-  await page.getByRole("heading", { name: "Provider & model" }).waitFor({ timeout: 10000 });
-  const cards = page.locator(".pcard");
+  await page.getByRole("heading", { name: "Provider AI dan kunci API" }).waitFor({ timeout: 10000 });
+  // Provider "Antigravity" (proxy lokal ke model Claude) TIDAK dipakai untuk uji ping/chat — pilih provider lain.
+  const cards = page
+    .getByRole("listitem")
+    .filter({ hasText: "Kunci tersimpan" })
+    .filter({ hasNotText: /Antigravity/i });
   const hasCards = await cards
     .first()
     .waitFor({ timeout: 5000 })
     .then(() => true)
     .catch(() => false);
   if (!hasCards) {
-    console.log("      (info) tidak ada koneksi provider; pengujian keychain/ping dilewati");
+    console.log("      (info) tidak ada koneksi provider selain Antigravity; pengujian keychain/ping dilewati");
   } else {
     const first = cards.first();
-    await first.getByText("Kunci tersimpan").waitFor({ timeout: 5000 });
     check("koneksi provider tampil dengan kunci tersimpan (keychain)", true);
     await first.getByText("Tersambung ke engine").waitFor({ timeout: 30000 });
     check("engine mengenali provider (tersambung)", true);
-    const named = first.getByRole("button", { name: `Uji ${SMOKE_MODEL}` });
-    const ping = (await named.count()) > 0 ? named : first.getByRole("button", { name: /^Uji / }).first();
-    // Baris model yang diuji (bukan sekadar baris pertama).
-    const row =
-      (await named.count()) > 0
-        ? first.locator(".pmodel").filter({ hasText: SMOKE_MODEL })
-        : first.locator(".pmodel").first();
-    const status = row.locator(".pmodel__status [data-tone]");
+    await first.getByRole("button", { name: "Kelola model" }).click();
+    const ping = page.getByRole("button", { name: /^Uji / }).first();
+    await ping.waitFor({ timeout: 10000 });
+    const row = page.getByRole("listitem").filter({ has: ping });
+    const status = row.locator("[data-tone]");
     let text = "";
     // Upstream pengembang bergantian 200/500: beri hingga 3 percobaan. Yang diuji: selalu berakhir dan jujur.
     for (let attempt = 1; attempt <= 3 && !providerHealthy; attempt++) {
       await ping.click();
-      await status.waitFor({ timeout: 150000 });
-      text = (await status.textContent())?.trim() ?? "";
-      providerHealthy = (await status.getAttribute("data-tone")) === "ok";
+      await status.first().waitFor({ timeout: 150000 });
+      text = (await status.first().textContent())?.trim() ?? "";
+      providerHealthy = (await status.first().getAttribute("data-tone")) === "ok";
       if (!providerHealthy) await new Promise((r) => setTimeout(r, 5000));
     }
     check("ping model nyata lewat Rust (kunci dari keychain) berakhir dengan status jujur", true, text.slice(0, 90));
     // Upstream pengembang tidak stabil: ZANDOR_SMOKE_FORCE_CHAT=1 menjalankan fase chat nyata walau ping gagal.
     if (process.env.ZANDOR_SMOKE_FORCE_CHAT === "1") providerHealthy = true;
     // berkas provider tidak boleh memuat kunci (migrasi v1 → v2)
-    const file = join(process.env.APPDATA ?? "", "id.web.zandor.app", "providers.json");
+    const file = join(process.env.APPDATA ?? "", APP_ID, "providers.json");
     try {
       const text = readFileSync(file, "utf8");
       check("providers.json tidak memuat kunci API", !/"apiKey"/.test(text) && /"version": 2/.test(text));
@@ -800,6 +809,11 @@ try {
       await page.keyboard.press("Escape");
       console.log(`      (info) model ${SMOKE_MODEL} tidak ada; memakai model bawaan`);
     }
+    const chosen = (await modelPicker.textContent()) ?? "";
+    if (/antigravity|claude/i.test(chosen))
+      throw new Error(
+        `model chat uji memakai Antigravity/Claude (${chosen.trim()}); atur ZANDOR_SMOKE_MODEL ke provider lain`,
+      );
     const box = page.getByRole("textbox", { name: /^Tulis pesan/ });
     await box.fill("Balas hanya dengan satu kata: pong");
     await box.press("Enter");
@@ -923,9 +937,14 @@ try {
 
     // Fase 12: Masuk dengan OpenWork — langkah pertama alur device-code ke server OpenWork nyata (tanpa login)
     await page.evaluate(() => {
-      window.location.hash = "#/providers";
+      window.location.hash = "#/settings/models";
     });
-    await page.getByRole("heading", { name: "Provider & model" }).waitFor({ timeout: 10000 });
+    await page.getByRole("heading", { name: "Provider AI dan kunci API" }).waitFor({ timeout: 10000 });
+    await page.getByRole("button", { name: "Tambah koneksi" }).click();
+    await page
+      .getByRole("region", { name: /koneksi/ })
+      .getByRole("tab", { name: "Sign-in" })
+      .click();
     await page.getByRole("button", { name: "Masuk dengan OpenWork" }).click();
     const owCode = page.getByTestId("openwork-code");
     const gotCode = await owCode
@@ -1001,7 +1020,11 @@ try {
   check("jendela asli ditemukan", s0.found);
   console.log(`      (info) WS_CAPTION=${s0.caption}`);
 
-  // 3) Maksimalkan → pulihkan.
+  // 3) Maksimalkan → pulihkan. Jendela bisa mulai dalam keadaan termaksimalkan (ukuran terakhir diingat): pulihkan dulu.
+  if ((await maximize.count()) === 0) {
+    await page.getByRole("button", { name: /^(Pulihkan|Restore)$/ }).click();
+    await maximize.waitFor({ timeout: 10000 });
+  }
   await maximize.click();
   const z = await waitFor(
     "jendela termaksimalkan",
@@ -1057,21 +1080,35 @@ try {
   // 6) Persistensi: jalankan ulang aplikasi → sesi yang dibuat tadi masih ada; lalu bersihkan semuanya.
   // (Judul sesi bisa berubah karena engine memberi judul otomatis setelah chat, jadi dicari lewat barisnya.)
   const second = await launch();
-  const rows = second.page.locator(".tree__children .tree__session");
+  // Hanya sesi di bagian Projects (project uji sementara). Sesi di bagian Chat (tanpa project) milik pengguna: JANGAN dihapus.
+  const rows = second.page
+    .getByRole("list", { name: "Projects", exact: true })
+    .locator(".tree__children .tree__session");
   await rows.first().waitFor({ timeout: 40000 });
   await new Promise((r) => setTimeout(r, 4000)); // daftar sesi tiap project dimuat bertahap
   check("restart aplikasi → sesi tetap ada (persisten di engine)", true, `${await rows.count()} sesi`);
-  while ((await rows.count()) > 0) {
-    await second.page.locator(".tree__children .tree__row button[aria-haspopup='menu']").first().click({ force: true });
-    await second.page.getByRole("menuitem", { name: "Hapus sesi" }).click();
-    await second.page.getByRole("alertdialog").getByRole("button", { name: "Hapus sesi" }).click();
+  // Terbatas (maks. 40 putaran) dan tidak menunggu dialog yang mungkin tidak muncul (konfirmasi hapus bisa dimatikan).
+  for (let guard = 0; guard < 40 && (await rows.count()) > 0; guard++) {
+    const before = await rows.count();
+    await second.page
+      .locator(".tree__children .tree__row button[aria-haspopup='menu']")
+      .first()
+      .click({ force: true, timeout: 5000 });
+    await second.page.getByRole("menuitem", { name: "Hapus sesi" }).click({ timeout: 5000 });
+    const confirmBtn = second.page.getByRole("alertdialog").getByRole("button", { name: "Hapus sesi" });
+    if (
+      await confirmBtn.waitFor({ timeout: 2000 }).then(
+        () => true,
+        () => false,
+      )
+    )
+      await confirmBtn.click({ timeout: 5000 });
     await waitFor(
       "satu sesi uji terhapus",
       () => rows.count(),
-      (n) => n >= 0,
-      5000,
-    );
-    await new Promise((r) => setTimeout(r, 400));
+      (n) => n < before,
+      8000,
+    ).catch(() => {});
   }
   await new Promise((r) => setTimeout(r, 2500));
   check(
@@ -1081,7 +1118,7 @@ try {
   );
   check("sesi uji dihapus (tidak meninggalkan sampah)", true);
   // berkas yang ditulis agent saat uji izin (best effort)
-  const junk = join(process.env.APPDATA ?? "", "id.web.zandor.app", "chats", "zandor-smoke.txt");
+  const junk = join(process.env.APPDATA ?? "", APP_ID, "chats", "zandor-smoke.txt");
   try {
     rmSync(junk, { force: true });
   } catch {
@@ -1122,8 +1159,8 @@ try {
   } catch {
     // best effort
   }
-  // pastikan tidak ada sisa proses engine/webview milik aplikasi
-  spawnSync("taskkill", ["/F", "/IM", "zandor-desktop.exe"], { stdio: "ignore" });
+  // pastikan tidak ada sisa proses (beserta engine/webview anaknya) dari peluncuran smoke ini saja
+  for (const pid of launched) spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
 }
 
 const failed = results.filter(([, pass]) => !pass);

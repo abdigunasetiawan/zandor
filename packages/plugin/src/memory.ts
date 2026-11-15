@@ -14,6 +14,8 @@ export type MemorySettings = {
   sessions: Record<string, boolean>;
   /** Skill creator (pemicu + draf) aktif; terpisah dari memori. */
   skillCreator: boolean;
+  skillCreatorProjects: Record<string, boolean>;
+  skillCreatorSessions: Record<string, boolean>;
 };
 
 export const DEFAULT_SETTINGS: MemorySettings = {
@@ -21,6 +23,8 @@ export const DEFAULT_SETTINGS: MemorySettings = {
   projects: {},
   sessions: {},
   skillCreator: false,
+  skillCreatorProjects: {},
+  skillCreatorSessions: {},
 };
 
 export type SearchHit = { scope: "global" | "project"; text: string };
@@ -52,9 +56,13 @@ export function readSettings(dir: string): MemorySettings {
       projects: typeof raw.projects === "object" && raw.projects ? raw.projects : {},
       sessions: typeof raw.sessions === "object" && raw.sessions ? raw.sessions : {},
       skillCreator: raw.skillCreator === true,
+      skillCreatorProjects:
+        typeof raw.skillCreatorProjects === "object" && raw.skillCreatorProjects ? raw.skillCreatorProjects : {},
+      skillCreatorSessions:
+        typeof raw.skillCreatorSessions === "object" && raw.skillCreatorSessions ? raw.skillCreatorSessions : {},
     };
   } catch {
-    return { ...DEFAULT_SETTINGS, projects: {}, sessions: {} };
+    return { ...DEFAULT_SETTINGS, projects: {}, sessions: {}, skillCreatorProjects: {}, skillCreatorSessions: {} };
   }
 }
 
@@ -63,6 +71,14 @@ export function memoryEnabled(s: MemorySettings, key: string, sessionID?: string
   if (sessionID && typeof s.sessions[sessionID] === "boolean") return s.sessions[sessionID] as boolean;
   if (typeof s.projects[key] === "boolean") return s.projects[key] as boolean;
   return s.defaultEnabled;
+}
+
+/** Skill creator: sesi → project → bawaan. */
+export function skillCreatorEnabled(s: MemorySettings, key: string, sessionID?: string): boolean {
+  if (sessionID && typeof s.skillCreatorSessions[sessionID] === "boolean")
+    return s.skillCreatorSessions[sessionID] as boolean;
+  if (typeof s.skillCreatorProjects[key] === "boolean") return s.skillCreatorProjects[key] as boolean;
+  return s.skillCreator;
 }
 
 export function createMemoryStore(dir: string, worktree: string, indexer: Indexer) {
@@ -87,7 +103,7 @@ export function createMemoryStore(dir: string, worktree: string, indexer: Indexe
     key,
     paths,
     enabled,
-    skillCreatorOn: () => readSettings(dir).skillCreator,
+    skillCreatorOn: (sessionID?: string) => skillCreatorEnabled(readSettings(dir), key, sessionID),
 
     /** Blok `<zandor-memory>` untuk system prompt, atau "" bila tidak ada isi. */
     block(): string {

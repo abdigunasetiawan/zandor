@@ -70,3 +70,35 @@ test("opt-in per project dan per sesi; memori global menolak secret", async ({ p
   await page.getByRole("tab", { name: "Skill terpasang" }).click();
   await expect(page.getByText("Belum ada skill terpasang.")).toBeVisible();
 });
+
+test("toggle di composer: sesi project berbagi pengaturan project; sesi Chat diatur per sesi", async ({ page }) => {
+  await setup(page);
+  const mem = () => page.getByRole("button", { name: "Ingat memori" });
+  const skill = () => page.getByRole("button", { name: "Skill creator" });
+  const newIn = async (name: string) => {
+    await page.getByRole("button", { name }).first().click();
+    await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
+  };
+
+  await newIn("Sesi baru di alpha");
+  await expect(mem()).toHaveAttribute("aria-pressed", "false");
+  await mem().click();
+  await skill().click();
+  await expect(mem()).toHaveAttribute("aria-pressed", "true");
+  await expect(skill()).toHaveAttribute("aria-pressed", "true");
+  await expect(mem()).toHaveAttribute("title", /semua sesi di project ini/);
+
+  // sesi lain di project yang sama mengikuti pengaturan project
+  await newIn("Sesi baru di alpha");
+  await expect(mem()).toHaveAttribute("aria-pressed", "true");
+  await expect(skill()).toHaveAttribute("aria-pressed", "true");
+
+  // sesi Chat (tanpa project): per sesi, tidak ikut pengaturan project
+  await newIn("Sesi baru di Chat (tanpa project)");
+  await expect(mem()).toHaveAttribute("aria-pressed", "false");
+  await expect(mem()).toHaveAttribute("title", /hanya berlaku untuk sesi ini/i);
+  await mem().click();
+  await expect(mem()).toHaveAttribute("aria-pressed", "true");
+  await newIn("Sesi baru di Chat (tanpa project)");
+  await expect(mem()).toHaveAttribute("aria-pressed", "false");
+});

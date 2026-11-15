@@ -12,13 +12,10 @@ import {
 } from "@zandor/ui";
 import { useEffect } from "react";
 import { DesignSystemPage } from "./design-system/DesignSystemPage";
-import { AppearancePage } from "./shell/AppearancePage";
 import { AutomationDriver } from "./shell/AutomationDriver";
-import { AutomationPage } from "./shell/AutomationPage";
 import { CommandCenter } from "./shell/CommandCenter";
-import { MemoryPage } from "./shell/MemoryPage";
 import { NotificationDriver } from "./shell/NotificationDriver";
-import { SettingsPage } from "./shell/SettingsPage";
+import { SettingsPage, type SettingsSection } from "./shell/SettingsPage";
 import { ShellLayout } from "./shell/ShellLayout";
 import {
   type Services,
@@ -32,10 +29,7 @@ import { TitleBar } from "./shell/TitleBar";
 
 export type Route =
   | { page: "home" }
-  | { page: "settings"; section: "models" | null }
-  | { page: "memory" }
-  | { page: "appearance" }
-  | { page: "automation" }
+  | { page: "settings"; section: SettingsSection | null }
   | { page: "design-system"; section: string | null };
 
 /** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
@@ -43,9 +37,10 @@ export function parseRoute(path: string): Route {
   if (/^\/settings\/?$/.test(path)) return { page: "settings", section: null };
   // Provider & model ada di Pengaturan (kategori "Provider dan model"); /providers dipertahankan sebagai alias.
   if (/^\/(settings\/models|providers)\/?$/.test(path)) return { page: "settings", section: "models" };
-  if (/^\/memory\/?$/.test(path)) return { page: "memory" };
-  if (/^\/appearance\/?$/.test(path)) return { page: "appearance" };
-  if (/^\/automation\/?$/.test(path)) return { page: "automation" };
+  // Memori & skill, Tampilan lanjutan, dan Automasi adalah kategori Pengaturan (ADR-059); rute lamanya jadi alias.
+  if (/^\/memory\/?$/.test(path)) return { page: "settings", section: "memory" };
+  if (/^\/appearance\/?$/.test(path)) return { page: "settings", section: "appearance" };
+  if (/^\/automation\/?$/.test(path)) return { page: "settings", section: "automation" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -156,9 +151,6 @@ function Page() {
     if (page === "design-system" && section) document.getElementById(section)?.scrollIntoView?.({ block: "start" });
   }, [page, section]);
   if (route.page === "settings") return <SettingsPage initial={route.section} />;
-  if (page === "memory") return <MemoryPage />;
-  if (page === "appearance") return <AppearancePage />;
-  if (page === "automation") return <AutomationPage />;
   if (page === "design-system") return <DesignSystemPage />;
   return <ShellLayout />;
 }

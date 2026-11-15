@@ -247,6 +247,24 @@ describe("plugin (hook)", () => {
     expect(await sys(h, "s1")).not.toContain("skill_propose");
   });
 
+  test("skill creator per sesi dan per project (sesi → project → bawaan)", async () => {
+    const h = await load();
+    const msg = (sid: string) =>
+      h["chat.message"]({ sessionID: sid }, { parts: [{ type: "text", text: "salah, bukan begitu" }] });
+    const key = projectKey("C:/Work/alpha");
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ skillCreatorSessions: { on1: true } }));
+    await msg("off1");
+    await msg("on1");
+    expect(readQueue(join(dir, "skill-queue.jsonl")).map((e) => e.sessionID)).toEqual(["on1"]);
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ skillCreatorProjects: { [key]: true }, skillCreatorSessions: { off2: false } }),
+    );
+    await msg("any");
+    await msg("off2");
+    expect(readQueue(join(dir, "skill-queue.jsonl")).map((e) => e.sessionID)).toEqual(["on1", "any"]);
+  });
+
   test("tool-count memicu tepat sekali pada ambang", async () => {
     const h = await load();
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ skillCreator: true }));

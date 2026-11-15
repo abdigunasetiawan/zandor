@@ -62,6 +62,8 @@ const PINNED_MSG_PREF = "zandor.pinnedMessages";
 export const MAX_RECENT = 3;
 export const modelKey = (r: ModelRef) => `${r.providerID}/${r.modelID}`;
 const MAX_RELOADS = 3;
+/** Aliran event bersamaan maksimum (sisakan koneksi untuk permintaan biasa; batas WebView ~6 per host). */
+const MAX_STREAMS = 4;
 const MESSAGE_EVENTS = new Set<EngineEvent["type"]>([
   "message.updated",
   "message.removed",
@@ -282,6 +284,15 @@ export class ChatStore {
     void this.reload(sessionId);
   }
 
+  /** Sesi yang sudah terbuka dipilih lagi: pasang kembali aliran event bila folder-nya dilepas (batas aliran) dan muat ulang riwayat. */
+  resume(sessionId: string) {
+    const s = this.snap.sessions[sessionId];
+    if (!s) return;
+    const had = this.subs.has(s.directory);
+    this.attach(s.directory);
+    if (!had) void this.reload(sessionId);
+  }
+
   /** Lepas sesi dari memori (dan hentikan langganan bila direktori tak dipakai lagi). */
   close(sessionId: string) {
     const s = this.snap.sessions[sessionId];
@@ -302,7 +313,12 @@ export class ChatStore {
     const api = this.api;
     if (!api) return;
     let sub = this.subs.get(directory);
-    if (!sub) {
+    if (sub) {
+      // pakai-terakhir: pindahkan ke ujung agar yang paling lama tak dipakai yang dilepas lebih dulu
+      this.subs.delete(directory);
+      this.subs.set(directory, sub);
+    } else {
+      this.evictStreams(directory);
       const entry = { unsub: () => {}, sessions: new Set<string>() };
       sub = entry;
       this.subs.set(directory, entry);
@@ -312,6 +328,25 @@ export class ChatStore {
       });
     }
     for (const [id, s] of Object.entries(this.snap.sessions)) if (s.directory === directory) sub.sessions.add(id);
+  }
+
+  /**
+   * Batasi jumlah aliran event (SSE) yang terbuka. WebView membatasi ~6 koneksi HTTP/1.1 per host: bila semua dipakai
+   * aliran, setiap permintaan lain (membuat/memuat sesi, health) antre selamanya padahal engine nganggur. Folder yang
+   * paling lama tak dipakai dan tidak punya sesi berjalan dilepas; langganannya dipasang lagi saat sesinya dibuka (open()).
+   */
+  private evictStreams(keep: string) {
+    for (const [dir, sub] of this.subs) {
+      if (this.subs.size < MAX_STREAMS) return;
+      if (dir === keep) continue;
+      const busy = [...sub.sessions].some((id) => {
+        const s = this.snap.sessions[id];
+        return !!s && (s.status.type !== "idle" || s.sending);
+      });
+      if (busy) continue;
+      sub.unsub();
+      this.subs.delete(dir);
+    }
   }
 
   private sessionsOf(directory: string): string[] {

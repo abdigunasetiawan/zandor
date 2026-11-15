@@ -838,8 +838,12 @@
   color: var(--z-color-on-accent);
   font-weight: var(--z-type-label-weight);
 }
-.sidebar__head .sidebar__brand {
+.sidebar__brandwrap {
   flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  min-width: 0;
 }
 .sidebar__search {
   padding: 0 var(--z-space-3) var(--z-space-2);
@@ -2067,6 +2071,20 @@
   margin: 0 auto;
   padding: var(--z-space-5);
   overflow-y: auto;
+}
+.composer__toggles {
+  display: flex;
+  gap: var(--z-space-1);
+}
+.composer__toggle[aria-pressed="true"] {
+  background: var(--z-color-active);
+  color: var(--z-color-fg);
+}
+.mempage--embedded {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
 }
 .mempage__head {
   display: flex;

@@ -24,11 +24,9 @@ import {
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
-  ArrowLeftIcon,
   Badge,
   Button,
   Field,
-  IconButton,
   Input,
   Select,
   Tabs,
@@ -38,6 +36,7 @@ import {
   useToast,
 } from "@zandor/ui";
 import { useEffect, useRef, useState } from "react";
+import { PageFrame } from "./PageFrame";
 import { ProjectStyleDialog } from "./ProjectStyleDialog";
 import { useAppearance, useProjects, useServices, useSettings } from "./services";
 
@@ -82,9 +81,9 @@ function ValueField({
   );
 }
 
-export function AppearancePage() {
+export function AppearancePage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
-  const { nav, appearance: store } = useServices();
+  const { appearance: store } = useServices();
   const a = useAppearance();
   const confirm = useConfirm();
   const reset = async () => {
@@ -97,14 +96,15 @@ export function AppearancePage() {
     if (ok) store.resetAll();
   };
   return (
-    <main className="mempage">
-      <header className="mempage__head">
-        <IconButton label={t("mem.back")} icon={<ArrowLeftIcon />} onClick={() => nav.push("/")} />
-        <h1 className="z-h3 mempage__title">{t("ap.title")}</h1>
+    <PageFrame
+      title={t("ap.title")}
+      embedded={embedded}
+      actions={
         <Button variant="danger" onClick={() => void reset()}>
           {t("ap.reset")}
         </Button>
-      </header>
+      }
+    >
       <Tabs
         aria-label={t("ap.title")}
         items={[
@@ -116,7 +116,7 @@ export function AppearancePage() {
           { value: "keys", label: t("ap.tab.keys"), content: <KeysTab a={a} /> },
         ]}
       />
-    </main>
+    </PageFrame>
   );
 }
 

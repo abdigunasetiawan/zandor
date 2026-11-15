@@ -47,19 +47,27 @@ function SessionMemory({ sessionId, projectPath }: { sessionId: string; projectP
   return (
     <div className="infop__memory" data-testid="info-memory">
       <h4 className="z-label">{t("mem.session.title")}</h4>
-      <Select
-        aria-label={t("mem.session.title")}
-        value={value}
-        onValueChange={(v) => void memory.setSessionEnabled(sessionId, v === "follow" ? null : v === "on")}
-        items={[
-          { value: "follow", label: t("mem.session.follow") },
-          { value: "on", label: t("mem.session.on") },
-          { value: "off", label: t("mem.session.off") },
-        ]}
-      />
-      <p className="z-small">
-        {t("mem.session.effective", { state: t(effective ? "mem.session.stateOn" : "mem.session.stateOff") })}
-      </p>
+      {key !== null ? (
+        <p className="z-small">
+          {t("mem.session.projectShared", { state: t(effective ? "mem.session.stateOn" : "mem.session.stateOff") })}
+        </p>
+      ) : (
+        <>
+          <Select
+            aria-label={t("mem.session.title")}
+            value={value}
+            onValueChange={(v) => void memory.setSessionEnabled(sessionId, v === "follow" ? null : v === "on")}
+            items={[
+              { value: "follow", label: t("mem.session.follow") },
+              { value: "on", label: t("mem.session.on") },
+              { value: "off", label: t("mem.session.off") },
+            ]}
+          />
+          <p className="z-small">
+            {t("mem.session.effective", { state: t(effective ? "mem.session.stateOn" : "mem.session.stateOff") })}
+          </p>
+        </>
+      )}
     </div>
   );
 }

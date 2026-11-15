@@ -11,6 +11,7 @@ import {
 import { useI18n } from "@zandor/i18n/react";
 import {
   Avatar,
+  Badge,
   BrainIcon,
   Button,
   ChatIcon,
@@ -49,6 +50,7 @@ import {
 } from "@zandor/ui";
 import { type FormEvent, useMemo, useState } from "react";
 import { build } from "../build";
+import { useIsDevBuild } from "./app-flavor";
 import { DEMO_KEY, DEMO_SESSIONS } from "./demo-sessions";
 import { targetIndex, useDragReorder } from "./dnd";
 import { type FilesScope, FilesTree } from "./FilesTree";
@@ -91,6 +93,7 @@ export function Sidebar() {
   const [searching, setSearching] = useState(false);
   const [tab, setTab] = useState("sessions");
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
+  const devBuild = useIsDevBuild();
   const filesScope = useMemo(() => filesScopeOf(state), [state]);
 
   return (
@@ -99,7 +102,14 @@ export function Sidebar() {
         <span className="sidebar__logo" aria-hidden="true">
           Z
         </span>
-        <h2 className="z-h4 sidebar__brand">{t("app.name")}</h2>
+        <div className="sidebar__brandwrap">
+          <h2 className="z-h4 sidebar__brand">{t("app.name")}</h2>
+          {devBuild && (
+            <Badge tone="warning" title={t("app.devHint")}>
+              {t("app.devLabel")}
+            </Badge>
+          )}
+        </div>
         <IconButton
           label={t("sb.searchToggle")}
           size="sm"

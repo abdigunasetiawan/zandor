@@ -19,6 +19,7 @@
     "design-tokens": "bun scripts/check-design-tokens.ts",
     "e2e:native": "bun run --filter @zandor/desktop e2e:native",
     "engine:fetch": "bun scripts/prepare-engine.ts --fetch",
+    "install:stable": "bun scripts/install-stable.ts",
     "prepare:engine": "bun scripts/prepare-engine.ts"
   },
   "devDependencies": {

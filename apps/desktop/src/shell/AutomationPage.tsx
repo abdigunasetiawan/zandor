@@ -1,20 +1,9 @@
 // Halaman Automasi (Fase 11): tugas terjadwal yang benar-benar berjalan (selama Zandor terbuka) dan memberi notifikasi.
 import { type AutomationTask, type Schedule, validateTask } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import {
-  ArrowLeftIcon,
-  Badge,
-  Button,
-  Field,
-  IconButton,
-  Input,
-  Select,
-  Switch,
-  Textarea,
-  useConfirm,
-  useToast,
-} from "@zandor/ui";
+import { Badge, Button, Field, Input, Select, Switch, Textarea, useConfirm, useToast } from "@zandor/ui";
 import { useEffect, useState } from "react";
+import { PageFrame } from "./PageFrame";
 import { useAutomation, useProjects, useServices } from "./services";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
@@ -28,7 +17,7 @@ function useNow(everyMs = 30_000): number {
   return now;
 }
 
-export function AutomationPage() {
+export function AutomationPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useI18n();
   const { nav, automation, notify, projects: projectStore } = useServices();
   const state = useAutomation();
@@ -65,14 +54,15 @@ export function AutomationPage() {
   };
 
   return (
-    <main className="mempage">
-      <header className="mempage__head">
-        <IconButton label={t("mem.back")} icon={<ArrowLeftIcon />} onClick={() => nav.push("/")} />
-        <h1 className="z-h3 mempage__title">{t("auto.title")}</h1>
+    <PageFrame
+      title={t("auto.title")}
+      embedded={embedded}
+      actions={
         <Button variant="solid" onClick={() => setEditing("new")}>
           {t("auto.new")}
         </Button>
-      </header>
+      }
+    >
       <p className="chat__note chat__note--warn z-small" role="note">
         {t("auto.openOnly")}
       </p>
@@ -179,7 +169,7 @@ export function AutomationPage() {
           })}
         </ul>
       )}
-    </main>
+    </PageFrame>
   );
 }
 

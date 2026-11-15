@@ -170,7 +170,7 @@ test("Pengaturan: satu halaman per kategori; bahasa, tema, skala tersimpan; JSON
 
   await page
     .getByRole("navigation", { name: "Settings categories" })
-    .getByRole("button", { name: "Appearance" })
+    .getByRole("button", { name: "Appearance", exact: true })
     .click();
   await page.getByRole("combobox", { name: "UI scale" }).click();
   await page.getByRole("option", { name: "125%" }).click();

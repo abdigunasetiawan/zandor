@@ -1,6 +1,8 @@
 // Bahasa Indonesia = sumber kebenaran kunci terjemahan. Bahasa lain wajib punya kunci yang sama
 // (dicek compiler lewat tipe `Messages` dan oleh test placeholder).
 export const id = {
+  "app.devLabel": "Dev",
+  "app.devHint": "Salinan pengembangan Zandor (data terpisah dari salinan produksi)",
   "app.name": "Zandor",
   "app.version": "Versi {version}",
   "shell.emptyTitle": "Kerangka aplikasi",
@@ -879,6 +881,18 @@ export const id = {
   "mem.skills.delete": "Hapus skill",
   "mem.skills.deleteTitle": "Hapus skill {name}?",
   "mem.skills.deleteBody": "Berkas SKILL.md dihapus dari mesin ini.",
+  "memtoggle.memory": "Ingat memori",
+  "memtoggle.skill": "Skill creator",
+  "memtoggle.on": "aktif",
+  "memtoggle.off": "nonaktif",
+  "memtoggle.scopeProject": "Berlaku untuk semua sesi di project ini.",
+  "memtoggle.scopeSession": "Hanya berlaku untuk sesi ini.",
+  "mem.session.projectShared":
+    "Sesi ini berbagi pengaturan project. Sekarang: {state}. Ubah lewat tombol memori di composer atau halaman Memori & skill.",
+  "mem.settings.skillOfProject": "Skill creator untuk project {name}",
+  "mem.settings.skillFollow": "Skill: ikuti bawaan",
+  "mem.settings.skillOn": "Skill: aktif",
+  "mem.settings.skillOff": "Skill: nonaktif",
   "mem.session.title": "Memori sesi ini",
   "mem.session.follow": "Ikuti project/bawaan",
   "mem.session.on": "Aktif untuk sesi ini",

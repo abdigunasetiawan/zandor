@@ -48,3 +48,7 @@ login Google di browser belum diuji ulang.
 ## Panel alat sesi dan git monorepo (ADR-049)
 
 Rel alat: Terminal, Git, **Perubahan sesi** (diff berkas yang diubah sesi, dari snapshot engine), **Berkas sesi** (berkas yang disentuh agent), Browser, Info sesi, **Aktivitas sesi** (garis waktu seluruh kejadian sesi: filter, rincian, lompat ke pesan), Log aktivitas aplikasi. Git: bila akar project bukan repo, repo di anak folder (maks 3 tingkat) ditemukan dan dipilih lewat pemilih repo. Tes: `e2e/panel4.spec.ts`, `session-timeline.test.ts`, `tools.test.ts` (monorepo), `git::tests::find_repos_*`, `files::tests::resolve_dir_within_*`. Belum diuji di Tauri sungguhan: pencarian repo dan `GET /session/:id/diff` engine nyata.
+
+## Batas aliran event (15-11-2026)
+
+Smoke native menemukan bug nyata: WebView membatasi ~6 koneksi HTTP/1.1 per host, dan tiap folder yang sesinya terbuka memegang satu aliran SSE ke engine. Dengan ≥6 folder, semua permintaan lain (buat/muat/hapus sesi, health) antre selamanya padahal engine nganggur ("Memuat percakapan…", penghapusan sesi macet). Perbaikan: `ChatStore` membatasi 4 aliran (folder idle terlama dilepas, sesi berjalan dipertahankan); `resume()` memasang ulang saat sesi dipilih lagi. Terbukti di smoke native 50/50. Catatan: saran prompt berbasis git hanya muncul setelah Panel Git memuat project (smoke membuka Git dulu).

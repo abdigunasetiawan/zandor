@@ -16,7 +16,9 @@ use zandor_engine_supervisor::{http, Engine, EngineConfig, ExitInfo, BASIC_USER}
 pub const PINNED_ENGINE_VERSION: &str = "1.19.5";
 const MAX_RESTARTS_IN_WINDOW: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(60);
-const GUARD_WAIT: Duration = Duration::from_secs(8);
+// Run pertama di folder data baru: opencode memasang dependensinya lewat jaringan sebelum plugin termuat (belasan detik);
+// polling berhenti begitu penanda muncul, jadi batas panjang tidak memperlambat run biasa.
+const GUARD_WAIT: Duration = Duration::from_secs(90);
 
 #[derive(Clone, Serialize)]
 pub struct EngineSnapshot {

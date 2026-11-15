@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { projectKey as pluginKey } from "../../../plugin/src/keys";
-import { memoryEnabled as pluginEnabled } from "../../../plugin/src/memory";
+import { memoryEnabled as pluginEnabled, skillCreatorEnabled as pluginSkillEnabled } from "../../../plugin/src/memory";
 import { scanSecrets as pluginScan } from "../../../plugin/src/secrets";
 import {
   skillMarkdown as pluginSkillMd,
@@ -22,6 +22,7 @@ import {
   projectKey,
   scanSecrets,
   serializeQueue,
+  skillCreatorEnabled,
   skillMarkdown,
   validateSkillDraft,
 } from "./store";
@@ -102,6 +103,35 @@ describe("MemoryStore", () => {
     expect(s.queue).toEqual([]);
   });
 
+  test("toggle composer: sesi project berbagi pengaturan project; sesi Chat per sesi; resolusi sama dengan plugin", async () => {
+    const { store } = make();
+    await store.refresh([]);
+    await store.setSessionEnabled("s1", false); // sisa override lama di sesi project
+    await store.setScoped("memory", true, "s1", "k"); // sesi dalam project → pengaturan project, override sesi dibuang
+    await store.setScoped("skill", true, "s1", "k");
+    let s = store.state().settings;
+    expect(s.projects.k).toBe(true);
+    expect(s.sessions.s1).toBeUndefined();
+    expect(s.skillCreatorProjects.k).toBe(true);
+    await store.setScoped("memory", true, "chat1", null); // sesi Chat → hanya sesi itu
+    await store.setScoped("skill", true, "chat1", null);
+    s = store.state().settings;
+    expect(s.sessions.chat1).toBe(true);
+    expect(s.skillCreatorSessions.chat1).toBe(true);
+    expect(s.defaultEnabled).toBe(false);
+    expect(s.skillCreator).toBe(false);
+    for (const [key, sid] of [
+      ["k", "s2"],
+      [null, "chat1"],
+      [null, "chat2"],
+      ["k", "chat1"],
+    ] as const) {
+      expect(skillCreatorEnabled(s, key, sid)).toBe(pluginSkillEnabled(s, key ?? "zz", sid));
+    }
+    expect(skillCreatorEnabled(s, "k", "s2")).toBe(true);
+    expect(skillCreatorEnabled(s, null, "chat2")).toBe(false);
+  });
+
   test("pengaturan: setiap perubahan membaca ulang dan tidak menimpa perubahan lain", async () => {
     const { host, store } = make();
     await store.refresh([]);
@@ -114,6 +144,8 @@ describe("MemoryStore", () => {
       projects: { k: true },
       sessions: {},
       skillCreator: true,
+      skillCreatorProjects: {},
+      skillCreatorSessions: {},
     });
     await store.setProjectEnabled("k", null);
     await store.setSessionEnabled("s1", false);

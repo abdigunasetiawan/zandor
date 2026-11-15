@@ -37,3 +37,7 @@ Smoke native menyentuh data memori asli (settings, `global.md`, antrean) dan mem
 - Belum: adapter Hindsight/Graphify, opt-in di dialog "Tambah project", memori di mesin remote (Fase 11).
 - Sematkan ke konteks: menu "Simpan ke catatan" pada pesan (chat) punya item **Sematkan ke konteks sesi** yang menambahkan isi ke `pins/<sesi>.md` (tahan kompaksi); bisa diedit/dihapus di tab Memori. Secret dipindai dan ditolak.
 - Antrean ditulis ulang utuh oleh UI (dibaca ulang tepat sebelum menulis); balapan dengan plugin sangat kecil tetapi mungkin.
+
+## Toggle di composer (ADR-060)
+
+Dua tombol di composer: _Ingat memori_ dan _Skill creator_. Di project, tombol mengubah pengaturan project (dibagi semua sesinya); di Chat tanpa project, hanya sesi itu. Skill creator mengikuti resolusi sesi → project → bawaan (`skillCreatorSessions`/`skillCreatorProjects` di `settings.json`). Diuji: unit (inti + plugin + paritas) dan e2e `memory.spec.ts`. Belum diuji di aplikasi native.

@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit -p .",
     "e2e": "playwright test",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:build:dev": "tauri build --debug --no-bundle --config src-tauri/tauri.dev.conf.json",
     "e2e:native": "bun e2e-native/smoke.ts"
   },
   "dependencies": {
