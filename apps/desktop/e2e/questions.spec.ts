@@ -75,6 +75,8 @@ test("daftar rencana agent: status per item, ringkasan, dan pulih setelah muat u
   const todos = page.getByTestId("todo-list");
   await expect(todos).toBeVisible({ timeout: 15_000 });
   await expect(todos.getByText("Rencana agent (1/3 selesai)")).toBeVisible();
+  await expect(todos.getByText("RENCANA KERJA")).toBeVisible();
+  await expect(todos.getByText("Rincian")).toBeVisible();
   await expect(todos.getByRole("listitem")).toHaveCount(3);
   await expect(todos.getByRole("img", { name: "selesai" })).toHaveCount(1);
   await expect(todos.getByRole("img", { name: "sedang dikerjakan" })).toHaveCount(1);

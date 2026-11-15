@@ -1,7 +1,11 @@
 # Chat, izin, dan model
 
 - **Kirim:** `Enter` (baris baru: `Shift+Enter`). **Hentikan** membatalkan giliran yang berjalan.
-- **Lampiran:** ikon klip (berkas) atau tombol folder (aplikasi desktop). Berkas dari browser dibatasi 5 MB.
+- **Lampiran:** ikon klip (berkas) atau tombol folder (aplikasi desktop). Anda juga bisa menempelkan file/gambar dari clipboard
+  atau menyeret file ke composer. Klik chip lampiran untuk pratinjau di modal sesuai format (mis. gambar, PDF, teks/Markdown,
+  tabel, JSON, audio/video, atau Office yang didukung). Thumbnail gambar PNG/JPEG/GIF/WebP menyediakan kontrol zoom dan pan.
+  Berkas clipboard/browser tidak memiliki batas ukuran buatan dari Zandor; kapasitas nyata bergantung pada memori aplikasi,
+  engine, dan batas provider/model.
 - **Model:** tombol model di header membuka pemilih (cari, sematkan, uji). **Reasoning** muncul bila model mendukung varian.
 - **Izin:** perubahan berkas, perintah shell, dan pengambilan web meminta persetujuan lewat kartu izin:
   _Izinkan sekali_, _Selalu izinkan_, atau _Tolak_. **Mode izin** di composer: Tanya setiap kali (bawaan), Setujui edit

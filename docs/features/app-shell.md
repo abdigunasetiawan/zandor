@@ -11,6 +11,7 @@
 | Jendela         | Frameless; minimalkan/maksimalkan-pulihkan/tutup kustom (hanya di Tauri)                                        |
 | Top bar         | Back/next, menu (Berkas, Tampilan, Bantuan, Dev Tools), omnibox = command palette, toggle panel, Pengaturan     |
 | Lima panel      | Sidebar · Chat · Dokumen · Tools · Rel. Bisa di-resize, punya lebar minimum (rem), dilipat manual atau otomatis |
+| Tombol tutup    | Panel Chat, Dokumen, dan Tools punya tombol tutup di baris header tersendiri, terpisah dari tab                 |
 | Auto-collapse   | Dokumen → Sidebar → Tools; Chat tidak pernah. Terbuka lagi sendiri bila ruang cukup                             |
 | Layout          | Ukuran dan panel yang dilipat pengguna tersimpan (bisa dimatikan di Pengaturan)                                 |
 | Rel (P5)        | Ikon Terminal/Git/Browser/Info/Log: membuka panel Tools dan tab-nya; klik ikon aktif menutup                    |

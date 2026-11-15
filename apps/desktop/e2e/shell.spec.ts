@@ -1,4 +1,5 @@
 import { expect, type Page, test } from "@playwright/test";
+import { mockEngine } from "./mock-engine";
 
 const width = (page: Page, id: string) =>
   page.evaluate((i) => document.getElementById(i)?.getBoundingClientRect().width ?? -1, id);
@@ -89,6 +90,53 @@ test("toggle panel: Ctrl+B dan tombol; keadaan tersimpan setelah reload", async 
   await page.getByRole("button", { name: /^Sidebar/ }).click();
   await settled(page);
   expect(await width(page, "sidebar")).toBeGreaterThan(100);
+});
+
+test("tombol tutup Panel Chat, Dokumen, dan Tools tidak menimpa tab", async ({ page }) => {
+  await mockEngine(page);
+  await page.goto("/");
+  await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
+  await expect(page.getByRole("button", { name: "Dokumen (Ctrl+Alt+B)" })).toBeVisible();
+  await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
+  await page.getByLabel("Path folder").fill("C:\\Work\\close-panels");
+  await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Sesi baru di close-panels" }).click();
+  await settled(page);
+
+  const chat = page.getByRole("region", { name: "Chat", exact: true });
+  const closeChat = chat.getByRole("button", { name: "Tutup panel Chat" });
+  await expect(closeChat).toBeVisible();
+  await expect(chat.locator(".stabs")).toBeVisible();
+  const chatCloseBox = await closeChat.boundingBox();
+  const chatTabsBox = await chat.locator(".stabs").boundingBox();
+  expect(chatCloseBox && chatTabsBox && chatCloseBox.y + chatCloseBox.height).toBeLessThanOrEqual(chatTabsBox?.y ?? -1);
+  await closeChat.click();
+  await expect.poll(() => width(page, "chat")).toBeLessThan(2);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await settled(page);
+  expect(await width(page, "chat")).toBeGreaterThan(100);
+
+  await page.getByRole("button", { name: /^Sidebar/ }).click();
+  if ((await width(page, "docs")) < 2) {
+    await page.getByRole("button", { name: "Dokumen (Ctrl+Alt+B)" }).click();
+    await settled(page);
+  }
+  expect(await width(page, "docs")).toBeGreaterThan(100);
+  const docs = page.getByRole("region", { name: "Dokumen", exact: true });
+  const closeDocs = docs.getByRole("button", { name: "Tutup panel Dokumen" });
+  await expect(closeDocs).toBeVisible();
+  await closeDocs.click();
+  await expect.poll(() => width(page, "docs")).toBeLessThan(2);
+
+  const rail = page.getByRole("navigation", { name: "Rel alat" });
+  await rail.getByRole("button", { name: "Git" }).click();
+  await settled(page);
+  expect(await width(page, "tools")).toBeGreaterThan(100);
+  const tools = page.getByRole("region", { name: "Tools", exact: true });
+  const closeTools = tools.getByRole("button", { name: "Tutup panel Tools" });
+  await expect(closeTools).toBeVisible();
+  await closeTools.click();
+  await expect.poll(() => width(page, "tools")).toBeLessThan(2);
 });
 
 test("rel: klik ikon membuka tab dan panel Tools; klik ikon aktif menutupnya", async ({ page }) => {

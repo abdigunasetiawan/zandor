@@ -199,7 +199,7 @@ export function ShellLayout() {
       }
       const def = PANEL_DEFS.find((p) => p.id === id);
       if (!def?.collapsible) return;
-      const isCollapsed = lastApplied.current.has(id);
+      const isCollapsed = refs[id]?.current?.isCollapsed() ?? lastApplied.current.has(id);
       if (isCollapsed) {
         userCollapsed.current.delete(id);
         protectedId.current = id; // yang baru dibuka pengguna tidak boleh langsung dilipat otomatis
@@ -207,6 +207,16 @@ export function ShellLayout() {
         userCollapsed.current.add(id);
         if (protectedId.current === id) protectedId.current = null;
       }
+      persistCollapsed();
+      apply();
+    },
+    [apply, persistCollapsed, refs],
+  );
+
+  const closePanel = useCallback(
+    (id: Exclude<PanelId, "rail">) => {
+      userCollapsed.current.add(id);
+      if (protectedId.current === id) protectedId.current = null;
       persistCollapsed();
       apply();
     },
@@ -244,7 +254,7 @@ export function ShellLayout() {
 
   // Pasang aksi ke jembatan + daftarkan perintah panel selama tata letak terpasang.
   useEffect(() => {
-    bridge.setActions({ toggle, openTool, reveal, reset });
+    bridge.setActions({ toggle, close: closePanel, openTool, reveal, reset });
     const defs = [
       { id: "view.toggleSidebar", titleKey: "cmd.toggleSidebar", shortcut: "Ctrl+B", run: () => toggle("sidebar") },
       { id: "view.toggleDocs", titleKey: "cmd.toggleDocs", shortcut: "Ctrl+Alt+B", run: () => toggle("docs") },
@@ -258,7 +268,7 @@ export function ShellLayout() {
       for (const off of offs) off();
       bridge.setActions(null);
     };
-  }, [bridge, commands, toggle, openTool, reveal, reset]);
+  }, [bridge, commands, toggle, closePanel, openTool, reveal, reset]);
 
   // Hitung ulang saat ukuran grup berubah, skala UI berubah, atau saat pertama muncul.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `scale` memicu perhitungan ulang (rem berubah)
@@ -408,12 +418,19 @@ export function ShellLayout() {
               "tools",
               "panel.tools",
               <div className="tools">
+                <div className="panel-closebar">
+                  <IconButton
+                    label={t("panel.close.tools")}
+                    size="sm"
+                    icon={<CloseIcon />}
+                    onClick={() => closePanel("tools")}
+                  />
+                </div>
                 <header className="tools__head">
                   <span className="tools__icon" aria-hidden="true">
                     {TOOL_ICONS[panelState.activeTool]}
                   </span>
                   <h2 className="z-label tools__title">{toolLabel(panelState.activeTool)}</h2>
-                  <IconButton label={t("tools.close")} size="sm" icon={<CloseIcon />} onClick={() => toggle("tools")} />
                 </header>
                 {/* Alat dipilih lewat rail di kanan (tanpa tab di dalam panel) */}
                 <div className="tools__body">{toolContent(panelState.activeTool)}</div>

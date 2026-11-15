@@ -152,20 +152,35 @@ export function QuestionCard({ request, sessionId }: { request: QuestionRequest;
   );
 }
 
-const MARK: Record<Todo["status"], string> = { pending: "○", in_progress: "◐", completed: "●", cancelled: "✕" };
+const MARK: Record<Todo["status"], string> = { pending: "○", in_progress: "◒", completed: "✓", cancelled: "–" };
 
 export function TodoList({ todos }: { todos: Todo[] }) {
   const { t } = useI18n();
   if (todos.length === 0) return null;
   const done = todos.filter((x) => x.status === "completed").length;
+  const active = todos.findIndex((x) => x.status === "in_progress");
   return (
     <details className="todos" open data-testid="todo-list">
-      <summary className="z-label">{t("todo.title", { done, total: todos.length })}</summary>
+      <summary className="todos__head">
+        <span className="todos__heading">
+          <span className="todos__eyebrow z-small">{t("todo.eyebrow")}</span>
+          <span className="todos__title z-label">{t("todo.title", { done, total: todos.length })}</span>
+        </span>
+        <span className="todos__progress" aria-hidden="true">
+          <span className="todos__progress-fill" style={{ width: `${(done / todos.length) * 100}%` }} />
+        </span>
+        <span className="todos__toggle z-small">{t("todo.toggle")}</span>
+      </summary>
       <ol className="todos__list" aria-label={t("todo.title", { done, total: todos.length })}>
         {todos.map((x, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: urutan daftar tugas adalah identitasnya
           <li key={i} className="todos__item" data-status={x.status}>
-            <span role="img" aria-label={t(`todo.status.${x.status}` as never)} className="todos__mark">
+            <span
+              role="img"
+              aria-label={t(`todo.status.${x.status}` as never)}
+              className="todos__mark"
+              data-current={i === active ? "" : undefined}
+            >
               {MARK[x.status]}
             </span>
             <span className="todos__text">{x.content}</span>

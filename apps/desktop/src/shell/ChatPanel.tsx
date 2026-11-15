@@ -30,23 +30,38 @@ import {
   ChevronRightIcon,
   CloseIcon,
   ContextMenu,
+  Dialog,
   GlobeIcon,
   IconButton,
+  MaximizeIcon,
   Menu,
   type MenuEntry,
   MicIcon,
+  MinimizeIcon,
   ModelLogo,
   PaperclipIcon,
   PinIcon,
   PlusIcon,
+  RefreshIcon,
   Select,
   ShieldIcon,
   Spinner,
   StopIcon,
   useToast,
 } from "@zandor/ui";
-import { type FormEvent, type KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  type ClipboardEvent as ReactClipboardEvent,
+  type DragEvent as ReactDragEvent,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AssistantMessage } from "./AssistantMessage";
+import { AttachmentPreview } from "./AttachmentPreview";
 import { ComposerInfo } from "./ComposerInfo";
 import { ComposerMemory, type PendingMemory } from "./ComposerMemory";
 import { DemoChat } from "./DemoChat";
@@ -72,6 +87,7 @@ import {
   useEngineState,
   useGit,
   useOpenDoc,
+  usePanelState,
   useProjects,
   useServices,
   useSettings,
@@ -81,6 +97,8 @@ import { dayPart, useOsUser } from "./use-os-user";
 import { loadVoiceDevice, saveVoiceDevice, speechLang, useAudioInputs, useDictation } from "./voice";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const PREVIEWABLE_IMAGE_MIMES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+const isPreviewableImage = (file: FileAttachment) => PREVIEWABLE_IMAGE_MIMES.has(file.mime.toLowerCase());
 
 function useErrorToast() {
   const toast = useToast();
@@ -91,6 +109,8 @@ function useErrorToast() {
 export function ChatPanel() {
   const { t } = useI18n();
   const { projects, chat } = useServices();
+  const { panels } = useServices();
+  const panelState = usePanelState();
   const state = useProjects();
   const chatState = useChat();
   const sel = state.selection.sessionId ? projects.selected() : null;
@@ -137,6 +157,16 @@ export function ChatPanel() {
   if (demoId && demoById(demoId)) {
     return (
       <div className="chat" data-demo="">
+        {!panelState.collapsed.chat && (
+          <div className="panel-closebar">
+            <IconButton
+              label={t("panel.close.chat")}
+              size="sm"
+              icon={<CloseIcon />}
+              onClick={() => panels.actions?.close("chat")}
+            />
+          </div>
+        )}
         <SessionTabs />
         <h2 className="z-visually-hidden">{t(demoById(demoId)?.titleKey ?? "demo.trajectory.title")}</h2>
         <DemoChat key={demoId} id={demoId} />
@@ -153,6 +183,16 @@ export function ChatPanel() {
   return (
     <SessionFlagsContext.Provider value={{ hasProject: sel.project !== null }}>
       <div className="chat" data-welcome={welcome ? "" : undefined}>
+        {!panelState.collapsed.chat && (
+          <div className="panel-closebar">
+            <IconButton
+              label={t("panel.close.chat")}
+              size="sm"
+              icon={<CloseIcon />}
+              onClick={() => panels.actions?.close("chat")}
+            />
+          </div>
+        )}
         <SessionTabs />
         <h2 className="z-visually-hidden">{title}</h2>
         {welcome ? (
@@ -214,6 +254,9 @@ export function PromptDock({
 
 /** Halaman bawaan Panel 2 saat tidak ada sesi terbuka: tampilan sesi baru; sesi sungguhan dibuat saat pesan pertama dikirim. */
 function DraftChat() {
+  const { panels } = useServices();
+  const panelState = usePanelState();
+  const { t } = useI18n();
   const stub = useMemo<SessionChat>(
     () => ({
       ...initialChatState("draft"),
@@ -227,6 +270,16 @@ function DraftChat() {
   );
   return (
     <div className="chat" data-welcome="" data-draft="">
+      {!panelState.collapsed.chat && (
+        <div className="panel-closebar">
+          <IconButton
+            label={t("panel.close.chat")}
+            size="sm"
+            icon={<CloseIcon />}
+            onClick={() => panels.actions?.close("chat")}
+          />
+        </div>
+      )}
       <SessionTabs />
       <div className="chat__welcome">
         <Greeting />
@@ -767,6 +820,12 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
   const { sendKey } = useSettings();
   const [text, setText] = useState("");
   const [files, setFiles] = useState<FileAttachment[]>([]);
+  const [previewFile, setPreviewFile] = useState<FileAttachment | null>(null);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewOffset, setPreviewOffset] = useState({ x: 0, y: 0 });
+  const [previewDragging, setPreviewDragging] = useState(false);
+  const previewDragOrigin = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
+  const [dropActive, setDropActive] = useState(false);
   const running = session.status.type !== "idle" || session.sending;
   const noModel = modelsStatus === "ready" && !model;
   const disabled = engine.status !== "ready";
@@ -861,15 +920,72 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
     try {
       const picked = await host.pickAttachments(kind);
       if (!picked) return;
-      for (const name of picked.skipped) toast.show({ title: t("chat.attachTooLarge", { name }), tone: "warning" });
+      for (const name of picked.skipped)
+        toast.show({ title: t("chat.attachTooLarge", { name, error: t("chat.readFailure") }), tone: "warning" });
       setFiles((prev) => [...prev, ...picked.items.filter((n) => !prev.some((p) => p.url === n.url))]);
     } catch (err) {
       toast.show({ title: t("sb.error", { error: errText(err) }), tone: "danger" });
     }
   };
+  const addBrowserFiles = async (incoming: File[]) => {
+    if (incoming.length === 0) return;
+    try {
+      const picked = await host.attachmentsFromFiles(incoming);
+      for (const name of picked.skipped)
+        toast.show({ title: t("chat.attachTooLarge", { name, error: t("chat.readFailure") }), tone: "warning" });
+      if (picked.items.length > 0) {
+        setFiles((prev) => [
+          ...prev,
+          ...picked.items.filter((item) => !prev.some((existing) => existing.url === item.url)),
+        ]);
+      }
+    } catch (err) {
+      toast.show({ title: t("chat.attachReadError", { error: errText(err) }), tone: "danger" });
+    }
+  };
+  const closePreview = () => {
+    setPreviewFile(null);
+    setPreviewZoom(1);
+    setPreviewOffset({ x: 0, y: 0 });
+    setPreviewDragging(false);
+    previewDragOrigin.current = null;
+  };
+  const changePreviewZoom = (delta: number) => setPreviewZoom((zoom) => Math.min(5, Math.max(0.5, zoom + delta)));
+  const onPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboardFiles = Array.from(e.clipboardData.files);
+    if (clipboardFiles.length === 0) return;
+    e.preventDefault();
+    void addBrowserFiles(clipboardFiles);
+  };
+  const onDragOver = (e: ReactDragEvent<HTMLFormElement>) => {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setDropActive(true);
+  };
+  const onDragLeave = (e: ReactDragEvent<HTMLFormElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDropActive(false);
+  };
+  const onDrop = (e: ReactDragEvent<HTMLFormElement>) => {
+    const dropped = Array.from(e.dataTransfer.files);
+    if (dropped.length === 0) return;
+    e.preventDefault();
+    setDropActive(false);
+    void addBrowserFiles(dropped);
+  };
 
   return (
-    <form className="composer" onSubmit={(e) => void submit(e)}>
+    <form
+      className="composer"
+      onSubmit={(e) => void submit(e)}
+      onDragEnter={onDragOver}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      data-drop-active={dropActive ? "" : undefined}
+    >
+      {dropActive && <div className="composer__drop-hint">{t("chat.dropFiles")}</div>}
       {(noModel || (modelsStatus === "ready" && models.length === 0)) && (
         <p className="chat__note chat__note--warn z-small">
           {t("chat.noModel")}{" "}
@@ -882,8 +998,21 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
       {files.length > 0 && (
         <ul className="chips">
           {files.map((f) => (
-            <li key={f.url} className="chip">
-              <PaperclipIcon size="sm" />
+            <li key={f.url} className="chip" data-image={isPreviewableImage(f) ? "" : undefined}>
+              {f.url.startsWith("data:") ? (
+                <button
+                  type="button"
+                  className="chip__preview"
+                  aria-label={t(isPreviewableImage(f) ? "chat.previewAttachment" : "chat.previewFile", {
+                    name: f.filename ?? f.url,
+                  })}
+                  onClick={() => setPreviewFile(f)}
+                >
+                  {isPreviewableImage(f) ? <img src={f.url} alt="" /> : <PaperclipIcon size="sm" />}
+                </button>
+              ) : (
+                <PaperclipIcon size="sm" />
+              )}
               <span>{f.filename ?? f.url}</span>
               <button
                 type="button"
@@ -895,7 +1024,111 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
               </button>
             </li>
           ))}
+          <li className="chip chip--clear-all">
+            <IconButton
+              className="chip__x"
+              size="sm"
+              icon={<CloseIcon size="sm" />}
+              label={t("chat.removeAllAttachments", { n: files.length })}
+              onClick={() => setFiles([])}
+            />
+          </li>
         </ul>
+      )}
+      {previewFile && isPreviewableImage(previewFile) ? (
+        <Dialog
+          open
+          onOpenChange={(open) => !open && closePreview()}
+          title={previewFile.filename ?? t("chat.imagePreview")}
+          className="composer__preview-dialog"
+          footer={
+            <div className="composer__preview-controls">
+              <IconButton
+                label={t("chat.zoomOut")}
+                size="sm"
+                icon={<MinimizeIcon />}
+                disabled={previewZoom <= 0.5}
+                onClick={() => changePreviewZoom(-0.25)}
+              />
+              <span className="z-small composer__preview-zoom">{Math.round(previewZoom * 100)}%</span>
+              <IconButton
+                label={t("chat.zoomIn")}
+                size="sm"
+                icon={<MaximizeIcon />}
+                disabled={previewZoom >= 5}
+                onClick={() => changePreviewZoom(0.25)}
+              />
+              <IconButton
+                label={t("chat.zoomReset")}
+                size="sm"
+                icon={<RefreshIcon />}
+                disabled={previewZoom === 1 && previewOffset.x === 0 && previewOffset.y === 0}
+                onClick={() => {
+                  setPreviewZoom(1);
+                  setPreviewOffset({ x: 0, y: 0 });
+                }}
+              />
+              <Button size="sm" onClick={closePreview}>
+                {t("ui.close")}
+              </Button>
+            </div>
+          }
+        >
+          <div
+            className="composer__preview-stage"
+            role="application"
+            aria-label={t("chat.imagePreview")}
+            data-dragging={previewDragging ? "" : undefined}
+            onDragStart={(e) => e.preventDefault()}
+            onWheel={(e) => {
+              e.preventDefault();
+              changePreviewZoom(e.deltaY < 0 ? 0.1 : -0.1);
+            }}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              previewDragOrigin.current = {
+                x: e.clientX,
+                y: e.clientY,
+                offsetX: previewOffset.x,
+                offsetY: previewOffset.y,
+              };
+              setPreviewDragging(true);
+            }}
+            onPointerMove={(e) => {
+              const origin = previewDragOrigin.current;
+              if (!origin) return;
+              setPreviewOffset({ x: origin.offsetX + e.clientX - origin.x, y: origin.offsetY + e.clientY - origin.y });
+            }}
+            onPointerUp={() => {
+              previewDragOrigin.current = null;
+              setPreviewDragging(false);
+            }}
+            onPointerCancel={() => {
+              previewDragOrigin.current = null;
+              setPreviewDragging(false);
+            }}
+            onLostPointerCapture={() => {
+              previewDragOrigin.current = null;
+              setPreviewDragging(false);
+            }}
+          >
+            <img
+              className="composer__preview-image"
+              src={previewFile.url}
+              alt={previewFile.filename ?? t("chat.imagePreview")}
+              draggable={false}
+              style={{ transform: `translate(${previewOffset.x}px, ${previewOffset.y}px) scale(${previewZoom})` }}
+            />
+          </div>
+        </Dialog>
+      ) : (
+        <AttachmentPreview
+          file={previewFile}
+          open={previewFile !== null}
+          onOpenChange={(open) => !open && closePreview()}
+        />
       )}
       <div className="composer__card">
         <textarea
@@ -907,6 +1140,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
           aria-label={t("chat.placeholder")}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
+          onPaste={onPaste}
           disabled={disabled}
         />
         <div className="composer__actions">

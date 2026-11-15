@@ -56,6 +56,3 @@ export function attachmentFromPath(path: string, isDirectory = false): FileAttac
     filename,
   };
 }
-
-/** Batas lampiran dari browser (data URL) agar prompt tidak membengkak. */
-export const MAX_INLINE_BYTES = 5 * 1024 * 1024;

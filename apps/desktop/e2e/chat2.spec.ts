@@ -65,7 +65,7 @@ test("lampiran: pilih berkas → chip → terkirim sebagai file part; bisa dihap
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Lampirkan file" }).click();
   await (await chooser).setFiles([{ name: "catatan.txt", mimeType: "text/plain", buffer: Buffer.from("halo") }]);
-  await expect(page.locator(".composer .chip")).toContainText("catatan.txt");
+  await expect(page.locator(".composer .chip").filter({ hasText: "catatan.txt" })).toBeVisible();
   await page.getByRole("button", { name: "Hapus lampiran catatan.txt" }).click();
   await expect(page.locator(".composer .chip")).toHaveCount(0);
 
@@ -76,6 +76,100 @@ test("lampiran: pilih berkas → chip → terkirim sebagai file part; bisa dihap
   await expect.poll(() => engine.files.length).toBe(1);
   expect(engine.files[0]).toMatchObject({ mime: "text/plain", filename: "catatan.txt" });
   expect(engine.files[0]?.url.startsWith("data:text/plain")).toBe(true);
+});
+
+test("lampiran bisa ditempel dari clipboard dan di-drop ke composer", async ({ page }) => {
+  const engine = await openSession(page);
+  const box = composer(page);
+  await box.evaluate((element) => {
+    const file = new File(["gambar clipboard"], "clipboard.png", { type: "image/png" });
+    const data = new DataTransfer();
+    data.items.add(file);
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data }));
+  });
+  await expect(page.locator(".composer .chip").filter({ hasText: "clipboard.png" })).toBeVisible();
+
+  await page.locator(".composer").dispatchEvent("drop", {
+    dataTransfer: await page.evaluateHandle(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["catatan drop"], "drop.txt", { type: "text/plain" }));
+      return data;
+    }),
+  });
+  await expect(page.locator(".composer .chip").filter({ hasText: "drop.txt" })).toBeVisible();
+  await send(page, "periksa lampiran");
+  await expect.poll(() => engine.files.length).toBe(2);
+  expect(engine.files.map((file) => file.filename)).toEqual(["clipboard.png", "drop.txt"]);
+});
+
+test("tombol X di akhir daftar menghapus semua lampiran", async ({ page }) => {
+  await openSession(page);
+  await composer(page).evaluate((element) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["satu"], "satu.txt", { type: "text/plain" }));
+    data.items.add(new File(["dua"], "dua.txt", { type: "text/plain" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data }));
+  });
+  await expect(page.locator(".composer .chip")).toHaveCount(3); // dua file + aksi hapus semua
+  await page.getByRole("button", { name: "Hapus semua 2 lampiran" }).click();
+  await expect(page.locator(".composer .chip")).toHaveCount(0);
+});
+
+test("gambar terlampir punya thumbnail yang membuka pratinjau ukuran penuh", async ({ page }) => {
+  await openSession(page);
+  await composer(page).evaluate((element) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["gambar"], "gambar.png", { type: "image/png" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data }));
+  });
+  const previewButton = page.getByRole("button", { name: "Pratinjau gambar gambar.png" });
+  await expect(previewButton).toBeVisible();
+  await previewButton.click();
+  await expect(page.getByRole("dialog", { name: "gambar.png" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByRole("img", { name: "gambar.png" })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "gambar.png" });
+  await dialog.getByRole("button", { name: "Perbesar gambar" }).click();
+  await expect(dialog.getByText("125%")).toBeVisible();
+  await dialog.getByRole("button", { name: "Perkecil gambar" }).click();
+  await expect(dialog.getByText("100%")).toBeVisible();
+  const stage = dialog.locator(".composer__preview-stage");
+  const bounds = await stage.boundingBox();
+  if (!bounds) throw new Error("area pratinjau tidak ditemukan");
+  const start = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 140, start.y + 85, { steps: 12 });
+  await page.mouse.up();
+  await expect(dialog.getByRole("img", { name: "gambar.png" })).toHaveAttribute("style", /translate\(140px, 85px\)/);
+  await dialog.getByRole("button", { name: "Atur ulang zoom dan posisi gambar" }).click();
+  await expect(dialog.getByText("100%")).toBeVisible();
+  await expect(dialog.getByRole("img", { name: "gambar.png" })).toHaveAttribute(
+    "style",
+    /translate\(0px, 0px\) scale\(1\)/,
+  );
+  await stage.hover();
+  await page.mouse.wheel(0, -120);
+  await expect(dialog.getByText("110%")).toBeVisible();
+  await dialog.getByRole("button", { name: "Tutup" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("lampiran Markdown dan PDF dibuka di pratinjau bertipe sesuai", async ({ page }) => {
+  await openSession(page);
+  await composer(page).evaluate((element) => {
+    const data = new DataTransfer();
+    data.items.add(new File(["# Isi Markdown\n\nTeks pratinjau"], "catatan.md", { type: "text/markdown" }));
+    data.items.add(new File(["%PDF-1.4\ninvalid test data"], "dokumen.pdf", { type: "application/pdf" }));
+    element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data }));
+  });
+  await page.getByRole("button", { name: "Pratinjau lampiran catatan.md" }).click();
+  const markdownDialog = page.getByRole("dialog", { name: "catatan.md" });
+  await expect(markdownDialog.getByText("Isi Markdown")).toBeVisible();
+  await markdownDialog.getByRole("button", { name: "Tutup" }).click();
+  await page.getByRole("button", { name: "Pratinjau lampiran dokumen.pdf" }).click();
+  const pdfDialog = page.getByRole("dialog", { name: "dokumen.pdf" });
+  await expect(pdfDialog.getByRole("alert")).toBeVisible();
+  await pdfDialog.getByRole("button", { name: "Tutup" }).click();
 });
 
 test("revert menyembunyikan pesan sesudahnya; Batalkan revert memulihkannya", async ({ page }) => {

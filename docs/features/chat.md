@@ -26,8 +26,12 @@ transcript tervirtualisasi untuk sesi ≥ 40 pesan. Provider ditambahkan lewat h
 
 ## Terbatas
 
-Mode izin otomatis hanya bekerja selama Zandor terbuka. Lampiran dari browser dibatasi 5 MB (data URL); lampiran
-native memakai URL `file://`. Output tool dipotong 20.000 karakter di UI.
+Mode izin otomatis hanya bekerja selama Zandor terbuka. Lampiran browser/clipboard/drop dibaca sebagai data URL tanpa batas ukuran
+buatan di Zandor (dibatasi kapasitas memori dan batas engine/provider); lampiran
+native dari pemilih berkas memakai URL `file://`. Lampiran berbasis data URL membuka modal viewer sesuai tipe (gambar, PDF,
+teks/kode, Markdown, tabel, JSON, media, Office best-effort, atau keterangan untuk biner); HTML tetap sandbox tanpa skrip.
+Gambar PNG/JPEG/GIF/WebP punya thumbnail dengan zoom dan pan.
+Output tool dipotong 20.000 karakter di UI.
 
 ## Cara test
 
@@ -50,6 +54,7 @@ pesan (tidak langsung terkirim); chip hilang saat mulai mengetik. Tes: `suggesti
 - **Form pertanyaan agent** (tool `question`): kartu dengan pilihan tunggal/jamak dan jawaban sendiri; Kirim/Lewati. **Rencana
   agent** (todo) tampil di atas composer.
 - **Info pemakaian** di composer: model, konteks terpakai vs batas (peringatan hampir penuh), token, biaya, rincian.
+- **Dok rencana agent** memakai ringkasan progres dan daftar langkah yang bisa dibuka/tutup, tampil konsisten dengan kartu composer.
 - **Batas:** kuota/limit tarif provider tidak tersedia dari engine; gambar dalam jawaban tidak dimuat; kepatuhan model pada
   tool `question` bergantung model.
 - **Tes:** `bun x vitest run packages/core/src/chat packages/core/src/tools`, `bun x playwright test e2e/rich e2e/questions

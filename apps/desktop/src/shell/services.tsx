@@ -71,6 +71,7 @@ export type PanelState = {
 };
 export type PanelActions = {
   toggle: (id: PanelId) => void;
+  close: (id: Exclude<PanelId, "rail">) => void;
   openTool: (tool: ToolId) => void;
   /** Buka panel bila terlipat. */
   reveal: (id: PanelId) => void;

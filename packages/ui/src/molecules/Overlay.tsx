@@ -78,15 +78,17 @@ export type DialogProps = {
   children?: ReactNode;
   /** Tombol aksi di bawah. Tombol "Tutup" ditambahkan otomatis bila tidak diisi. */
   footer?: ReactNode;
+  /** Kelas tambahan untuk kebutuhan dialog khusus (mis. pratinjau media berukuran besar). */
+  className?: string;
 };
 
-export function Dialog({ open, onOpenChange, title, description, children, footer }: DialogProps) {
+export function Dialog({ open, onOpenChange, title, description, children, footer, className }: DialogProps) {
   const { t } = useI18n();
   return (
     <BaseDialog.Root open={open} onOpenChange={onOpenChange}>
       <BaseDialog.Portal>
         <BaseDialog.Backdrop className="z-backdrop" />
-        <BaseDialog.Popup className="z-dialog" data-shortcut-scope="modal">
+        <BaseDialog.Popup className={cx("z-dialog", className)} data-shortcut-scope="modal">
           <BaseDialog.Title className="z-h3">{title}</BaseDialog.Title>
           {description && (
             <BaseDialog.Description className="z-p z-dialog__description">{description}</BaseDialog.Description>

@@ -86,13 +86,28 @@ function viewerFor(
 export function DocPanel({ empty }: { empty: ReactNode }) {
   const { t } = useI18n();
   const { docs, docHost } = useServices();
+  const { panels } = useServices();
   const state = useDocs();
   const toast = useToast();
   const confirm = useConfirm();
   const [handle, setHandle] = useState<ViewerHandle | null>(null);
   const onHandle = useCallback((h: ViewerHandle | null) => setHandle(h), []);
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
-  if (!tab) return <>{empty}</>;
+  if (!tab) {
+    return (
+      <div className="docs">
+        <div className="panel-closebar">
+          <IconButton
+            label={t("panel.close.docs")}
+            size="sm"
+            icon={<CloseIcon />}
+            onClick={() => panels.actions?.close("docs")}
+          />
+        </div>
+        {empty}
+      </div>
+    );
+  }
   const bytes = docs.content(tab.id);
 
   const fail = (e: unknown) => toast.show({ title: t("sb.error", { error: errText(e) }), tone: "danger" });
@@ -203,6 +218,14 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
 
   return (
     <div className="docs">
+      <div className="panel-closebar">
+        <IconButton
+          label={t("panel.close.docs")}
+          size="sm"
+          icon={<CloseIcon />}
+          onClick={() => panels.actions?.close("docs")}
+        />
+      </div>
       <nav className="stabs" aria-label={t("doc.tabs")}>
         {state.tabs.map((x, index) => {
           const active = x.id === state.activeId;

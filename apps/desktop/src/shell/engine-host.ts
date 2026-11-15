@@ -1,6 +1,6 @@
 // Adapter ke host (Tauri). Di luar Tauri (browser/e2e) tidak ada supervisor: engine bisa diarahkan ke URL lewat
 // localStorage `zandor.engine.override` ({url,username,password}) dan registry disimpan di localStorage.
-import { attachmentFromPath, type FileAttachment, MAX_INLINE_BYTES, type RawEngineSnapshot } from "@zandor/core";
+import { attachmentFromPath, type FileAttachment, type RawEngineSnapshot } from "@zandor/core";
 
 export type EngineHost = {
   /** true bila berjalan di Tauri (ada supervisor, folder picker native, registry di disk). */
@@ -23,6 +23,8 @@ export type EngineHost = {
   pickFolder(): Promise<string | null>;
   /** Pilih lampiran: berkas (beberapa) atau satu folder. Berkas oleh dialog native; di browser lewat <input>. */
   pickAttachments(kind: "files" | "folder"): Promise<{ items: FileAttachment[]; skipped: string[] } | null>;
+  /** Ubah file browser (paste/drop) menjadi lampiran data URL; batasnya sama dengan pemilih berkas browser. */
+  attachmentsFromFiles(files: File[]): Promise<{ items: FileAttachment[]; skipped: string[] }>;
 };
 
 const OVERRIDE_KEY = "zandor.engine.override";
@@ -124,29 +126,38 @@ export function createBrowserHost(): EngineHost {
         const input = document.createElement("input");
         input.type = "file";
         input.multiple = true;
-        input.onchange = async () => {
-          const items: FileAttachment[] = [];
-          const skipped: string[] = [];
-          for (const f of Array.from(input.files ?? [])) {
-            if (f.size > MAX_INLINE_BYTES) {
-              skipped.push(f.name);
-              continue;
-            }
-            const url = await new Promise<string>((res, rej) => {
-              const r = new FileReader();
-              r.onload = () => res(String(r.result));
-              r.onerror = () => rej(r.error);
-              r.readAsDataURL(f);
-            });
-            items.push({ mime: f.type || "application/octet-stream", url, filename: f.name });
-          }
-          resolve({ items, skipped });
-        };
+        input.onchange = async () => resolve(await attachmentsFromFiles(input.files ? Array.from(input.files) : []));
         input.oncancel = () => resolve(null);
         input.click();
       });
     },
+    attachmentsFromFiles,
   };
+}
+
+async function attachmentsFromFiles(files: File[]): Promise<{ items: FileAttachment[]; skipped: string[] }> {
+  const items: FileAttachment[] = [];
+  const skipped: string[] = [];
+  for (const f of files) {
+    let url: string;
+    try {
+      url = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(f);
+      });
+    } catch {
+      skipped.push(f.name || "clipboard image");
+      continue;
+    }
+    items.push({
+      mime: f.type || "application/octet-stream",
+      url,
+      ...(f.name ? { filename: f.name } : {}),
+    });
+  }
+  return { items, skipped };
 }
 
 export async function loadEngineHost(): Promise<EngineHost> {
@@ -179,5 +190,6 @@ export async function loadEngineHost(): Promise<EngineHost> {
       const paths = Array.isArray(r) ? r : [r];
       return { items: paths.map((p) => attachmentFromPath(p, kind === "folder")), skipped: [] };
     },
+    attachmentsFromFiles,
   };
 }
