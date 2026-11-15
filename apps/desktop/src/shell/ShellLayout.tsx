@@ -4,7 +4,6 @@ import { desiredCollapsed, formatCombo, type PanelSpec, remToPx } from "@zandor/
 import { useI18n } from "@zandor/i18n/react";
 import {
   ActivityIcon,
-  CloseIcon,
   DiffIcon,
   ErrorBoundary,
   FilesIcon,
@@ -21,6 +20,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { Group, Panel, Separator, useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-panels";
 import { ChatPanel } from "./ChatPanel";
 import { DocPanel } from "./docs/DocPanel";
+import { PanelTabBar } from "./PanelTabBar";
 import { Sidebar } from "./Sidebar";
 import { PANEL_IDS, type PanelId, TOOL_IDS, type ToolId, usePanelState, useServices, useSetting } from "./services";
 import { ActivityPanel } from "./tools/ActivityPanel";
@@ -418,20 +418,12 @@ export function ShellLayout() {
               "tools",
               "panel.tools",
               <div className="tools">
-                <div className="panel-closebar">
-                  <IconButton
-                    label={t("panel.close.tools")}
-                    size="sm"
-                    icon={<CloseIcon />}
-                    onClick={() => closePanel("tools")}
-                  />
-                </div>
-                <header className="tools__head">
+                <PanelTabBar closeLabel={t("panel.close.tools")} onClose={() => closePanel("tools")}>
                   <span className="tools__icon" aria-hidden="true">
                     {TOOL_ICONS[panelState.activeTool]}
                   </span>
                   <h2 className="z-label tools__title">{toolLabel(panelState.activeTool)}</h2>
-                </header>
+                </PanelTabBar>
                 {/* Alat dipilih lewat rail di kanan (tanpa tab di dalam panel) */}
                 <div className="tools__body">{toolContent(panelState.activeTool)}</div>
               </div>,

@@ -22,6 +22,8 @@
   --z-color-segment-active: #333333;
   --z-color-border-soft: rgb(255 255 255 / 0.07);
   --z-color-composer: #262626;
+  /* Gelembung pesan pengguna: lapisan netral yang jelas di atas bg, ikut tema kustom (diturunkan dari fg). */
+  --z-color-bubble: color-mix(in srgb, var(--z-color-fg) 8%, var(--z-color-bg));
   --z-color-scrollbar: rgb(255 255 255 / 0.12);
   --z-color-scrollbar-hover: rgb(255 255 255 / 0.22);
   --z-color-border-strong: #666666;

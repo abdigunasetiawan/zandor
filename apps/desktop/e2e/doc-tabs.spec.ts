@@ -30,6 +30,16 @@ test("tab dokumen: ikon file, tanpa scrollbar, dan menu klik kanan (tutup/lainny
 }) => {
   await open(page);
   await expect(tabs(page)).toHaveCount(3);
+  const docs = page.getByRole("region", { name: "Dokumen", exact: true });
+  const closeDocs = docs.getByRole("button", { name: "Tutup panel Dokumen" });
+  await expect(closeDocs).toBeVisible();
+  const docsCloseBox = await closeDocs.boundingBox();
+  const docsTabsBox = await bar(page).boundingBox();
+  expect(
+    docsCloseBox &&
+      docsTabsBox &&
+      Math.abs(docsCloseBox.y + docsCloseBox.height / 2 - (docsTabsBox.y + docsTabsBox.height / 2)),
+  ).toBeLessThanOrEqual(2);
   // ikon jenis file (gambar) di tiap tab
   for (let i = 0; i < 3; i++) await expect(tabs(page).nth(i).locator(".file-icon").first()).toBeVisible();
   // bilah tab tanpa scrollbar terlihat

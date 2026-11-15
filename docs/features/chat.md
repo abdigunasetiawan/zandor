@@ -6,7 +6,8 @@
 
 ## Spek (yang sudah ada)
 
-- Transcript dari engine secara streaming (SSE): pesan pengguna, jawaban Markdown (GFM), blok "Berpikir"
+- Transcript dari engine secara streaming (SSE): pesan pengguna (gelembung berlatar `--z-color-bubble`, terlihat di tema
+  gelap dan terang), jawaban Markdown (GFM), blok "Berpikir"
   (reasoning) yang bisa dilipat, kartu **tool call** (nama, ringkasan, status, masukan/keluaran yang bisa dibuka),
   baris meta (model, durasi, token/waktu lengkap di tooltip), galat pesan/sesi, status "bekerja"/"mencoba ulang"/
   "menyambung ulang".

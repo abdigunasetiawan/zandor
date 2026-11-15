@@ -22,6 +22,7 @@ import {
 } from "@zandor/ui";
 import { lazy, type ReactNode, Suspense, useCallback, useState } from "react";
 import { FileTypeIcon } from "../FileTypeIcon";
+import { PanelTabBar } from "../PanelTabBar";
 import { useDocs, useServices } from "../services";
 import { OpenWithMenu } from "./OpenWithMenu";
 import { BinaryViewer, HtmlViewer, ImageViewer, JsonViewer, MediaViewer, TableViewer } from "./simple-viewers";
@@ -96,14 +97,7 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   if (!tab) {
     return (
       <div className="docs">
-        <div className="panel-closebar">
-          <IconButton
-            label={t("panel.close.docs")}
-            size="sm"
-            icon={<CloseIcon />}
-            onClick={() => panels.actions?.close("docs")}
-          />
-        </div>
+        <PanelTabBar closeLabel={t("panel.close.docs")} onClose={() => panels.actions?.close("docs")} />
         {empty}
       </div>
     );
@@ -218,75 +212,69 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
 
   return (
     <div className="docs">
-      <div className="panel-closebar">
-        <IconButton
-          label={t("panel.close.docs")}
-          size="sm"
-          icon={<CloseIcon />}
-          onClick={() => panels.actions?.close("docs")}
-        />
-      </div>
-      <nav className="stabs" aria-label={t("doc.tabs")}>
-        {state.tabs.map((x, index) => {
-          const active = x.id === state.activeId;
-          const last = state.tabs.length - 1;
-          const entries: MenuEntry[] = [
-            { type: "item", id: "close", label: t("tabs.close"), onSelect: () => void closeMany("one", x.id) },
-            {
-              type: "item",
-              id: "others",
-              label: t("tabs.closeOthers"),
-              disabled: state.tabs.length < 2,
-              onSelect: () => void closeMany("others", x.id),
-            },
-            {
-              type: "item",
-              id: "right",
-              label: t("tabs.closeRight"),
-              disabled: index === last,
-              onSelect: () => void closeMany("right", x.id),
-            },
-            {
-              type: "item",
-              id: "left",
-              label: t("tabs.closeLeft"),
-              disabled: index === 0,
-              onSelect: () => void closeMany("left", x.id),
-            },
-            { type: "separator", id: "sep" },
-            { type: "item", id: "all", label: t("tabs.closeAll"), onSelect: () => void closeMany("all", x.id) },
-          ];
-          return (
-            <ContextMenu key={x.id} entries={entries} className="stabs__ctx">
-              <div className="stabs__tab" data-active={active ? "" : undefined}>
-                <button
-                  type="button"
-                  className="stabs__label"
-                  aria-current={active ? "true" : undefined}
-                  title={x.path}
-                  onClick={() => docs.activate(x.id)}
-                >
-                  <FileTypeIcon name={x.name} type="file" />
-                  {x.dirty && (
-                    <span role="img" aria-label={t("doc.unsaved")} title={t("doc.unsaved")}>
-                      ●
-                    </span>
-                  )}
-                  <span className="stabs__text">{x.name}</span>
-                </button>
-                <button
-                  type="button"
-                  className="stabs__close"
-                  aria-label={t("doc.closeTab", { name: x.name })}
-                  onClick={() => void guarded(x.id, x.name, () => docs.close(x.id))}
-                >
-                  <CloseIcon size="sm" />
-                </button>
-              </div>
-            </ContextMenu>
-          );
-        })}
-      </nav>
+      <PanelTabBar closeLabel={t("panel.close.docs")} onClose={() => panels.actions?.close("docs")}>
+        <nav className="stabs" aria-label={t("doc.tabs")}>
+          {state.tabs.map((x, index) => {
+            const active = x.id === state.activeId;
+            const last = state.tabs.length - 1;
+            const entries: MenuEntry[] = [
+              { type: "item", id: "close", label: t("tabs.close"), onSelect: () => void closeMany("one", x.id) },
+              {
+                type: "item",
+                id: "others",
+                label: t("tabs.closeOthers"),
+                disabled: state.tabs.length < 2,
+                onSelect: () => void closeMany("others", x.id),
+              },
+              {
+                type: "item",
+                id: "right",
+                label: t("tabs.closeRight"),
+                disabled: index === last,
+                onSelect: () => void closeMany("right", x.id),
+              },
+              {
+                type: "item",
+                id: "left",
+                label: t("tabs.closeLeft"),
+                disabled: index === 0,
+                onSelect: () => void closeMany("left", x.id),
+              },
+              { type: "separator", id: "sep" },
+              { type: "item", id: "all", label: t("tabs.closeAll"), onSelect: () => void closeMany("all", x.id) },
+            ];
+            return (
+              <ContextMenu key={x.id} entries={entries} className="stabs__ctx">
+                <div className="stabs__tab" data-active={active ? "" : undefined}>
+                  <button
+                    type="button"
+                    className="stabs__label"
+                    aria-current={active ? "true" : undefined}
+                    title={x.path}
+                    onClick={() => docs.activate(x.id)}
+                  >
+                    <FileTypeIcon name={x.name} type="file" />
+                    {x.dirty && (
+                      <span role="img" aria-label={t("doc.unsaved")} title={t("doc.unsaved")}>
+                        ●
+                      </span>
+                    )}
+                    <span className="stabs__text">{x.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="stabs__close"
+                    aria-label={t("doc.closeTab", { name: x.name })}
+                    onClick={() => void guarded(x.id, x.name, () => docs.close(x.id))}
+                  >
+                    <CloseIcon size="sm" />
+                  </button>
+                </div>
+              </ContextMenu>
+            );
+          })}
+        </nav>
+      </PanelTabBar>
       <div className="docs__path z-small" title={`${tab.root}\\${tab.path}`} data-testid="doc-path">
         {tab.path}
       </div>

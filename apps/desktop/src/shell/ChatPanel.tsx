@@ -77,6 +77,7 @@ import {
   peekMessageFocus,
   requestMessageFocus,
 } from "./message-focus";
+import { PanelTabBar } from "./PanelTabBar";
 import { toolSummary } from "./process-label";
 import { QuestionCard, TodoList } from "./QuestionCard";
 import { QueueDock } from "./QueueDock";
@@ -110,7 +111,6 @@ export function ChatPanel() {
   const { t } = useI18n();
   const { projects, chat } = useServices();
   const { panels } = useServices();
-  const panelState = usePanelState();
   const state = useProjects();
   const chatState = useChat();
   const sel = state.selection.sessionId ? projects.selected() : null;
@@ -157,17 +157,7 @@ export function ChatPanel() {
   if (demoId && demoById(demoId)) {
     return (
       <div className="chat" data-demo="">
-        {!panelState.collapsed.chat && (
-          <div className="panel-closebar">
-            <IconButton
-              label={t("panel.close.chat")}
-              size="sm"
-              icon={<CloseIcon />}
-              onClick={() => panels.actions?.close("chat")}
-            />
-          </div>
-        )}
-        <SessionTabs />
+        <SessionTabs closePanel={() => panels.actions?.close("chat")} />
         <h2 className="z-visually-hidden">{t(demoById(demoId)?.titleKey ?? "demo.trajectory.title")}</h2>
         <DemoChat key={demoId} id={demoId} />
       </div>
@@ -183,17 +173,7 @@ export function ChatPanel() {
   return (
     <SessionFlagsContext.Provider value={{ hasProject: sel.project !== null }}>
       <div className="chat" data-welcome={welcome ? "" : undefined}>
-        {!panelState.collapsed.chat && (
-          <div className="panel-closebar">
-            <IconButton
-              label={t("panel.close.chat")}
-              size="sm"
-              icon={<CloseIcon />}
-              onClick={() => panels.actions?.close("chat")}
-            />
-          </div>
-        )}
-        <SessionTabs />
+        <SessionTabs closePanel={() => panels.actions?.close("chat")} />
         <h2 className="z-visually-hidden">{title}</h2>
         {welcome ? (
           <div className="chat__welcome">
@@ -255,8 +235,6 @@ export function PromptDock({
 /** Halaman bawaan Panel 2 saat tidak ada sesi terbuka: tampilan sesi baru; sesi sungguhan dibuat saat pesan pertama dikirim. */
 function DraftChat() {
   const { panels } = useServices();
-  const panelState = usePanelState();
-  const { t } = useI18n();
   const stub = useMemo<SessionChat>(
     () => ({
       ...initialChatState("draft"),
@@ -270,17 +248,7 @@ function DraftChat() {
   );
   return (
     <div className="chat" data-welcome="" data-draft="">
-      {!panelState.collapsed.chat && (
-        <div className="panel-closebar">
-          <IconButton
-            label={t("panel.close.chat")}
-            size="sm"
-            icon={<CloseIcon />}
-            onClick={() => panels.actions?.close("chat")}
-          />
-        </div>
-      )}
-      <SessionTabs />
+      <SessionTabs closePanel={() => panels.actions?.close("chat")} />
       <div className="chat__welcome">
         <Greeting />
         <Composer session={stub} draft />
@@ -304,11 +272,12 @@ function Greeting() {
 }
 
 /** Tab sesi yang terbuka (urutan dibuka). Hanya tampil bila ada lebih dari satu. */
-function SessionTabs() {
+function SessionTabs({ closePanel }: { closePanel: () => void }) {
   const { t } = useI18n();
   const { projects } = useServices();
   const state = useProjects();
   const chatState = useChat();
+  const panelState = usePanelState();
   const barRef = useRef<HTMLElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: dijalankan saat tab aktif berubah agar tab itu terlihat
   useEffect(() => {
@@ -316,7 +285,9 @@ function SessionTabs() {
       ?.querySelector<HTMLElement>('[aria-current="true"]')
       ?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [state.selection.sessionId, state.tabs.length]);
-  if (state.tabs.length < 1) return null;
+  if (state.tabs.length < 1) {
+    return panelState.collapsed.chat ? null : <PanelTabBar closeLabel={t("panel.close.chat")} onClose={closePanel} />;
+  }
   // model sesi = model pesan asisten terakhir; bila belum ada, model terpilih saat ini
   const modelOf = (sessionId: string) => {
     const msgs = chatState.sessions[sessionId]?.messages ?? [];
@@ -332,70 +303,72 @@ function SessionTabs() {
     return s ? (sessionTitle(s) ?? t("sb.untitled")) : t("sb.untitled");
   };
   return (
-    <nav className="stabs" aria-label={t("chat.tabs")} ref={barRef}>
-      {state.tabs.map((tab, index) => {
-        const title = titleOf(tab.key, tab.sessionId);
-        const active = state.selection.sessionId === tab.sessionId;
-        const last = state.tabs.length - 1;
-        const entries: MenuEntry[] = [
-          { type: "item", id: "close", label: t("tabs.close"), onSelect: () => projects.closeTab(tab.sessionId) },
-          {
-            type: "item",
-            id: "others",
-            label: t("tabs.closeOthers"),
-            disabled: state.tabs.length < 2,
-            onSelect: () => projects.closeTabsBy("others", tab.sessionId),
-          },
-          {
-            type: "item",
-            id: "right",
-            label: t("tabs.closeRight"),
-            disabled: index === last,
-            onSelect: () => projects.closeTabsBy("right", tab.sessionId),
-          },
-          {
-            type: "item",
-            id: "left",
-            label: t("tabs.closeLeft"),
-            disabled: index === 0,
-            onSelect: () => projects.closeTabsBy("left", tab.sessionId),
-          },
-          { type: "separator", id: "sep" },
-          { type: "item", id: "all", label: t("tabs.closeAll"), onSelect: () => projects.closeTabsBy("all") },
-        ];
-        return (
-          <ContextMenu key={tab.sessionId} entries={entries} className="stabs__ctx">
-            <div className="stabs__tab" data-active={active ? "" : undefined}>
-              <button
-                type="button"
-                className="stabs__label"
-                aria-current={active ? "true" : undefined}
-                onClick={() => projects.select(tab.key, tab.sessionId)}
-              >
-                {tab.key === DEMO_KEY ? (
-                  <PinIcon size="sm" />
-                ) : (
-                  <ModelLogo
-                    providerID={modelOf(tab.sessionId)?.providerID}
-                    modelID={modelOf(tab.sessionId)?.modelID}
-                  />
-                )}
-                {tab.key !== DEMO_KEY && <TabStatus sessionId={tab.sessionId} />}
-                {title}
-              </button>
-              <button
-                type="button"
-                className="stabs__close"
-                aria-label={t("chat.closeTab", { title })}
-                onClick={() => projects.closeTab(tab.sessionId)}
-              >
-                <CloseIcon size="sm" />
-              </button>
-            </div>
-          </ContextMenu>
-        );
-      })}
-    </nav>
+    <PanelTabBar closeLabel={t("panel.close.chat")} onClose={panelState.collapsed.chat ? undefined : closePanel}>
+      <nav className="stabs" aria-label={t("chat.tabs")} ref={barRef}>
+        {state.tabs.map((tab, index) => {
+          const title = titleOf(tab.key, tab.sessionId);
+          const active = state.selection.sessionId === tab.sessionId;
+          const last = state.tabs.length - 1;
+          const entries: MenuEntry[] = [
+            { type: "item", id: "close", label: t("tabs.close"), onSelect: () => projects.closeTab(tab.sessionId) },
+            {
+              type: "item",
+              id: "others",
+              label: t("tabs.closeOthers"),
+              disabled: state.tabs.length < 2,
+              onSelect: () => projects.closeTabsBy("others", tab.sessionId),
+            },
+            {
+              type: "item",
+              id: "right",
+              label: t("tabs.closeRight"),
+              disabled: index === last,
+              onSelect: () => projects.closeTabsBy("right", tab.sessionId),
+            },
+            {
+              type: "item",
+              id: "left",
+              label: t("tabs.closeLeft"),
+              disabled: index === 0,
+              onSelect: () => projects.closeTabsBy("left", tab.sessionId),
+            },
+            { type: "separator", id: "sep" },
+            { type: "item", id: "all", label: t("tabs.closeAll"), onSelect: () => projects.closeTabsBy("all") },
+          ];
+          return (
+            <ContextMenu key={tab.sessionId} entries={entries} className="stabs__ctx">
+              <div className="stabs__tab" data-active={active ? "" : undefined}>
+                <button
+                  type="button"
+                  className="stabs__label"
+                  aria-current={active ? "true" : undefined}
+                  onClick={() => projects.select(tab.key, tab.sessionId)}
+                >
+                  {tab.key === DEMO_KEY ? (
+                    <PinIcon size="sm" />
+                  ) : (
+                    <ModelLogo
+                      providerID={modelOf(tab.sessionId)?.providerID}
+                      modelID={modelOf(tab.sessionId)?.modelID}
+                    />
+                  )}
+                  {tab.key !== DEMO_KEY && <TabStatus sessionId={tab.sessionId} />}
+                  {title}
+                </button>
+                <button
+                  type="button"
+                  className="stabs__close"
+                  aria-label={t("chat.closeTab", { title })}
+                  onClick={() => projects.closeTab(tab.sessionId)}
+                >
+                  <CloseIcon size="sm" />
+                </button>
+              </div>
+            </ContextMenu>
+          );
+        })}
+      </nav>
+    </PanelTabBar>
   );
 }
 
@@ -597,28 +570,46 @@ function Message({
   isLastAssistant: boolean;
   streaming?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { info } = message;
   if (info.role === "user") {
     const text = messageText(message);
     const files = message.parts.filter((p) => p.type === "file");
     if (!text && files.length === 0) return null;
+    const created = new Date(info.time.created);
+    const createdAt = created.toLocaleString(locale === "id" ? "id-ID" : "en-US", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const fullCreatedAt = created.toLocaleString(locale === "id" ? "id-ID" : "en-US", {
+      dateStyle: "full",
+      timeStyle: "long",
+    });
     return (
       <article className="msg msg--user" aria-label={t("chat.you")} id={messageDomId(info.id)}>
-        {files.length > 0 && (
-          <ul className="chips">
-            {files.map((f) =>
-              f.type === "file" ? (
-                <li key={f.id} className="chip">
-                  <PaperclipIcon size="sm" />
-                  <span>{f.filename ?? f.url.split("/").pop()}</span>
-                </li>
-              ) : null,
-            )}
-          </ul>
-        )}
-        {text && <p className="msg__text">{text}</p>}
-        <MessageToolbar message={message} sessionId={sessionId} isLastAssistant={false} />
+        <div className="msg__bubble">
+          {files.length > 0 && (
+            <ul className="chips">
+              {files.map((f) =>
+                f.type === "file" ? (
+                  <li key={f.id} className="chip">
+                    <PaperclipIcon size="sm" />
+                    <span>{f.filename ?? f.url.split("/").pop()}</span>
+                  </li>
+                ) : null,
+              )}
+            </ul>
+          )}
+          {text && <p className="msg__text">{text}</p>}
+        </div>
+        <footer className="msg__user-foot">
+          <time className="msg__user-time z-small" dateTime={created.toISOString()} title={fullCreatedAt}>
+            {createdAt}
+          </time>
+          <MessageToolbar message={message} sessionId={sessionId} isLastAssistant={false} />
+        </footer>
       </article>
     );
   }

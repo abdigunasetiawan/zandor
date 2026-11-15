@@ -42,6 +42,52 @@ test("Salin pesan menaruh jawaban di clipboard", async ({ page, context }) => {
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("Halo, ada yang bisa dibantu?");
 });
 
+test("gelembung pesan pengguna punya latar berbeda dari latar panel", async ({ page }) => {
+  await openSession(page);
+  await send(page, "halo");
+  const bubble = page.getByRole("article", { name: "Anda", exact: true });
+  await expect(bubble).toBeVisible();
+  const readColors = () =>
+    bubble
+      .locator(".msg__bubble")
+      .evaluate((el) => [
+        getComputedStyle(el).backgroundColor,
+        getComputedStyle(el.closest(".shell-panel__inner") as Element).backgroundColor,
+      ]);
+  const [darkBubble, darkPanel] = await readColors();
+  expect(darkBubble).not.toBe("rgba(0, 0, 0, 0)");
+  expect(darkBubble).not.toBe(darkPanel);
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
+  const [lightBubble, lightPanel] = await readColors();
+  expect(lightBubble).not.toBe("rgba(0, 0, 0, 0)");
+  expect(lightBubble).not.toBe(lightPanel);
+});
+
+test("aksi pesan pengguna hanya salin dan revert di luar bubble; waktu punya tooltip lengkap", async ({ page }) => {
+  await openSession(page);
+  await send(page, "halo");
+  const message = page.getByRole("article", { name: "Anda", exact: true });
+  const bubble = message.locator(".msg__bubble");
+  const actions = message.locator(".msg__actions");
+  const time = message.locator("time.msg__user-time");
+  const foot = message.locator(".msg__user-foot");
+  await expect(foot).toHaveCSS("opacity", "0");
+  await expect(message.getByRole("button", { name: "Salin pesan", exact: true })).toBeAttached();
+  await expect(message.getByRole("button", { name: "Kembalikan ke sebelum ini", exact: true })).toBeAttached();
+  await expect(actions.getByRole("button")).toHaveCount(2);
+  const [bubbleBox, actionsBox] = await Promise.all([bubble.boundingBox(), actions.boundingBox()]);
+  expect(bubbleBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
+  if (!bubbleBox || !actionsBox) throw new Error("Area pesan tidak memiliki posisi layout");
+  expect(actionsBox.y).toBeGreaterThanOrEqual(bubbleBox.y + bubbleBox.height);
+
+  await bubble.hover();
+  await expect(foot).toHaveCSS("opacity", "1");
+  await expect(time).toBeVisible();
+  await expect(time).toHaveAttribute("dateTime", /T/);
+  await expect(time).toHaveAttribute("title", /2026/);
+});
+
 test("mode izin 'Setujui edit otomatis' menjawab izin edit tanpa kartu", async ({ page }) => {
   const engine = await openSession(page);
   await chooseOption(page, "Mode izin", "Setujui edit otomatis");

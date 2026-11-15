@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { mockEngine } from "./mock-engine";
 
 const width = (page: Page, id: string) =>
@@ -92,7 +92,21 @@ test("toggle panel: Ctrl+B dan tombol; keadaan tersimpan setelah reload", async 
   expect(await width(page, "sidebar")).toBeGreaterThan(100);
 });
 
-test("tombol tutup Panel Chat, Dokumen, dan Tools tidak menimpa tab", async ({ page }) => {
+/** Baris tab (wrapper PanelTabBar): di paling atas panel, tombol tutup di ujung kanan dan sejajar vertikal. */
+async function expectTopBar(panel: Locator, close: Locator): Promise<number> {
+  const bar = panel.locator(".ptb");
+  await expect(bar).toBeVisible();
+  const [p, b, c] = await Promise.all([panel.boundingBox(), bar.boundingBox(), close.boundingBox()]);
+  if (!p || !b || !c) throw new Error("boundingBox tidak tersedia");
+  expect(Math.abs(b.y - p.y)).toBeLessThanOrEqual(2); // paling atas
+  expect(Math.abs(b.width - p.width)).toBeLessThanOrEqual(2); // selebar panel
+  expect(Math.abs(c.y + c.height / 2 - (b.y + b.height / 2))).toBeLessThanOrEqual(2); // sejajar satu baris
+  expect(b.x + b.width - (c.x + c.width)).toBeLessThanOrEqual(16); // paling ujung kanan
+  return b.height;
+}
+
+test("tombol tutup Panel Chat, Dokumen, dan Tools ada di baris tab paling atas, di ujung kanan", async ({ page }) => {
+  const heights: number[] = [];
   await mockEngine(page);
   await page.goto("/");
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
@@ -107,9 +121,7 @@ test("tombol tutup Panel Chat, Dokumen, dan Tools tidak menimpa tab", async ({ p
   const closeChat = chat.getByRole("button", { name: "Tutup panel Chat" });
   await expect(closeChat).toBeVisible();
   await expect(chat.locator(".stabs")).toBeVisible();
-  const chatCloseBox = await closeChat.boundingBox();
-  const chatTabsBox = await chat.locator(".stabs").boundingBox();
-  expect(chatCloseBox && chatTabsBox && chatCloseBox.y + chatCloseBox.height).toBeLessThanOrEqual(chatTabsBox?.y ?? -1);
+  heights.push(await expectTopBar(chat, closeChat));
   await closeChat.click();
   await expect.poll(() => width(page, "chat")).toBeLessThan(2);
   await page.getByRole("button", { name: "Chat", exact: true }).click();
@@ -125,6 +137,7 @@ test("tombol tutup Panel Chat, Dokumen, dan Tools tidak menimpa tab", async ({ p
   const docs = page.getByRole("region", { name: "Dokumen", exact: true });
   const closeDocs = docs.getByRole("button", { name: "Tutup panel Dokumen" });
   await expect(closeDocs).toBeVisible();
+  heights.push(await expectTopBar(docs, closeDocs));
   await closeDocs.click();
   await expect.poll(() => width(page, "docs")).toBeLessThan(2);
 
@@ -135,8 +148,11 @@ test("tombol tutup Panel Chat, Dokumen, dan Tools tidak menimpa tab", async ({ p
   const tools = page.getByRole("region", { name: "Tools", exact: true });
   const closeTools = tools.getByRole("button", { name: "Tutup panel Tools" });
   await expect(closeTools).toBeVisible();
+  heights.push(await expectTopBar(tools, closeTools));
   await closeTools.click();
   await expect.poll(() => width(page, "tools")).toBeLessThan(2);
+  // baris tab Chat, Dokumen, dan Tools seragam tingginya
+  expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1);
 });
 
 test("rel: klik ikon membuka tab dan panel Tools; klik ikon aktif menutupnya", async ({ page }) => {

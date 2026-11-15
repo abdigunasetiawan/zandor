@@ -143,7 +143,9 @@ export function MessageToolbar({
 
   return (
     <div className="msg__actions" data-no-export="">
-      <IconButton label={t("msg.copyLink")} size="sm" icon={<LinkIcon />} onClick={() => void link()} />
+      {isAssistant && (
+        <IconButton label={t("msg.copyLink")} size="sm" icon={<LinkIcon />} onClick={() => void link()} />
+      )}
       {text && (
         <IconButton
           label={t("chat.copy")}
@@ -186,14 +188,18 @@ export function MessageToolbar({
           entries={noteEntries}
         />
       )}
-      <IconButton
-        label={pinned ? t("msg.unpin") : t("msg.pin")}
-        size="sm"
-        icon={<PinIcon />}
-        aria-pressed={pinned}
-        onClick={() => chat.toggleMessagePin(sessionId, message.info.id)}
-      />
-      {!demo && <IconButton label={t("chat.fork")} size="sm" icon={<GitIcon />} onClick={() => void fork()} />}
+      {isAssistant && (
+        <IconButton
+          label={pinned ? t("msg.unpin") : t("msg.pin")}
+          size="sm"
+          icon={<PinIcon />}
+          aria-pressed={pinned}
+          onClick={() => chat.toggleMessagePin(sessionId, message.info.id)}
+        />
+      )}
+      {!demo && isAssistant && (
+        <IconButton label={t("chat.fork")} size="sm" icon={<GitIcon />} onClick={() => void fork()} />
+      )}
       {!demo && message.info.role === "user" && (
         <IconButton
           label={t("chat.revert")}

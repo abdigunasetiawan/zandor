@@ -1006,16 +1006,6 @@
   flex-direction: column;
   min-height: 0;
 }
-.panel-closebar {
-  display: flex;
-  flex: none;
-  justify-content: flex-end;
-  min-height: var(--z-control-md);
-  padding: var(--z-space-1) var(--z-space-2) 0;
-}
-.panel-closebar .z-icon-button {
-  flex: none;
-}
 .chat__head {
   display: flex;
   flex: none;
@@ -1073,10 +1063,31 @@
 }
 .msg--user {
   align-self: flex-end;
+  align-items: flex-end;
+  width: fit-content;
   max-width: 85%;
+}
+.msg__bubble {
+  max-width: 100%;
   padding: var(--z-space-2) var(--z-space-3);
   border-radius: var(--z-radius-lg);
-  background: var(--z-color-raised);
+  background: var(--z-color-bubble);
+}
+.msg__user-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--z-space-2);
+  width: 100%;
+  opacity: 0;
+}
+.msg--user:hover .msg__user-foot,
+.msg--user:focus-within .msg__user-foot {
+  opacity: 1;
+}
+.msg__user-time {
+  color: var(--z-color-fg-subtle);
+  white-space: nowrap;
 }
 .msg__text {
   font-size: var(--z-chat-size);
@@ -1206,11 +1217,12 @@
 /* ---------- Chat: tab sesi, aksi, lampiran, diff ---------- */
 .stabs {
   display: flex;
-  flex: none;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
   gap: var(--z-space-1);
-  padding: var(--z-space-1) var(--z-space-2) 0;
+  padding: var(--z-space-1) 0 0 var(--z-space-2);
   overflow-x: auto;
-  border-bottom: var(--z-border-width) solid var(--z-color-border);
 }
 .stabs__tab {
   display: flex;
@@ -1702,9 +1714,6 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
-}
-.docs > .panel-closebar {
-  padding-inline: var(--z-space-2);
 }
 .docs__path {
   flex: none;
@@ -2904,17 +2913,6 @@
   flex-direction: column;
   min-height: 0;
 }
-.tools__head {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--z-space-2);
-  padding: var(--z-space-2) var(--z-space-3);
-  border-bottom: var(--z-border-width) solid var(--z-color-border);
-}
-.tools > .panel-closebar {
-  padding-inline: var(--z-space-2);
-}
 .tools__icon {
   display: inline-flex;
   color: var(--z-color-fg-muted);
@@ -3702,6 +3700,42 @@
 }
 .stabs::-webkit-scrollbar {
   display: none;
+}
+
+/* ---------- Baris tab panel 2/3/4 (PanelTabBar): baris paling atas, tombol tutup di ujung kanan ---------- */
+/* Tampilan tab tetap seperti semula (.stabs); wrapper hanya mengatur posisi, tinggi seragam, dan pemisah. */
+.ptb {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--z-space-2);
+  height: var(--z-control-lg);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.ptb__main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--z-space-2);
+  min-width: 0;
+  height: 100%;
+  padding-left: var(--z-space-2);
+}
+.ptb__close {
+  flex: none;
+  margin-right: var(--z-space-2);
+}
+.ptb .stabs {
+  flex: 1;
+  align-items: flex-end;
+  height: 100%;
+  min-width: 0;
+  padding: var(--z-space-1) 0 0;
+}
+.ptb .tools__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- Dok di atas composer: izin, pertanyaan, rencana (di luar isi respons) ---------- */
