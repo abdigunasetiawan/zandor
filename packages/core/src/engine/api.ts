@@ -54,6 +54,13 @@ export type ModelOption = {
   contextLimit?: number;
   /** Batas token keluaran model, bila diketahui. */
   outputLimit?: number;
+  /** Kemampuan (dari katalog engine), bila diketahui. */
+  reasoning?: boolean;
+  toolCall?: boolean;
+  /** Menerima lampiran (gambar/PDF/dll). */
+  attachment?: boolean;
+  /** Modalitas masukan yang didukung (mis. text, image, pdf). */
+  inputs?: string[];
 };
 export type FileAttachment = { mime: string; url: string; filename?: string };
 export type ModelRef = { providerID: string; modelID: string };
@@ -209,6 +216,16 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
             variants: Object.keys(m.variants ?? {}),
             ...(m.limit?.context ? { contextLimit: m.limit.context } : {}),
             ...(m.limit?.output ? { outputLimit: m.limit.output } : {}),
+            ...(m.capabilities
+              ? {
+                  reasoning: !!m.capabilities.reasoning,
+                  toolCall: !!m.capabilities.toolcall,
+                  attachment: !!m.capabilities.attachment,
+                  inputs: Object.entries(m.capabilities.input ?? {})
+                    .filter(([, on]) => on)
+                    .map(([k]) => k),
+                }
+              : {}),
           });
         }
       }

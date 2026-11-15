@@ -2,7 +2,7 @@
 import { type ModelOption, modelKey, pingKey } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import { IconButton, ModelLogo, PingIcon, PinIcon, Spinner } from "@zandor/ui";
-import { pingLabel } from "./ProvidersPage";
+import { pingLabel } from "./ConnectionPanel";
 import { useChat, useProviders, useServices } from "./services";
 
 export function ModelRow({

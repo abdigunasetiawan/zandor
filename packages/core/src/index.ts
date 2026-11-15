@@ -9,6 +9,7 @@ export * from "./file-icons";
 export * from "./layout-plan";
 export * from "./logger";
 export * from "./memory";
+export * from "./models";
 export * from "./navigation";
 export * from "./providers";
 export * from "./settings";

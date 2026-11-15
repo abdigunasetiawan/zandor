@@ -10,6 +10,7 @@ import {
   FilesIcon,
   GitIcon,
   GlobeIcon,
+  GripIcon,
   IconButton,
   InfoIcon,
   ListIcon,
@@ -31,16 +32,18 @@ import { SessionActivityPanel } from "./tools/SessionActivityPanel";
 import { SessionFilesPanel } from "./tools/SessionFilesPanel";
 import { TerminalPanel } from "./tools/TerminalPanel";
 
-type PanelDef = { id: PanelId; minRem: number; collapsible: boolean; priority: number; defaultSize: string };
+/** Panel yang dirender pustaka resizable (rail di kanan hanya bisa ditampilkan/disembunyikan). */
+type ResizableId = Exclude<PanelId, "rail">;
+type PanelDef = { id: ResizableId; minRem: number; collapsible: boolean; priority: number; defaultSize: string };
 
 /** Lebar minimum dalam rem (ikut --ui-scale). Chat tidak bisa dilipat (ADR-015). */
 export const PANEL_DEFS: PanelDef[] = [
   { id: "sidebar", minRem: 12, collapsible: true, priority: 2, defaultSize: "18%" },
-  { id: "chat", minRem: 22, collapsible: false, priority: 99, defaultSize: "34%" },
+  { id: "chat", minRem: 22, collapsible: true, priority: 99, defaultSize: "34%" },
   { id: "docs", minRem: 16, collapsible: true, priority: 1, defaultSize: "22%" },
   { id: "tools", minRem: 18, collapsible: true, priority: 3, defaultSize: "26%" },
 ];
-const MIN_REM = Object.fromEntries(PANEL_DEFS.map((p) => [p.id, p.minRem])) as Record<PanelId, number>;
+const MIN_REM = Object.fromEntries(PANEL_DEFS.map((p) => [p.id, p.minRem])) as Record<ResizableId, number>;
 const DEFAULT_LAYOUT = { sidebar: 18, chat: 34, docs: 22, tools: 26 };
 const FALLBACK_SEPARATOR_PX = 6;
 const MAX_LAYOUT_REAPPLY = 6;
@@ -57,6 +60,15 @@ export const TOOL_ICONS: Record<ToolId, ReactNode> = {
   session: <ActivityIcon />,
   log: <ListIcon />,
 };
+
+/** Pegangan pil yang muncul saat separator disorot/diseret (tanda bisa di-resize). */
+function SepGrip() {
+  return (
+    <span className="shell-sep__grip" aria-hidden="true">
+      <GripIcon size="sm" />
+    </span>
+  );
+}
 
 function PanelEmpty({ title, body }: { title: string; body: string }) {
   return (
@@ -167,7 +179,9 @@ export function ShellLayout() {
         else if (!desired.has(def.id) && isCollapsed) ref.expand();
       }
       lastApplied.current = desired;
-      const collapsed = Object.fromEntries(PANEL_IDS.map((id) => [id, desired.has(id)])) as Record<PanelId, boolean>;
+      const collapsed = Object.fromEntries(
+        PANEL_IDS.map((id) => [id, id === "rail" ? userCollapsed.current.has("rail") : desired.has(id)]),
+      ) as Record<PanelId, boolean>;
       bridge.update({ collapsed });
     },
     [bridge, refs],
@@ -175,6 +189,14 @@ export function ShellLayout() {
 
   const toggle = useCallback(
     (id: PanelId) => {
+      if (id === "rail") {
+        // rail bukan panel resizable: cukup tampil/sembunyi sesuai pilihan pengguna
+        if (userCollapsed.current.has("rail")) userCollapsed.current.delete("rail");
+        else userCollapsed.current.add("rail");
+        persistCollapsed();
+        apply();
+        return;
+      }
       const def = PANEL_DEFS.find((p) => p.id === id);
       if (!def?.collapsible) return;
       const isCollapsed = lastApplied.current.has(id);
@@ -227,6 +249,8 @@ export function ShellLayout() {
       { id: "view.toggleSidebar", titleKey: "cmd.toggleSidebar", shortcut: "Ctrl+B", run: () => toggle("sidebar") },
       { id: "view.toggleDocs", titleKey: "cmd.toggleDocs", shortcut: "Ctrl+Alt+B", run: () => toggle("docs") },
       { id: "view.toggleTools", titleKey: "cmd.toggleTools", shortcut: "Ctrl+J", run: () => toggle("tools") },
+      { id: "view.toggleChat", titleKey: "cmd.toggleChat", run: () => toggle("chat") },
+      { id: "view.toggleRail", titleKey: "cmd.toggleRail", run: () => toggle("rail") },
       { id: "view.resetLayout", titleKey: "cmd.resetLayout", run: reset },
     ];
     const offs = defs.map((d) => commands.register({ ...d, group: "view" }));
@@ -304,6 +328,14 @@ export function ShellLayout() {
     }
   };
 
+  // satu celah antarpanel: separator hanya tampil bila panel di kirinya terlihat dan ada panel terlihat sesudahnya
+  const order: ResizableId[] = ["sidebar", "chat", "docs", "tools"];
+  const hideSep = (i: number) => {
+    const here = order[i];
+    if (!here || panelState.collapsed[here]) return true;
+    return order.slice(i + 1).every((id) => panelState.collapsed[id]);
+  };
+
   return (
     <div className="shell-body">
       <Group
@@ -326,10 +358,13 @@ export function ShellLayout() {
             {guarded("sidebar", "panel.sidebar", <Sidebar />)}
           </section>
         </Panel>
-        <Separator id="sep-1" className="shell-sep" />
+        <Separator id="sep-1" className="shell-sep" data-hidden={hideSep(0) ? "" : undefined}>
+          <SepGrip />
+        </Separator>
         <Panel
           id="chat"
           panelRef={refs.chat}
+          collapsible
           minSize={`${MIN_REM.chat}rem`}
           defaultSize={PANEL_DEFS[1]?.defaultSize}
           className="shell-panel"
@@ -338,7 +373,9 @@ export function ShellLayout() {
             {guarded("chat", "panel.chat", <ChatPanel />)}
           </section>
         </Panel>
-        <Separator id="sep-2" className="shell-sep" />
+        <Separator id="sep-2" className="shell-sep" data-hidden={hideSep(1) ? "" : undefined}>
+          <SepGrip />
+        </Separator>
         <Panel
           id="docs"
           panelRef={refs.docs}
@@ -355,7 +392,9 @@ export function ShellLayout() {
             )}
           </section>
         </Panel>
-        <Separator id="sep-3" className="shell-sep" />
+        <Separator id="sep-3" className="shell-sep" data-hidden={hideSep(2) ? "" : undefined}>
+          <SepGrip />
+        </Separator>
         <Panel
           id="tools"
           panelRef={refs.tools}
@@ -384,17 +423,19 @@ export function ShellLayout() {
         </Panel>
       </Group>
 
-      <nav className="shell-rail" aria-label={t("panel.rail")}>
-        {TOOL_IDS.map((tool) => (
-          <IconButton
-            key={tool}
-            label={toolLabel(tool)}
-            icon={TOOL_ICONS[tool]}
-            aria-pressed={panelState.activeTool === tool && !panelState.collapsed.tools}
-            onClick={() => openTool(tool)}
-          />
-        ))}
-      </nav>
+      {!panelState.collapsed.rail && (
+        <nav className="shell-rail" aria-label={t("panel.rail")}>
+          {TOOL_IDS.map((tool) => (
+            <IconButton
+              key={tool}
+              label={toolLabel(tool)}
+              icon={TOOL_ICONS[tool]}
+              aria-pressed={panelState.activeTool === tool && !panelState.collapsed.tools}
+              onClick={() => openTool(tool)}
+            />
+          ))}
+        </nav>
+      )}
     </div>
   );
 }

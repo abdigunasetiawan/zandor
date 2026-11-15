@@ -41,6 +41,7 @@ export const INFRASTRUCTURE = [
   "ConfirmProvider",
   "ShortcutProvider",
   "ShortcutScope",
+  "ModelLogoOverrides",
 ] as const;
 
 export type AtomName = (typeof ATOMS)[number];

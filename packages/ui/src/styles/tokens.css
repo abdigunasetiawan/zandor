@@ -139,7 +139,7 @@
   --z-duration-fast: 90ms;
   --z-duration-base: 150ms;
   --z-ease: cubic-bezier(0.2, 0, 0, 1);
-  --z-layer-popup: 50;
+  --z-layer-popup: 65;
   --z-layer-modal: 60;
   --z-layer-toast: 70;
 

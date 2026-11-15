@@ -48,7 +48,7 @@
 - **Remote engine** (VPS/komputer lain) beserta UI: butuh perubahan supervisor, token, dan lokasi memori/skill (kini lokal).
 - **Model peran** (memori, image generator).
 - **Manual "agent mengonfigurasi Zandor"**: pengaturan UI tersimpan di WebView, belum berupa berkas yang bisa diedit agent.
-- **Save as** tambahan (gambar/svg/md/txt dari pesan): hanya "Simpan salinan" berkas yang sudah ada.
+- **Save as** tambahan (gambar/svg/md/txt dari pesan): awalnya hanya "Simpan salinan" berkas; kini sebagian ada lewat aksi pesan (ADR-045).
 - Automasi latar belakang saat aplikasi tertutup (butuh layanan OS) — sengaja di luar cakupan; dinyatakan di UI.
 - Edit untuk DOCX/XLSX/PPTX/notebook (hanya baca; notebook bisa diedit sebagai JSON di tampilan mentah).
 - PPTX: tanpa tata letak, animasi, catatan pembicara; XLSX: tanpa format angka kustom selain tanggal, tanpa gambar/grafik.

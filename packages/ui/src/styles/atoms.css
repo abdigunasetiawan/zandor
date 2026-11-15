@@ -298,6 +298,14 @@
 .z-item--danger {
   color: var(--z-color-danger);
 }
+.z-item__icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--z-color-fg-muted);
+}
+.z-item--danger .z-item__icon {
+  color: inherit;
+}
 .z-item__indicator {
   margin-left: auto;
   display: inline-flex;

@@ -47,6 +47,8 @@ export type ChatPrefs = { get(key: string): string | null; set(key: string, valu
 export type ChatStoreOptions = {
   prefs: ChatPrefs;
   onWarning?: (message: string) => void;
+  /** Model bawaan pengguna (Pengaturan → Provider & model); dipakai bila belum ada pilihan di sesi ini. */
+  defaultModel?: () => ModelRef | null;
   /** Dipanggil untuk setiap event engine yang diterima (mis. untuk Log aktivitas). */
   onEvent?: (event: EngineEvent) => void;
 };
@@ -174,6 +176,8 @@ export class ChatStore {
     const has = (r: ModelRef | null) =>
       !!r && models.some((m) => m.providerID === r.providerID && m.modelID === r.modelID);
     if (has(this.snap.model)) return this.snap.model;
+    const def = this.options.defaultModel?.() ?? null;
+    if (has(def)) return def;
     if (has(this.preferred)) return this.preferred;
     const first = models[0];
     return first ? { providerID: first.providerID, modelID: first.modelID } : null;

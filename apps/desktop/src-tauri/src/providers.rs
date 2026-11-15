@@ -14,9 +14,10 @@ use std::path::{Path, PathBuf};
 const MAX_BYTES: u64 = 256 * 1024;
 const VERSION: u32 = 2;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
+    #[default]
     Custom,
     Local,
     Builtin,
@@ -26,14 +27,63 @@ fn default_kind() -> Kind {
     Kind::Custom
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+/// Satu akun/kunci pada sebuah provider (ADR-056). Kunci tiap akun di keychain (`provider:<id>#<akun>`); kunci akun
+/// aktif disalin ke `provider:<id>` yang dibaca engine. Akun lama (satu kunci tanpa daftar) tampil sebagai akun `main`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct Account {
+    pub id: String,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct AccountView {
+    pub id: String,
+    pub label: String,
+    pub active: bool,
+}
+
+pub const LEGACY_ACCOUNT: &str = "main";
+const MAX_ACCOUNTS: usize = 20;
+
+/// Kemampuan model kustom (opsional). Diteruskan ke konfigurasi engine agar batas konteks dan fitur dikenali.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderModel {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Jendela konteks (token).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
+    /// Batas token keluaran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<bool>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Protokol API endpoint kustom → adapter AI SDK yang dipakai engine.
+pub const PROTOCOLS: [(&str, &str); 4] = [
+    ("openai-compatible", "@ai-sdk/openai-compatible"),
+    ("openai", "@ai-sdk/openai"),
+    ("anthropic", "@ai-sdk/anthropic"),
+    ("google", "@ai-sdk/google"),
+];
+
+fn adapter_for(protocol: Option<&str>) -> &'static str {
+    let p = protocol.unwrap_or("openai-compatible");
+    PROTOCOLS
+        .iter()
+        .find(|(k, _)| *k == p)
+        .map(|(_, v)| *v)
+        .unwrap_or("@ai-sdk/openai-compatible")
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Provider {
     pub id: String,
@@ -42,8 +92,17 @@ pub struct Provider {
     pub kind: Kind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// Protokol API (lihat `PROTOCOLS`); kosong = openai-compatible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub protocol: Option<String>,
     #[serde(default)]
     pub models: Vec<ProviderModel>,
+    /// Akun/kunci tambahan (ADR-056). Kosong = hanya satu kunci lama di `provider:<id>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accounts: Vec<Account>,
+    /// Id akun yang kuncinya dipakai engine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_account: Option<String>,
     /// Hanya ada pada berkas versi 1 (kunci di berkas); dibaca untuk migrasi dan tidak pernah ditulis lagi.
     #[serde(default, skip_serializing)]
     pub api_key: Option<String>,
@@ -57,8 +116,10 @@ pub struct ProviderView {
     pub name: String,
     pub kind: Kind,
     pub base_url: Option<String>,
+    pub protocol: Option<String>,
     pub models: Vec<ProviderModel>,
     pub has_key: bool,
+    pub accounts: Vec<AccountView>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -103,8 +164,55 @@ impl Provider {
         if self.models.iter().any(|m| m.id.trim().is_empty()) {
             return Err("ada model dengan id kosong".into());
         }
+        if let Some(p) = &self.protocol {
+            if !PROTOCOLS.iter().any(|(k, _)| k == p) {
+                return Err(format!("protokol tidak dikenal: {p:?}"));
+            }
+        }
+        if self
+            .models
+            .iter()
+            .any(|m| m.context == Some(0) || m.output == Some(0))
+        {
+            return Err("batas konteks/keluaran harus lebih dari 0".into());
+        }
         Ok(())
     }
+}
+
+fn account_key(provider_id: &str, account_id: &str) -> String {
+    format!("{}#{account_id}", provider_account(provider_id))
+}
+
+fn clean_label(label: &str) -> Result<String, String> {
+    let l = label.trim();
+    if l.chars().count() > 80 || l.chars().any(char::is_control) {
+        return Err("nama akun terlalu panjang atau berisi karakter kontrol".into());
+    }
+    Ok(l.to_string())
+}
+
+/// Daftar akun untuk UI; akun lama (kunci tanpa daftar) tampil sebagai satu akun `main` aktif.
+fn account_views(p: &Provider, has_key: bool) -> Vec<AccountView> {
+    if p.accounts.is_empty() {
+        return if has_key {
+            vec![AccountView {
+                id: LEGACY_ACCOUNT.into(),
+                label: String::new(),
+                active: true,
+            }]
+        } else {
+            Vec::new()
+        };
+    }
+    p.accounts
+        .iter()
+        .map(|a| AccountView {
+            id: a.id.clone(),
+            label: a.label.clone(),
+            active: p.active_account.as_deref() == Some(a.id.as_str()),
+        })
+        .collect()
 }
 
 pub fn validate_api_key(key: &str) -> Result<(), String> {
@@ -216,13 +324,16 @@ impl ProviderStore {
             .into_iter()
             .map(|p| {
                 let has_key = self.secrets.get(&provider_account(&p.id))?.is_some();
+                let accounts = account_views(&p, has_key);
                 Ok(ProviderView {
                     id: p.id,
                     name: p.name,
                     kind: p.kind,
                     base_url: p.base_url,
+                    protocol: p.protocol,
                     models: p.models,
                     has_key,
+                    accounts,
                 })
             })
             .collect()
@@ -236,9 +347,17 @@ impl ProviderStore {
             validate_api_key(key)?;
         }
         let (mut all, _) = self.load();
+        // Akun tidak diubah lewat `save` (UI tidak mengirimnya): pertahankan yang sudah ada.
+        if let Some(old) = all.iter().find(|p| p.id == provider.id) {
+            provider.accounts = old.accounts.clone();
+            provider.active_account = old.active_account.clone();
+        }
         // Kunci disimpan lebih dulu: bila gagal, daftar tidak berubah.
         if let Some(key) = &api_key {
             self.secrets.set(&provider_account(&provider.id), key)?;
+            if let Some(a) = &provider.active_account {
+                self.secrets.set(&account_key(&provider.id, a), key)?;
+            }
         }
         match all.iter().position(|p| p.id == provider.id) {
             Some(i) => all[i] = provider,
@@ -247,11 +366,157 @@ impl ProviderStore {
         self.write(&all)
     }
 
+    fn find(all: &[Provider], id: &str) -> Result<usize, String> {
+        all.iter()
+            .position(|p| p.id == id)
+            .ok_or_else(|| format!("provider {id:?} belum disimpan"))
+    }
+
+    /// Ubah akun lama (satu kunci tanpa daftar) menjadi akun `main` agar bisa dikelola bersama akun baru.
+    fn materialize_legacy(&self, p: &mut Provider) -> Result<(), String> {
+        if !p.accounts.is_empty() {
+            return Ok(());
+        }
+        if let Some(key) = self.secrets.get(&provider_account(&p.id))? {
+            self.secrets
+                .set(&account_key(&p.id, LEGACY_ACCOUNT), &key)?;
+            p.accounts.push(Account {
+                id: LEGACY_ACCOUNT.into(),
+                label: String::new(),
+            });
+            p.active_account = Some(LEGACY_ACCOUNT.into());
+        }
+        Ok(())
+    }
+
+    /// Tambah akun (kunci baru) pada provider yang sudah disimpan. Akun baru langsung aktif bila `activate`
+    /// (atau belum ada yang aktif). Mengembalikan id akun.
+    pub fn add_account(
+        &self,
+        provider_id: &str,
+        label: &str,
+        api_key: &str,
+        activate: bool,
+    ) -> Result<String, String> {
+        validate_api_key(api_key)?;
+        let label = clean_label(label)?;
+        let (mut all, _) = self.load();
+        let i = Self::find(&all, provider_id)?;
+        let mut p = all[i].clone();
+        self.materialize_legacy(&mut p)?;
+        if p.accounts.len() >= MAX_ACCOUNTS {
+            return Err(format!("maksimal {MAX_ACCOUNTS} akun per provider"));
+        }
+        let mut n = p.accounts.len() + 1;
+        let id = loop {
+            let c = format!("a{n}");
+            if !p.accounts.iter().any(|a| a.id == c) {
+                break c;
+            }
+            n += 1;
+        };
+        self.secrets.set(&account_key(provider_id, &id), api_key)?;
+        p.accounts.push(Account {
+            id: id.clone(),
+            label,
+        });
+        if activate || p.active_account.is_none() {
+            self.secrets.set(&provider_account(provider_id), api_key)?;
+            p.active_account = Some(id.clone());
+        }
+        all[i] = p;
+        self.write(&all)?;
+        Ok(id)
+    }
+
+    /// Pakai kunci akun ini untuk engine.
+    pub fn activate_account(&self, provider_id: &str, account_id: &str) -> Result<(), String> {
+        let (mut all, _) = self.load();
+        let i = Self::find(&all, provider_id)?;
+        let mut p = all[i].clone();
+        self.materialize_legacy(&mut p)?;
+        if !p.accounts.iter().any(|a| a.id == account_id) {
+            return Err(format!("akun {account_id:?} tidak ada"));
+        }
+        let key = self
+            .secrets
+            .get(&account_key(provider_id, account_id))?
+            .ok_or("kunci akun tidak ditemukan di keychain")?;
+        self.secrets.set(&provider_account(provider_id), &key)?;
+        p.active_account = Some(account_id.into());
+        all[i] = p;
+        self.write(&all)
+    }
+
+    pub fn rename_account(
+        &self,
+        provider_id: &str,
+        account_id: &str,
+        label: &str,
+    ) -> Result<(), String> {
+        let label = clean_label(label)?;
+        let (mut all, _) = self.load();
+        let i = Self::find(&all, provider_id)?;
+        let mut p = all[i].clone();
+        self.materialize_legacy(&mut p)?;
+        let a = p
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == account_id)
+            .ok_or_else(|| format!("akun {account_id:?} tidak ada"))?;
+        a.label = label;
+        all[i] = p;
+        self.write(&all)
+    }
+
+    /// Hapus akun. Bila yang dihapus aktif, akun pertama yang tersisa diaktifkan; bila habis, kunci provider dihapus.
+    /// Mengembalikan jumlah akun tersisa.
+    pub fn remove_account(&self, provider_id: &str, account_id: &str) -> Result<usize, String> {
+        let (mut all, _) = self.load();
+        let i = Self::find(&all, provider_id)?;
+        let mut p = all[i].clone();
+        self.materialize_legacy(&mut p)?;
+        let before = p.accounts.len();
+        p.accounts.retain(|a| a.id != account_id);
+        if p.accounts.len() == before {
+            return Err(format!("akun {account_id:?} tidak ada"));
+        }
+        self.secrets.delete(&account_key(provider_id, account_id))?;
+        if p.active_account.as_deref() == Some(account_id) {
+            match p.accounts.first().map(|a| a.id.clone()) {
+                Some(next) => {
+                    let key = self
+                        .secrets
+                        .get(&account_key(provider_id, &next))?
+                        .ok_or("kunci akun berikutnya tidak ditemukan di keychain")?;
+                    self.secrets.set(&provider_account(provider_id), &key)?;
+                    p.active_account = Some(next);
+                }
+                None => {
+                    self.secrets.delete(&provider_account(provider_id))?;
+                    p.active_account = None;
+                }
+            }
+        }
+        let left = p.accounts.len();
+        all[i] = p;
+        self.write(&all)?;
+        Ok(left)
+    }
+
     pub fn delete(&self, id: &str) -> Result<(), String> {
         let (mut all, _) = self.load();
+        let accounts: Vec<Account> = all
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.accounts.clone())
+            .unwrap_or_default();
         all.retain(|p| p.id != id);
         self.write(&all)?;
         self.secrets.delete(&provider_account(id))?;
+        for a in accounts {
+            self.secrets.delete(&account_key(id, &a.id))?;
+        }
         Ok(())
     }
 
@@ -292,14 +557,30 @@ pub fn config_section(providers: &[Provider], with_key: &dyn Fn(&str) -> bool) -
                 .models
                 .iter()
                 .map(|m| {
-                    (
-                        m.id.clone(),
-                        json!({ "name": m.name.clone().unwrap_or_else(|| m.id.clone()) }),
-                    )
+                    let mut e = serde_json::Map::new();
+                    e.insert(
+                        "name".into(),
+                        json!(m.name.clone().unwrap_or_else(|| m.id.clone())),
+                    );
+                    if let Some(ctx) = m.context {
+                        // engine mewajibkan context dan output bersama-sama
+                        let out = m.output.unwrap_or_else(|| ctx.min(16_384));
+                        e.insert("limit".into(), json!({ "context": ctx, "output": out }));
+                    }
+                    if let Some(v) = m.reasoning {
+                        e.insert("reasoning".into(), json!(v));
+                    }
+                    if let Some(v) = m.tool_call {
+                        e.insert("tool_call".into(), json!(v));
+                    }
+                    if let Some(v) = m.attachment {
+                        e.insert("attachment".into(), json!(v));
+                    }
+                    (m.id.clone(), Value::Object(e))
                 })
                 .collect();
             json!({
-                "npm": "@ai-sdk/openai-compatible",
+                "npm": adapter_for(p.protocol.as_deref()),
                 "name": p.name,
                 "options": options,
                 "models": models,
@@ -343,11 +624,13 @@ mod tests {
             name: "Antigravity Tools".into(),
             kind: Kind::Custom,
             base_url: Some("http://localhost:8045/v1".into()),
+            protocol: None,
             models: vec![ProviderModel {
                 id: "m1".into(),
-                name: None,
+                ..Default::default()
             }],
             api_key: None,
+            ..Default::default()
         }
     }
 
@@ -367,8 +650,10 @@ mod tests {
             name: "OpenRouter".into(),
             kind: Kind::Builtin,
             base_url: None,
+            protocol: None,
             models: vec![],
             api_key: None,
+            ..Default::default()
         };
         let v = config_section(&[p], &|_| true);
         assert!(v["openrouter"].get("npm").is_none());
@@ -377,6 +662,42 @@ mod tests {
             v["openrouter"]["options"]["apiKey"],
             "{env:ZANDOR_SECRET_PROVIDER_OPENROUTER}"
         );
+    }
+
+    #[test]
+    fn protocol_picks_the_adapter_and_caps_reach_the_config() {
+        let mut p = sample();
+        p.protocol = Some("anthropic".into());
+        p.models = vec![ProviderModel {
+            id: "m1".into(),
+            name: Some("Model Satu".into()),
+            context: Some(200_000),
+            output: None,
+            reasoning: Some(true),
+            tool_call: Some(false),
+            attachment: Some(true),
+        }];
+        assert!(p.validate().is_ok());
+        let v = config_section(&[p], &|_| true);
+        let e = &v["antigravity"];
+        assert_eq!(e["npm"], "@ai-sdk/anthropic");
+        let m = &e["models"]["m1"];
+        assert_eq!(m["name"], "Model Satu");
+        assert_eq!(m["limit"]["context"], 200_000);
+        assert_eq!(m["limit"]["output"], 16_384);
+        assert_eq!(m["reasoning"], true);
+        assert_eq!(m["tool_call"], false);
+        assert_eq!(m["attachment"], true);
+    }
+
+    #[test]
+    fn unknown_protocol_or_zero_limit_is_rejected() {
+        let mut p = sample();
+        p.protocol = Some("ftp".into());
+        assert!(p.validate().is_err());
+        let mut p = sample();
+        p.models[0].context = Some(0);
+        assert!(p.validate().is_err());
     }
 
     #[test]
@@ -434,6 +755,70 @@ mod tests {
         store.delete("antigravity").unwrap();
         assert!(store.views().unwrap().is_empty());
         assert_eq!(mem.get("provider:antigravity").unwrap(), None);
+    }
+
+    #[test]
+    fn multiple_accounts_keep_keys_apart_and_the_active_key_feeds_the_engine() {
+        let f = tmp("accounts");
+        let mem = Arc::new(MemorySecrets::default());
+        let store = ProviderStore::new(&f, Box::new(Shared(mem.clone())));
+        // akun lama: satu kunci tanpa daftar → tampil sebagai akun "main"
+        store.save(sample(), Some("sk-lama".into())).unwrap();
+        let v = store.views().unwrap();
+        assert_eq!(v[0].accounts.len(), 1);
+        assert!(v[0].accounts[0].active);
+        // tambah akun kedua → akun lama ikut menjadi entri daftar, akun baru aktif
+        let b = store
+            .add_account("antigravity", "Kantor", "sk-kantor", true)
+            .unwrap();
+        let v = store.views().unwrap();
+        assert_eq!(v[0].accounts.len(), 2);
+        assert_eq!(v[0].accounts.iter().find(|a| a.active).unwrap().id, b);
+        assert_eq!(
+            store.api_key("antigravity").unwrap().as_deref(),
+            Some("sk-kantor")
+        );
+        let text = std::fs::read_to_string(&f).unwrap();
+        assert!(!text.contains("sk-lama") && !text.contains("sk-kantor"));
+        // simpan ulang dari UI (tanpa akun) tidak menghapus daftar akun
+        store.save(sample(), None).unwrap();
+        assert_eq!(store.views().unwrap()[0].accounts.len(), 2);
+        // beralih kembali ke akun lama
+        store
+            .activate_account("antigravity", LEGACY_ACCOUNT)
+            .unwrap();
+        assert_eq!(
+            store.api_key("antigravity").unwrap().as_deref(),
+            Some("sk-lama")
+        );
+        store.rename_account("antigravity", &b, "Kerja").unwrap();
+        assert_eq!(
+            store.views().unwrap()[0]
+                .accounts
+                .iter()
+                .find(|a| a.id == b)
+                .unwrap()
+                .label,
+            "Kerja"
+        );
+        // hapus akun aktif → akun lain diaktifkan; hapus yang terakhir → kunci hilang
+        assert_eq!(
+            store.remove_account("antigravity", LEGACY_ACCOUNT).unwrap(),
+            1
+        );
+        assert_eq!(
+            store.api_key("antigravity").unwrap().as_deref(),
+            Some("sk-kantor")
+        );
+        assert_eq!(store.remove_account("antigravity", &b).unwrap(), 0);
+        assert_eq!(store.api_key("antigravity").unwrap(), None);
+        assert!(store.views().unwrap()[0].accounts.is_empty());
+        assert!(store.remove_account("antigravity", "nope").is_err());
+        assert!(store.add_account("tidak-ada", "x", "k", true).is_err());
+        // hapus provider membersihkan semua kunci akun
+        store.add_account("antigravity", "A", "k1", true).unwrap();
+        store.delete("antigravity").unwrap();
+        assert_eq!(mem.get("provider:antigravity#a1").unwrap(), None);
     }
 
     #[test]

@@ -1,35 +1,34 @@
-// Halaman Provider & model (Fase 6): koneksi buatan pengguna (endpoint kustom, lokal, kunci provider katalog),
+// Formulir koneksi provider (Fase 6; kini inline di Pengaturan › Provider dan model, ADR-055): koneksi buatan pengguna (endpoint kustom, lokal, kunci provider katalog),
 // sign-in lewat engine, ping model, dan status yang jujur. Kunci hanya lewat host (keychain), tidak disimpan di state UI.
 import {
   type AuthMethod,
   type CatalogProvider,
+  compactTokens,
   type LocalFound,
+  type ModelMeta,
+  PROVIDER_PROTOCOLS,
   type ProbeKind,
   type ProbeResult,
+  type ProviderProtocol,
   type ProviderView,
-  pingKey,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
   ArrowLeftIcon,
   Badge,
   Button,
-  Dialog,
   Field,
-  IconButton,
   Input,
-  PingIcon,
-  PlusIcon,
+  ModelLogo,
   SearchField,
   Select,
   Spinner,
   Tabs,
-  TrashIcon,
-  useConfirm,
   useToast,
 } from "@zandor/ui";
 import { type FormEvent, useMemo, useState } from "react";
-import { OpenWorkLogin } from "./OpenWorkLogin";
+import { AccountList } from "./AccountList";
+import { OpenWorkSignIn } from "./OpenWorkSignIn";
 import { useEngineState, useProviders, useServices } from "./services";
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -46,144 +45,10 @@ export function pingLabel(t: ReturnType<typeof useI18n>["t"], r: ProbeResult): s
   return `${t(`pv.ping.${kind}` as never)}${r.error ? ` — ${r.error}` : ""}`;
 }
 
-export function ProvidersPage() {
-  const { t } = useI18n();
-  const { nav, providers: store } = useServices();
-  const state = useProviders();
-  const engine = useEngineState();
-  const confirm = useConfirm();
-  const fail = useFail();
-  const [dialog, setDialog] = useState<{ open: boolean; editing: ProviderView | null }>({ open: false, editing: null });
-  const [openwork, setOpenwork] = useState(false);
+// ---------------- tambah/ubah koneksi (inline) ----------------
 
-  const remove = async (p: ProviderView) => {
-    const ok = await confirm({
-      title: t("pv.confirmDeleteTitle", { name: p.name }),
-      description: t("pv.confirmDeleteBody"),
-      confirmLabel: t("pv.delete"),
-      tone: "danger",
-    });
-    if (ok) await store.remove(p.id).catch(fail);
-  };
-
-  return (
-    <main className="providers">
-      <header className="providers__head">
-        <IconButton label={t("pv.back")} icon={<ArrowLeftIcon />} onClick={() => nav.push("/")} />
-        <h1 className="z-h3 providers__title">{t("pv.title")}</h1>
-        {store.openworkAvailable && (
-          <Button variant="outline" onClick={() => setOpenwork(true)}>
-            {t("ow.signIn")}
-          </Button>
-        )}
-        <Button variant="solid" onClick={() => setDialog({ open: true, editing: null })}>
-          <PlusIcon size="sm" /> {t("pv.add")}
-        </Button>
-      </header>
-      {openwork && <OpenWorkLogin onClose={() => setOpenwork(false)} />}
-      <p className="z-small providers__secure">{store.secure ? t("pv.secure.yes") : t("pv.secure.no")}</p>
-      {state.error && (
-        <p className="chat__note chat__note--error z-small" role="alert">
-          {state.error}
-        </p>
-      )}
-      <h2 className="z-h4">{t("pv.list")}</h2>
-      {state.loaded && state.providers.length === 0 && <p className="z-p providers__empty">{t("pv.empty")}</p>}
-      <ul className="providers__list">
-        {state.providers.map((p) => (
-          <ProviderCard
-            key={p.id}
-            provider={p}
-            engineReady={engine.status === "ready"}
-            onEdit={() => setDialog({ open: true, editing: p })}
-            onDelete={() => void remove(p)}
-          />
-        ))}
-      </ul>
-      {dialog.open && (
-        <ConnectionDialog
-          editing={dialog.editing}
-          onClose={() => setDialog({ open: false, editing: null })}
-          onSaved={() => setDialog({ open: false, editing: null })}
-        />
-      )}
-    </main>
-  );
-}
-
-function ProviderCard({
-  provider: p,
-  engineReady,
-  onEdit,
-  onDelete,
-}: {
-  provider: ProviderView;
-  engineReady: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const { t } = useI18n();
-  const { providers: store } = useServices();
-  const state = useProviders();
-  const connected = state.connected.includes(p.id);
-  const canPing = p.kind !== "builtin";
-  return (
-    <li className="pcard" aria-label={p.name}>
-      <div className="pcard__top">
-        <div className="pcard__titles">
-          <h3 className="z-label pcard__name">{p.name}</h3>
-          {p.baseUrl && <p className="z-small pcard__url">{p.baseUrl}</p>}
-        </div>
-        <Badge tone="outline">{t(`pv.kind.${p.kind}` as never)}</Badge>
-        <Badge tone={p.hasKey ? "success" : "neutral"}>{p.hasKey ? t("pv.key.saved") : t("pv.key.none")}</Badge>
-        <Badge tone={!engineReady ? "warning" : connected ? "success" : "warning"}>
-          {!engineReady
-            ? t("pv.status.engineDown")
-            : connected
-              ? t("pv.status.connected")
-              : t("pv.status.notConnected")}
-        </Badge>
-        <Button size="sm" onClick={onEdit}>
-          {t("pv.edit")}
-        </Button>
-        <IconButton label={t("pv.delete")} size="sm" icon={<TrashIcon />} onClick={onDelete} />
-      </div>
-      {canPing && p.models.length > 0 && (
-        <ul className="pcard__models" aria-label={t("pv.models")}>
-          {p.models.map((m) => {
-            const ping = state.pings[pingKey(p.id, m.id)];
-            return (
-              <li key={m.id} className="pmodel">
-                <span className="pmodel__name">{m.name ?? m.id}</span>
-                <span className="pmodel__status z-small" role="status">
-                  {ping?.status === "pending" && (
-                    <>
-                      <Spinner size="sm" /> {t("pv.pinging")}
-                    </>
-                  )}
-                  {ping?.status === "done" && (
-                    <span data-tone={ping.result.ok ? "ok" : "bad"}>{pingLabel(t, ping.result)}</span>
-                  )}
-                </span>
-                <IconButton
-                  label={t("pv.ping", { name: m.name ?? m.id })}
-                  size="sm"
-                  icon={<PingIcon />}
-                  disabled={ping?.status === "pending"}
-                  onClick={() => void store.ping(p.id, m.id)}
-                />
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </li>
-  );
-}
-
-// ---------------- dialog tambah/ubah ----------------
-
-function ConnectionDialog({
+/** Tambah/ubah koneksi sebagai tampilan inline (bukan popup): menggantikan daftar sampai selesai atau kembali. */
+export function ConnectionPanel({
   editing,
   onClose,
   onSaved,
@@ -194,34 +59,54 @@ function ConnectionDialog({
 }) {
   const { t } = useI18n();
   const [tab, setTab] = useState(editing?.kind === "builtin" ? "catalog" : "custom");
-  const done = onSaved;
+  const title = editing ? t("pv.dialog.editTitle") : t("pv.dialog.title");
   return (
-    <Dialog
-      open
-      onOpenChange={(o) => !o && onClose()}
-      title={editing ? t("pv.dialog.editTitle") : t("pv.dialog.title")}
-      footer={<Button onClick={onClose}>{t("ui.close")}</Button>}
-    >
+    <section className="settings__group pconn" aria-label={title}>
+      <div className="pconn__head">
+        <Button onClick={onClose}>
+          <ArrowLeftIcon size="sm" /> {t("ms.back")}
+        </Button>
+        <h2 className="z-h4">{title}</h2>
+      </div>
       {editing && editing.kind !== "builtin" ? (
-        <EndpointForm editing={editing} kind={editing.kind} onSaved={done} />
+        <EndpointForm editing={editing} kind={editing.kind} onSaved={onSaved} />
       ) : (
         <Tabs
-          aria-label={t("pv.dialog.title")}
+          aria-label={title}
           value={tab}
           onValueChange={setTab}
           items={[
             {
               value: "custom",
               label: t("pv.tab.custom"),
-              content: <EndpointForm editing={null} kind="custom" onSaved={done} />,
+              content: <EndpointForm editing={null} kind="custom" onSaved={onSaved} />,
             },
-            { value: "local", label: t("pv.tab.local"), content: <LocalTab onSaved={done} /> },
-            { value: "catalog", label: t("pv.tab.catalog"), content: <CatalogTab editing={editing} onSaved={done} /> },
-            { value: "signin", label: t("pv.tab.signin"), content: <SignInTab onSaved={done} /> },
+            { value: "local", label: t("pv.tab.local"), content: <LocalTab onSaved={onSaved} /> },
+            {
+              value: "catalog",
+              label: t("pv.tab.catalog"),
+              content: <CatalogTab editing={editing} onSaved={onSaved} />,
+            },
+            { value: "signin", label: t("pv.tab.signin"), content: <SignInTab onSaved={onSaved} /> },
           ]}
         />
       )}
-    </Dialog>
+    </section>
+  );
+}
+
+/** Lencana info model hasil fetch; kosong bila endpoint tidak menyediakan metadata. */
+function FetchedCaps({ meta }: { meta: ModelMeta | undefined }) {
+  const { t } = useI18n();
+  if (!meta) return null;
+  return (
+    <span className="pform__caps">
+      {meta.context ? <Badge tone="outline">{t("ms.cap.context", { n: compactTokens(meta.context) })}</Badge> : null}
+      {meta.output ? <Badge tone="outline">{t("ms.cap.output", { n: compactTokens(meta.output) })}</Badge> : null}
+      {meta.reasoning ? <Badge tone="success">{t("ms.cap.reasoning")}</Badge> : null}
+      {meta.toolCall ? <Badge tone="neutral">{t("ms.cap.tools")}</Badge> : null}
+      {meta.attachment ? <Badge tone="neutral">{t("ms.cap.attachment")}</Badge> : null}
+    </span>
   );
 }
 
@@ -241,6 +126,8 @@ function EndpointForm({
   const toast = useToast();
   const fail = useFail();
   const [name, setName] = useState(editing?.name ?? initial?.name ?? "");
+  const [idText, setIdText] = useState("");
+  const [protocol, setProtocol] = useState<ProviderProtocol>(editing?.protocol ?? "openai-compatible");
   const [baseUrl, setBaseUrl] = useState(editing?.baseUrl ?? initial?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState("");
   const [known, setKnown] = useState<string[]>(() => [
@@ -251,6 +138,8 @@ function EndpointForm({
   );
   const [filter, setFilter] = useState("");
   const [manual, setManual] = useState("");
+  // metadata hasil fetch (konteks, keluaran, kemampuan) bila endpoint menyediakannya
+  const [info, setInfo] = useState<Record<string, ModelMeta>>({});
   const [probing, setProbing] = useState(false);
   const [probeMsg, setProbeMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -265,6 +154,7 @@ function EndpointForm({
       return;
     }
     setKnown((prev) => [...new Set([...prev, ...r.models])].sort());
+    setInfo((prev) => ({ ...prev, ...(r.info ?? {}) }));
     setProbeMsg(t("pv.modelsFound", { count: r.models.length }));
   };
   const addManual = () => {
@@ -280,20 +170,30 @@ function EndpointForm({
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  const existing = useMemo(() => new Map(editing?.models.map((m) => [m.id, m]) ?? []), [editing]);
   const shown = known.filter((m) => m.toLowerCase().includes(filter.trim().toLowerCase()));
+  /** Pilih/batalkan semua model yang sedang tampil (hormati filter pencarian). */
+  const setAll = (on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const m of shown) on ? next.add(m) : next.delete(m);
+      return next;
+    });
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const names = new Map(editing?.models.map((m) => [m.id, m.name]) ?? []);
+      // model yang sudah ada mempertahankan nama dan kemampuannya; yang baru hanya id
+      const customId = idText.trim();
       await store.saveEndpoint({
-        ...(editing ? { id: editing.id } : {}),
+        ...(editing ? { id: editing.id } : customId ? { id: customId } : {}),
         name,
         kind,
         baseUrl,
+        protocol,
         ...(apiKey ? { apiKey } : {}),
-        models: [...selected].map((id) => ({ id, ...(names.get(id) ? { name: names.get(id) as string } : {}) })),
+        models: [...selected].map((id) => existing.get(id) ?? { id, ...(info[id] ?? {}) }),
       });
       toast.show({ title: t("pv.saved"), tone: "success" });
       onSaved();
@@ -308,6 +208,29 @@ function EndpointForm({
     <form className="pform" onSubmit={(e) => void submit(e)}>
       <Field label={t("pv.name")}>
         {(c) => <Input {...c} value={name} onChange={(e) => setName(e.target.value)} />}
+      </Field>
+      <Field label={t("pv.id")} description={editing ? t("pv.idLocked") : t("pv.idHelp")}>
+        {(c) => (
+          <Input
+            {...c}
+            value={editing ? editing.id : idText}
+            disabled={!!editing}
+            placeholder="my-provider"
+            pattern="[a-z0-9][a-z0-9_-]*"
+            maxLength={40}
+            onChange={(e) => setIdText(e.target.value.toLowerCase())}
+          />
+        )}
+      </Field>
+      <Field label={t("pv.protocol")} description={t("pv.protocolHelp")}>
+        {(_c) => (
+          <Select
+            aria-label={t("pv.protocol")}
+            value={protocol}
+            onValueChange={(v) => setProtocol(v as ProviderProtocol)}
+            items={PROVIDER_PROTOCOLS.map((p) => ({ value: p, label: t(`pv.protocol.${p}` as never) }))}
+          />
+        )}
       </Field>
       <Field label={t("pv.baseUrl")}>
         {(c) => (
@@ -346,12 +269,26 @@ function EndpointForm({
         />
       )}
       {known.length > 0 && (
+        <div className="pform__row">
+          <Button size="sm" disabled={shown.length === 0} onClick={() => setAll(true)}>
+            {t("ms.selectAll")}
+          </Button>
+          <Button size="sm" disabled={shown.length === 0} onClick={() => setAll(false)}>
+            {t("ms.deselectAll")}
+          </Button>
+        </div>
+      )}
+      {known.length > 0 && (
         <ul className="pform__models" aria-label={t("pv.models")}>
           {shown.map((m) => (
             <li key={m}>
               <label className="pform__check">
                 <input type="checkbox" checked={selected.has(m)} onChange={() => toggle(m)} />
-                <span>{m}</span>
+                <span className="pform__modelname">
+                  <span>{info[m]?.name ?? m}</span>
+                  {info[m]?.name && <span className="z-small pform__modelid">{m}</span>}
+                </span>
+                <FetchedCaps meta={info[m] ?? existing.get(m)} />
               </label>
             </li>
           ))}
@@ -474,12 +411,11 @@ function CatalogTab({ editing, onSaved }: { editing: ProviderView | null; onSave
 
   const list = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const managed = new Set(state.providers.map((p) => p.id));
     return state.catalog
-      .filter((p) => (editing ? p.id === editing.id : !managed.has(p.id)))
+      .filter((p) => !editing || p.id === editing.id)
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.id.includes(q))
       .slice(0, 80);
-  }, [state.catalog, state.providers, query, editing]);
+  }, [state.catalog, query, editing]);
 
   if (engine.status !== "ready") return <p className="z-small">{t("pv.catalog.engineDown")}</p>;
   if (state.catalogStatus === "loading" && state.catalog.length === 0)
@@ -516,21 +452,24 @@ function CatalogTab({ editing, onSaved }: { editing: ProviderView | null; onSave
         {list.map((p) => {
           const simple = isSimpleKeyProvider(p, state.authMethods[p.id]);
           const open = picked === p.id;
+          const saved = state.providers.find((x) => x.id === p.id && x.kind === "builtin");
+          const hasAccounts = (saved?.accounts?.length ?? 0) > 0;
           return (
             <li key={p.id} className="plist__row plist__row--col">
               <div className="plist__line">
                 <span className="plist__name">{p.name}</span>
                 <span className="z-small">{t("pv.catalog.models", { count: p.modelCount })}</span>
                 {p.connected && <Badge tone="success">{t("pv.status.connected")}</Badge>}
-                {simple ? (
+                {simple && !hasAccounts ? (
                   <Button size="sm" onClick={() => setPicked(open ? null : p.id)} aria-expanded={open}>
                     {t("pv.catalog.connect")} {p.name}
                   </Button>
-                ) : (
+                ) : simple ? null : (
                   <span className="z-small">{t("pv.catalog.needsMore")}</span>
                 )}
               </div>
-              {open && simple && (
+              {saved && hasAccounts && <AccountList provider={saved} name={p.name} />}
+              {open && simple && !hasAccounts && (
                 <form
                   className="pform__row"
                   onSubmit={(e) => {
@@ -576,6 +515,7 @@ function SignInTab({ onSaved }: { onSaved: () => void }) {
     instructions?: string;
   } | null>(null);
   const [code, setCode] = useState("");
+  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const entries = useMemo(() => {
@@ -589,7 +529,15 @@ function SignInTab({ onSaved }: { onSaved: () => void }) {
       .filter((e) => e.methods.length > 0);
   }, [state.authMethods, state.catalog]);
 
-  if (engine.status !== "ready") return <p className="z-small">{t("pv.catalog.engineDown")}</p>;
+  if (engine.status !== "ready")
+    return (
+      <div className="pform">
+        <ul className="signin">
+          <OpenWorkSignIn />
+        </ul>
+        <p className="z-small">{t("pv.catalog.engineDown")}</p>
+      </div>
+    );
 
   const finish = async (providerId: string, name: string, method: number, withCode?: string) => {
     try {
@@ -625,6 +573,7 @@ function SignInTab({ onSaved }: { onSaved: () => void }) {
   return (
     <div className="pform">
       <p className="z-small">{t("pv.signin.note")}</p>
+      <p className="z-small mempage__muted">{t("acc.oauthNote")}</p>
       {error && (
         <p className="chat__note chat__note--error z-small" role="alert">
           {error}
@@ -651,21 +600,36 @@ function SignInTab({ onSaved }: { onSaved: () => void }) {
         </form>
       )}
       {entries.length === 0 && state.catalogStatus === "ready" && <p className="z-small">{t("pv.signin.none")}</p>}
-      <ul className="plist">
-        {entries.map((e) => (
-          <li key={e.id} className="plist__row plist__row--col">
-            <span className="plist__name">{e.name}</span>
-            {e.methods.map((m) => (
-              <SignInMethod
-                key={m.index}
-                method={m}
-                disabled={flow !== null}
-                providerName={e.name}
-                onStart={(inputs) => void start(e.id, e.name, m.index, inputs)}
-              />
-            ))}
-          </li>
-        ))}
+      {entries.length > 6 && (
+        <SearchField
+          aria-label={t("pv.catalog.search")}
+          placeholder={t("pv.catalog.search")}
+          value={query}
+          onValueChange={setQuery}
+        />
+      )}
+      <ul className="signin">
+        <OpenWorkSignIn />
+        {entries
+          .filter((e) => !query.trim() || `${e.name} ${e.id}`.toLowerCase().includes(query.trim().toLowerCase()))
+          .map((e) => (
+            <li key={e.id} className="signin__prov" aria-label={e.name}>
+              <div className="signin__head">
+                <ModelLogo providerID={e.id} name={e.name} className="ms__logo" />
+                <span className="z-label signin__name">{e.name}</span>
+                {state.connected.includes(e.id) && <Badge tone="success">{t("pv.status.connected")}</Badge>}
+              </div>
+              {e.methods.map((m) => (
+                <SignInMethod
+                  key={m.index}
+                  method={m}
+                  disabled={flow !== null}
+                  providerName={e.name}
+                  onStart={(inputs) => void start(e.id, e.name, m.index, inputs)}
+                />
+              ))}
+            </li>
+          ))}
       </ul>
     </div>
   );
@@ -693,26 +657,30 @@ function SignInMethod({
     return !w || (w.op === "eq" ? inputs[w.key] === w.value : inputs[w.key] !== w.value);
   });
   return (
-    <div className="pform__row">
-      {visible.map((p) =>
-        p.type === "select" ? (
-          <Select
-            key={p.key}
-            aria-label={p.message}
-            size="sm"
-            items={(p.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
-            value={inputs[p.key] ?? null}
-            onValueChange={(v) => setInputs((prev) => ({ ...prev, [p.key]: v }))}
-          />
-        ) : (
-          <Input
-            key={p.key}
-            aria-label={p.message}
-            placeholder={p.placeholder ?? p.message}
-            value={inputs[p.key] ?? ""}
-            onChange={(e) => setInputs((prev) => ({ ...prev, [p.key]: e.target.value }))}
-          />
-        ),
+    <div className="signin__method">
+      {visible.length > 0 && (
+        <div className="signin__fields">
+          {visible.map((p) => (
+            <div key={p.key} className="signin__field">
+              <span className="z-small signin__flabel">{p.message}</span>
+              {p.type === "select" ? (
+                <Select
+                  aria-label={p.message}
+                  items={(p.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
+                  value={inputs[p.key] ?? null}
+                  onValueChange={(v) => setInputs((prev) => ({ ...prev, [p.key]: v }))}
+                />
+              ) : (
+                <Input
+                  aria-label={p.message}
+                  placeholder={p.placeholder ?? p.message}
+                  value={inputs[p.key] ?? ""}
+                  onChange={(e) => setInputs((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       )}
       <Button size="sm" variant="solid" disabled={disabled} onClick={() => onStart(inputs)}>
         {t("pv.signin.start")} · {method.label}

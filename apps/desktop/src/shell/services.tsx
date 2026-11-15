@@ -27,6 +27,8 @@ import {
   type MemoryHost,
   type MemoryState,
   MemoryStore,
+  ModelPrefs,
+  type ModelPrefsState,
   NavigationHistory,
   type OpenVsxHost,
   ProjectStore,
@@ -42,6 +44,7 @@ import {
   type TerminalState,
   TerminalStore,
 } from "@zandor/core";
+import { type LogoOverrides, ModelLogoOverrides } from "@zandor/ui";
 import {
   createContext,
   type ReactNode,
@@ -58,7 +61,7 @@ import { loadWindowApi, type WindowApi } from "./window-api";
 
 export const TOOL_IDS = ["terminal", "git", "changes", "files", "browser", "info", "session", "log"] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
-export const PANEL_IDS = ["sidebar", "chat", "docs", "tools"] as const;
+export const PANEL_IDS = ["sidebar", "chat", "docs", "tools", "rail"] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
 
 export type PanelState = {
@@ -77,7 +80,7 @@ export type PanelActions = {
 /** Status panel yang bisa diamati; aksinya dipasang ShellLayout selama terpasang. */
 export class PanelBridge {
   private snap: PanelState = {
-    collapsed: { sidebar: false, chat: false, docs: false, tools: false },
+    collapsed: { sidebar: false, chat: false, docs: false, tools: false, rail: false },
     activeTool: "terminal",
     ready: false,
   };
@@ -124,6 +127,7 @@ export type Services = {
   projects: ProjectStore;
   chat: ChatStore;
   providers: ProviderStore;
+  modelPrefs: ModelPrefs;
   memory: MemoryStore;
   appearance: AppearanceStore;
   automation: AutomationStore;
@@ -156,7 +160,25 @@ export function createServices(options: {
   /** Log aktivitas bersama; dibuat di main.tsx supaya sink logger sudah terpasang sejak awal. */
   activity: ActivityLog;
 }): Services {
+  const lsPrefs = {
+    get: (k: string) => {
+      try {
+        return localStorage.getItem(k);
+      } catch {
+        return null;
+      }
+    },
+    set: (k: string, v: string) => {
+      try {
+        localStorage.setItem(k, v);
+      } catch {
+        // sengaja diabaikan: hanya kenyamanan
+      }
+    },
+  };
+  const modelPrefs = new ModelPrefs(lsPrefs, (m) => options.logger.warn(m));
   const chat = new ChatStore({
+    defaultModel: () => modelPrefs.state().defaultChat,
     prefs: {
       get: (k) => {
         try {
@@ -177,6 +199,7 @@ export function createServices(options: {
     onEvent: (ev) => options.activity.fromEngineEvent(ev),
   });
   return {
+    modelPrefs,
     settings: new SettingsStore({
       storage: options.storage,
       onInvalid: (errors) => options.logger.warn("pengaturan tersimpan tidak valid", { errors }),
@@ -252,7 +275,11 @@ export function createServices(options: {
 const ServicesContext = createContext<Services | null>(null);
 
 export function ServicesProvider({ services, children }: { services: Services; children: ReactNode }) {
-  return <ServicesContext.Provider value={services}>{children}</ServicesContext.Provider>;
+  return (
+    <ServicesContext.Provider value={services}>
+      <ModelLogoBridge>{children}</ModelLogoBridge>
+    </ServicesContext.Provider>
+  );
 }
 
 export function useServices(): Services {
@@ -342,6 +369,28 @@ export function useChat(): ChatStoreState {
     () => chat.state(),
     () => chat.state(),
   );
+}
+
+export function useModelPrefs(): ModelPrefsState {
+  const { modelPrefs } = useServices();
+  return useSyncExternalStore(
+    (cb) => modelPrefs.subscribe(cb),
+    () => modelPrefs.state(),
+    () => modelPrefs.state(),
+  );
+}
+
+/** Menyalurkan logo kustom (Pengaturan → Provider & model) ke semua `ModelLogo` di bawahnya. */
+export function ModelLogoBridge({ children }: { children: ReactNode }) {
+  const prefs = useModelPrefs();
+  const resolve = useCallback<LogoOverrides>(
+    (providerID, modelID) =>
+      (providerID && modelID ? prefs.modelLogos[`${providerID}/${modelID}`] : undefined) ??
+      (providerID ? prefs.providerLogos[providerID] : undefined) ??
+      null,
+    [prefs],
+  );
+  return <ModelLogoOverrides resolve={resolve}>{children}</ModelLogoOverrides>;
 }
 
 export function useProviders(): ProvidersState {

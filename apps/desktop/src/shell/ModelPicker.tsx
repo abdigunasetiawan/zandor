@@ -19,7 +19,7 @@ import {
 import { type ReactNode, useMemo, useRef, useState } from "react";
 import { ModelPingTab } from "./ModelPingTab";
 import { ModelRow } from "./ModelRow";
-import { useChat, useProviders, useServices } from "./services";
+import { useChat, useModelPrefs, useProviders, useServices } from "./services";
 
 const matches = (m: ModelOption, q: string) =>
   !q ||
@@ -60,6 +60,7 @@ export function ModelPicker() {
   const { chat, nav, providers: store } = useServices();
   const s = useChat();
   const pv = useProviders();
+  const prefs = useModelPrefs();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("models");
   const [query, setQuery] = useState("");
@@ -69,17 +70,27 @@ export function ModelPicker() {
 
   const current = s.models.find((m) => s.model && m.providerID === s.model.providerID && m.modelID === s.model.modelID);
   const q = query.trim().toLowerCase();
-  const find = (k: string) => s.models.find((m) => modelKey(m) === k);
+  // model yang disembunyikan di Pengaturan tidak tampil, kecuali yang sedang dipakai
+  const visible = useMemo(
+    () =>
+      s.models.filter(
+        (m) =>
+          !prefs.hidden.includes(modelKey(m)) ||
+          (s.model?.providerID === m.providerID && s.model?.modelID === m.modelID),
+      ),
+    [s.models, s.model, prefs.hidden],
+  );
+  const find = (k: string) => visible.find((m) => modelKey(m) === k);
 
   const groups = useMemo(() => {
     const byProvider = new Map<string, { name: string; models: ModelOption[] }>();
-    for (const m of s.models) {
+    for (const m of visible) {
       const g = byProvider.get(m.providerID) ?? { name: m.providerName, models: [] };
       g.models.push(m);
       byProvider.set(m.providerID, g);
     }
     return [...byProvider.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
-  }, [s.models]);
+  }, [visible]);
   const recent = s.recent.map(find).filter((m): m is ModelOption => !!m && matches(m, q));
   const pinned = s.pinned.map(find).filter((m): m is ModelOption => !!m && matches(m, q));
   const shown = groups
@@ -270,7 +281,7 @@ export function ModelPicker() {
             size="sm"
             onClick={() => {
               setOpen(false);
-              nav.push("/providers");
+              nav.push("/settings/models");
             }}
           >
             {t("mp.manage")}

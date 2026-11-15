@@ -102,7 +102,92 @@ fn provider_store(app: &tauri::AppHandle) -> Result<providers::ProviderStore, St
     ))
 }
 
-// ---------- Masuk dengan OpenWork (Fase 12) ----------
+#[tauri::command]
+fn providers_list(app: tauri::AppHandle) -> Result<Vec<providers::ProviderView>, String> {
+    provider_store(&app)?.views()
+}
+
+/// Simpan provider. `api_key` kosong/None mempertahankan kunci lama. Engine dimulai ulang agar konfigurasi terbaca.
+#[tauri::command]
+fn provider_save(
+    app: tauri::AppHandle,
+    manager: State<EngineManager>,
+    provider: providers::Provider,
+    api_key: Option<String>,
+) -> Result<(), String> {
+    let key = api_key.filter(|k| !k.is_empty());
+    provider_store(&app)?.save(provider, key)?;
+    manager.restart();
+    Ok(())
+}
+
+#[tauri::command]
+fn provider_delete(
+    app: tauri::AppHandle,
+    manager: State<EngineManager>,
+    id: String,
+) -> Result<(), String> {
+    provider_store(&app)?.delete(&id)?;
+    manager.restart();
+    Ok(())
+}
+
+// ---------- Akun ganda per provider (ADR-056) ----------
+
+#[tauri::command]
+fn provider_account_add(
+    app: tauri::AppHandle,
+    manager: State<EngineManager>,
+    provider_id: String,
+    label: String,
+    api_key: String,
+    activate: Option<bool>,
+) -> Result<String, String> {
+    let id = provider_store(&app)?.add_account(
+        &provider_id,
+        &label,
+        &api_key,
+        activate.unwrap_or(true),
+    )?;
+    manager.restart();
+    Ok(id)
+}
+
+#[tauri::command]
+fn provider_account_activate(
+    app: tauri::AppHandle,
+    manager: State<EngineManager>,
+    provider_id: String,
+    account_id: String,
+) -> Result<(), String> {
+    provider_store(&app)?.activate_account(&provider_id, &account_id)?;
+    manager.restart();
+    Ok(())
+}
+
+#[tauri::command]
+fn provider_account_rename(
+    app: tauri::AppHandle,
+    provider_id: String,
+    account_id: String,
+    label: String,
+) -> Result<(), String> {
+    provider_store(&app)?.rename_account(&provider_id, &account_id, &label)
+}
+
+#[tauri::command]
+fn provider_account_remove(
+    app: tauri::AppHandle,
+    manager: State<EngineManager>,
+    provider_id: String,
+    account_id: String,
+) -> Result<usize, String> {
+    let left = provider_store(&app)?.remove_account(&provider_id, &account_id)?;
+    manager.restart();
+    Ok(left)
+}
+
+// ---------- OpenWork (device-code → kunci gateway → akun pada provider "openwork"; ADR-040, ADR-056) ----------
 
 /// Alur device-code yang sedang berjalan (token/kode perangkat tidak pernah keluar dari Rust).
 #[derive(Default)]
@@ -136,8 +221,8 @@ fn openwork_cancel(flow: State<'_, OpenWorkFlow>) {
     }
 }
 
-/// Satu kali tanya. Saat disetujui: tukar token → kunci gateway → simpan provider "openwork" (kunci di keychain) →
-/// mulai ulang engine. UI hanya menerima ringkasan akun (tanpa token/kunci).
+/// Satu kali tanya. Saat disetujui: tukar token → kunci gateway → tambahkan sebagai akun pada provider "openwork"
+/// (kunci di keychain) → mulai ulang engine. UI hanya menerima ringkasan akun (tanpa token/kunci).
 #[tauri::command]
 async fn openwork_poll(
     app: tauri::AppHandle,
@@ -182,6 +267,8 @@ async fn openwork_poll(
     Ok(out)
 }
 
+const OPENWORK_ID: &str = "openwork";
+
 fn connect_openwork(
     ep: &openwork::Endpoints,
     store: &providers::ProviderStore,
@@ -204,61 +291,42 @@ fn connect_openwork(
     if ids.is_empty() {
         return Err("Tidak ada model yang tersedia untuk akun ini.".into());
     }
-    let provider = providers::Provider {
-        id: "openwork".into(),
-        name: "OpenWork Cloud".into(),
-        kind: providers::Kind::Custom,
-        base_url: Some(ep.inference.clone()),
-        models: ids
-            .iter()
-            .map(|id| providers::ProviderModel {
-                id: id.clone(),
-                name: None,
-            })
-            .collect(),
-        api_key: None,
-    };
-    store.save(provider, Some(key))?;
     let account = match (gw.email.is_empty(), gw.org_name) {
         (false, Some(org)) => format!("{} · {org}", gw.email),
         (false, None) => gw.email,
         (true, Some(org)) => org,
         (true, None) => "Akun OpenWork".into(),
     };
+    // Provider dibuat sekali; model diperbarui, akun yang sudah ada dipertahankan (save menjaga `accounts`).
+    let existing = store.load().0.into_iter().find(|p| p.id == OPENWORK_ID);
+    let models = ids
+        .iter()
+        .map(|id| {
+            existing
+                .as_ref()
+                .and_then(|e| e.models.iter().find(|m| &m.id == id).cloned())
+                .unwrap_or_else(|| providers::ProviderModel {
+                    id: id.clone(),
+                    ..Default::default()
+                })
+        })
+        .collect();
+    store.save(
+        providers::Provider {
+            id: OPENWORK_ID.into(),
+            name: "OpenWork Cloud".into(),
+            kind: providers::Kind::Custom,
+            base_url: Some(ep.inference.clone()),
+            models,
+            ..Default::default()
+        },
+        None,
+    )?;
+    store.add_account(OPENWORK_ID, &account, &key, true)?;
     Ok(OpenWorkPoll::Connected {
         account,
         models: ids.len(),
     })
-}
-
-#[tauri::command]
-fn providers_list(app: tauri::AppHandle) -> Result<Vec<providers::ProviderView>, String> {
-    provider_store(&app)?.views()
-}
-
-/// Simpan provider. `api_key` kosong/None mempertahankan kunci lama. Engine dimulai ulang agar konfigurasi terbaca.
-#[tauri::command]
-fn provider_save(
-    app: tauri::AppHandle,
-    manager: State<EngineManager>,
-    provider: providers::Provider,
-    api_key: Option<String>,
-) -> Result<(), String> {
-    let key = api_key.filter(|k| !k.is_empty());
-    provider_store(&app)?.save(provider, key)?;
-    manager.restart();
-    Ok(())
-}
-
-#[tauri::command]
-fn provider_delete(
-    app: tauri::AppHandle,
-    manager: State<EngineManager>,
-    id: String,
-) -> Result<(), String> {
-    provider_store(&app)?.delete(&id)?;
-    manager.restart();
-    Ok(())
 }
 
 /// Ambil daftar model dari endpoint. Kunci: yang diketik pengguna, atau yang tersimpan untuk `provider_id`.
@@ -825,12 +893,16 @@ pub fn run() {
             chat_folder_remove_if_empty,
             registry_load,
             registry_save,
-            openwork_start,
-            openwork_poll,
-            openwork_cancel,
             providers_list,
             provider_save,
             provider_delete,
+            provider_account_add,
+            provider_account_activate,
+            provider_account_rename,
+            provider_account_remove,
+            openwork_start,
+            openwork_poll,
+            openwork_cancel,
             provider_probe,
             provider_ping,
             providers_detect_local,

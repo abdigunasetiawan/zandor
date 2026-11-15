@@ -162,7 +162,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Model peran (memori, image generator).
 - Manual "agent bisa mengonfigurasi Zandor": skema pengaturan + skill bawaan.
 
-**Status: Fase 11 sebagian selesai di lokal (14-11-2026)** — edit file di Monaco, DOCX/XLSX/PPTX/ipynb, saran prompt dinamis, automasi terjadwal + notifikasi. **Belum:** input suara, remote engine, model peran, manual konfigurasi agent, save-as tambahan (alasan di ADR-039).
+**Status: Fase 11 sebagian selesai di lokal (14-11-2026)** — edit file di Monaco, DOCX/XLSX/PPTX/ipynb, saran prompt dinamis, automasi terjadwal + notifikasi. Input suara (dikte), notifikasi, dan save-as pesan menyusul (ADR-045, ADR-050). **Belum:** remote engine, model peran, skill bawaan "agent mengonfigurasi Zandor".
 
 ## Fase 12 — Rilis Publik (Windows)
 

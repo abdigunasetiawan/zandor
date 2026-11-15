@@ -39,9 +39,41 @@ sungguhan belum diuji (tak ada Ollama/LM Studio di mesin pengembang), macOS/Linu
 - Manual: tambah endpoint (mis. `http://localhost:8045/v1`) → Ambil daftar model → Simpan → Uji model → buka
   Windows "Credential Manager" dan lihat entri `id.web.zandor`; pastikan `providers.json` tidak berisi kunci.
 
-## Masuk dengan OpenWork (Fase 12, ADR-040)
+## Tambah koneksi (ADR-055)
 
-Tombol **Masuk dengan OpenWork** di halaman Provider (aplikasi desktop): OAuth device flow → kunci AI Gateway di keychain →
-provider `openwork` dengan model dari gateway. Token/kunci tidak pernah sampai ke UI. Tes: `cargo test --lib openwork`
-(+ `-- --ignored` untuk kode perangkat dari server nyata), `OpenWorkLogin.test.tsx`, `openwork.test.ts`. **Belum diuji:**
-login penuh dengan akun sungguhan (butuh persetujuan manusia); akun tanpa kredensial gateway dilaporkan sebagai galat jelas.
+Tambah/ubah koneksi adalah **tampilan inline** (bukan popup) di Pengaturan › Provider dan model dan di halaman Provider:
+tab Endpoint kustom, Lokal, Katalog provider, dan Masuk (OAuth lewat engine; plus kartu OpenWork, lihat di bawah).
+
+## Akun ganda dan OpenWork (ADR-056)
+
+- Satu provider bisa punya beberapa akun/kunci (tab Katalog untuk provider berkunci; kartu OpenWork). Daftar akun:
+  **Aktif** / **Gunakan** / ganti nama / hapus (konfirmasi) / **Tambah akun**. Kunci per akun di keychain
+  (`provider:<id>#<akun>`); kunci akun aktif disalin ke `provider:<id>` yang dipakai engine; beralih akun memulai ulang
+  engine. `providers.json` hanya menyimpan id+label akun (tanpa kunci).
+- **OpenWork** = kartu di tab Sign-in (device-code inline, bukan popup). Tiap login menambah satu akun pada provider
+  `openwork` (endpoint kustom, kunci gateway `ow_…`, model dari gateway). Rust: `openwork.rs`, perintah `openwork_*`.
+  Hanya di aplikasi desktop (build web menjelaskannya).
+- **Batasan**: OAuth lewat engine tetap satu login per provider (engine menyimpan satu kredensial); untuk banyak akun
+  pakai kunci API atau OpenWork. Hanya satu akun aktif sekaligus (tanpa failover otomatis).
+- Tes: cargo `multiple_accounts_keep_keys_apart…` + tes `openwork`; vitest `accounts.test.ts`, `openwork.test.ts`,
+  `OpenWorkSignIn.test.tsx`; e2e "akun ganda pada provider katalog" dan "tab Sign-in menampilkan OpenWork".
+  Belum diuji ke OpenWork sungguhan (butuh akun) — hanya kode perangkat via tes `--ignored`.
+
+## Pengaturan › Provider dan model (ADR-054)
+
+- Model bawaan chat dan generate gambar (gambar: preferensi saja, fiturnya belum ada).
+- Provider: id, nama tampilan, protokol API, base URL, kunci (keychain), ambil model; edit/hapus.
+- Pengelola model: pencarian, kelompokkan (tanpa/keluarga/kemampuan), pilih semua/batalkan semua, saklar tampil di
+  pemilih composer, lencana kemampuan (konteks, keluaran, reasoning, alat, lampiran, varian), ubah kemampuan model kustom.
+- Logo provider/model: otomatis dari nama, atau unggah sendiri (dikecilkan, disimpan lokal).
+- Test: `packages/core/src/models/prefs.test.ts`, `providers.test.ts`, `chat.test.ts`, `ModelLogo.test.tsx`,
+  `logo-file.test.ts`, cargo `providers::tests`, e2e `model-settings.spec.ts`.
+
+## Info model hasil fetch
+
+`GET {base}/models` standar hanya memberi `id`. Bila endpoint menambah metadata (OpenRouter: `context_length`,
+`top_provider.max_completion_tokens`, `supported_parameters`, `architecture.input_modalities`; LM Studio:
+`max_context_length`, `capabilities`, `type`; vLLM: `max_model_len`), Zandor menampilkannya (nama, konteks, keluaran,
+reasoning, alat, lampiran) dan menyimpannya bersama koneksi. Ollama (`/v1/models`) tidak memberi metadata; isi manual.
+Tes: `model-info.test.ts`, cargo `netprobe::model_info_reads_openrouter_and_lmstudio_fields`, e2e `providers.spec.ts`.
+Pilih semua / Batalkan semua tersedia di daftar hasil fetch (mengikuti filter pencarian).

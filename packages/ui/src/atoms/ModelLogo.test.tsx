@@ -6,6 +6,16 @@ import { ModelLogo, modelLogoKey } from "./ModelLogo";
 
 afterEach(cleanup);
 
+describe("deteksi dari nama tampilan", () => {
+  test("nama provider kustom dikenali; ollama bukan llama", () => {
+    expect(modelLogoKey("my-ollama", undefined, "My Ollama")).toBe("ollama");
+    expect(modelLogoKey("x", undefined, "LM Studio lokal")).toBe("lmstudio");
+    expect(modelLogoKey("x", undefined, "Qwen Gateway")).toBe("qwen");
+    expect(modelLogoKey("x", "llama3.2")).toBe("meta");
+    expect(modelLogoKey("x", undefined, "Server Saya")).toBeNull();
+  });
+});
+
 describe("modelLogoKey", () => {
   test("keluarga model didahulukan dari provider", () => {
     expect(modelLogoKey("antigravity", "gemini-3.8-flash")).toBe("gemini");

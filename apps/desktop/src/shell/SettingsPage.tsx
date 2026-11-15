@@ -6,23 +6,44 @@ import type { MessageKey } from "@zandor/i18n";
 import { useI18n } from "@zandor/i18n/react";
 import {
   ArrowLeftIcon,
+  BellIcon,
+  BrainIcon,
   Button,
+  ChatIcon,
+  DatabaseIcon,
+  EyeIcon,
   IconButton,
+  LayoutIcon,
+  MoreIcon,
   SearchField,
   Select,
   SettingsIcon,
   Switch,
   useConfirm,
   useToast,
+  WrenchIcon,
 } from "@zandor/ui";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { ModelSettings } from "./ModelSettings";
 import { NotificationExtras } from "./NotificationSettings";
 import { useServices, useSettings } from "./services";
 
 const GROUPS = ["general", "appearance", "chat", "notifications", "tools", "layout"] as const;
 type Group = (typeof GROUPS)[number];
-const EXTRA_SECTIONS = ["more", "data"] as const;
+const EXTRA_SECTIONS = ["models", "more", "data"] as const;
 type Section = Group | (typeof EXTRA_SECTIONS)[number];
+
+const SECTION_ICONS: Record<Section, ReactNode> = {
+  general: <SettingsIcon size="sm" />,
+  appearance: <EyeIcon size="sm" />,
+  chat: <ChatIcon size="sm" />,
+  notifications: <BellIcon size="sm" />,
+  tools: <WrenchIcon size="sm" />,
+  layout: <LayoutIcon size="sm" />,
+  models: <BrainIcon size="sm" />,
+  more: <MoreIcon size="sm" />,
+  data: <DatabaseIcon size="sm" />,
+};
 
 function SettingControl({
   settingKey,
@@ -74,14 +95,17 @@ function download(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function SettingsPage() {
+export function SettingsPage({ initial = null }: { initial?: "models" | null }) {
   const { t } = useI18n();
   const { settings, nav, panels } = useServices();
   const all: Settings = useSettings();
   const confirm = useConfirm();
   const toast = useToast();
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState<Section>("general");
+  const [active, setActive] = useState<Section>(initial ?? "general");
+  useEffect(() => {
+    if (initial) setActive(initial);
+  }, [initial]);
   const importRef = useRef<HTMLInputElement>(null);
   const q = query.trim().toLowerCase();
 
@@ -145,13 +169,13 @@ export function SettingsPage() {
 
   const linkCards: Array<{ path: string; title: MessageKey; body: MessageKey }> = [
     { path: "/appearance", title: "settings.more.appearance", body: "settings.more.appearanceBody" },
-    { path: "/providers", title: "settings.more.providers", body: "settings.more.providersBody" },
     { path: "/memory", title: "settings.more.memory", body: "settings.more.memoryBody" },
     { path: "/automation", title: "settings.more.automation", body: "settings.more.automationBody" },
   ];
 
   const navItems: Array<{ id: Section; label: string }> = [
     ...GROUPS.map((g) => ({ id: g as Section, label: t(`settings.${g}` as MessageKey) })),
+    { id: "models", label: t("settings.models") },
     { id: "more", label: t("settings.more") },
     { id: "data", label: t("settings.data") },
   ];
@@ -216,13 +240,14 @@ export function SettingsPage() {
                 aria-current={!q && active === n.id ? "true" : undefined}
                 onClick={() => goto(n.id)}
               >
-                {n.label}
+                {SECTION_ICONS[n.id]}
+                <span>{n.label}</span>
               </button>
             ))}
           </nav>
         </aside>
         <div className="settings__scroll">
-          <div className="settings__content">
+          <div className="settings__content" data-wide={!q && active === "models" ? "" : undefined}>
             <p className="z-small settings__note">{t("settings.schemaNote")}</p>
 
             {GROUPS.map((group) => {
@@ -268,6 +293,13 @@ export function SettingsPage() {
                 </section>
               );
             })}
+
+            {show("models") &&
+              matchesText(t("settings.models"), t("ms.defaults"), t("ms.providers"), t("ms.defaultChat")) && (
+                <div id="settings-models">
+                  <ModelSettings />
+                </div>
+              )}
 
             {show("more") && matchesText(t("settings.more"), ...linkCards.map((c) => t(c.title))) && (
               <section className="settings__group" id="settings-more" aria-labelledby="settings-h-more">

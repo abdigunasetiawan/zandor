@@ -13,6 +13,8 @@ export type MenuEntry =
       label: string;
       onSelect: () => void;
       shortcut?: string;
+      /** Ikon di depan label (elemen ikon dari `@zandor/ui`, ukuran `sm`). */
+      icon?: ReactNode;
       disabled?: boolean;
       danger?: boolean;
     }
@@ -61,6 +63,11 @@ function Entries({ parts, entries }: { parts: MenuParts; entries: MenuEntry[] })
         disabled={e.disabled}
         className={cx("z-item", e.danger && "z-item--danger")}
       >
+        {e.icon && (
+          <span className="z-item__icon" aria-hidden="true">
+            {e.icon}
+          </span>
+        )}
         <span className="z-item__label">{e.label}</span>
         {e.shortcut && <Kbd keys={e.shortcut} className="z-item__shortcut" />}
       </Item>

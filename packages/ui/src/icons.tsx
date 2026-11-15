@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  Bell,
   Bookmark,
   Brain,
   Check,
@@ -16,10 +17,12 @@ import {
   Clock,
   Code,
   Copy,
+  Database,
   Download,
   Ellipsis,
   ExternalLink,
   Eye,
+  EyeOff,
   File,
   FileDiff,
   FilePlus,
@@ -34,6 +37,7 @@ import {
   Image,
   ImageDown,
   Info,
+  LayoutPanelLeft,
   Link2,
   List,
   type LucideIcon,
@@ -42,6 +46,7 @@ import {
   Minus,
   PanelLeft,
   PanelRight,
+  PanelRightDashed,
   Paperclip,
   Pencil,
   Pin,
@@ -55,7 +60,9 @@ import {
   Terminal,
   Trash2,
   Undo2,
+  Upload,
   WrapText,
+  Wrench,
   X,
   Zap,
 } from "lucide-react";
@@ -132,6 +139,11 @@ export const EyeIcon = icon(Eye, "EyeIcon");
 export const WrapIcon = icon(WrapText, "WrapIcon");
 export const ArrowUpIcon = icon(ArrowUp, "ArrowUpIcon");
 export const ShieldIcon = icon(Shield, "ShieldIcon");
+export const PanelRailIcon = icon(PanelRightDashed, "PanelRailIcon");
+export const BellIcon = icon(Bell, "BellIcon");
+export const DatabaseIcon = icon(Database, "DatabaseIcon");
+export const LayoutIcon = icon(LayoutPanelLeft, "LayoutIcon");
+export const WrenchIcon = icon(Wrench, "WrenchIcon");
 export const StopIcon = icon(Square, "StopIcon");
 export const MicIcon = icon(Mic, "MicIcon");
 export const LinkIcon = icon(Link2, "LinkIcon");
@@ -139,3 +151,5 @@ export const BookmarkIcon = icon(Bookmark, "BookmarkIcon");
 export const ImageDownIcon = icon(ImageDown, "ImageDownIcon");
 export const FileTextIcon = icon(FileText, "FileTextIcon");
 export const ImageIcon = icon(Image, "ImageIcon");
+export const EyeOffIcon = icon(EyeOff, "EyeOffIcon");
+export const UploadIcon = icon(Upload, "UploadIcon");

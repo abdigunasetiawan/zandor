@@ -12,9 +12,10 @@ Buka lewat ikon roda gigi di footer sidebar, palet perintah ("Kelola provider & 
   (kunci ditolak, rate limit, server bermasalah, tidak terjangkau).
 - **Keamanan:** kunci disimpan di keychain sistem (Windows Credential Manager), bukan di berkas atau konfigurasi.
 
-## Masuk dengan OpenWork
+## Tambah koneksi
 
-Di aplikasi desktop, klik **Masuk dengan OpenWork** di halaman Provider. Zandor menampilkan **kode perangkat** dan membuka
-halaman OpenWork; masuk di browser, pastikan kodenya sama, lalu setujui. Setelah itu provider **OpenWork Cloud** dan model
-dari AI Gateway akun Anda ditambahkan otomatis. Token dan kunci disimpan di keychain dan tidak ditampilkan. Bila organisasi
-Anda belum punya kredensial AI Gateway, muncul pesan galat (hubungi admin organisasi).
+Di **Pengaturan › Provider dan model**, klik **Tambah koneksi**: formulir tampil di halaman yang sama (bukan popup) dengan tab Endpoint kustom (id, nama, protokol API, base URL, kunci, ambil model), Lokal (Ollama/LM Studio), Katalog provider, dan Masuk. Semua provider diperlakukan sama.
+
+**Beberapa akun**: di tab Katalog, provider yang sudah berkunci menampilkan daftar **Akun** — **Tambah akun** (nama + kunci), **Gunakan** untuk mengganti akun aktif, ganti nama, atau hapus. Di tab **Sign-in** ada kartu **OpenWork Cloud**: masuk lewat kode perangkat (setiap login menambah satu akun). Login OAuth lewat engine hanya satu per provider.
+
+Setelah **Ambil daftar model**, tiap model menampilkan info yang disediakan server (konteks, keluaran, reasoning, alat, lampiran) bila ada; gunakan **Pilih semua / Batalkan semua** untuk memilih sekaligus. Info yang tidak disediakan server bisa diisi lewat **Kelola model › Ubah model**. Di pemilih model, **Kelola provider…** membuka Pengaturan › Provider dan model.

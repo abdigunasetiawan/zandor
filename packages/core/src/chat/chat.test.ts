@@ -251,6 +251,24 @@ describe("ChatStore", () => {
     expect(c.store.state().recent).toEqual([]);
   });
 
+  test("model bawaan pengguna dipakai saat belum ada pilihan, mengalahkan pilihan lama, dan diabaikan bila tak ada", async () => {
+    const mk = async (def: { providerID: string; modelID: string } | null, prefs = prefsOf()) => {
+      const engine = createFakeEngine();
+      engine.models = [
+        { providerID: "p", providerName: "P", modelID: "m1", name: "M1", variants: [] },
+        { providerID: "p", providerName: "P", modelID: "m2", name: "M2", variants: [] },
+      ];
+      const store = new ChatStore({ prefs, defaultModel: () => def });
+      store.setApi(engine);
+      await flush();
+      return store;
+    };
+    expect((await mk({ providerID: "p", modelID: "m2" })).state().model?.modelID).toBe("m2");
+    const old = prefsOf({ "zandor.model": JSON.stringify({ providerID: "p", modelID: "m1" }) });
+    expect((await mk({ providerID: "p", modelID: "m2" }, old)).state().model?.modelID).toBe("m2");
+    expect((await mk({ providerID: "x", modelID: "hilang" })).state().model?.modelID).toBe("m1");
+  });
+
   test("model: bawaan = pertama; pilihan tersimpan dan dipulihkan; model hilang → kembali ke bawaan", async () => {
     const a = await setup();
     expect(a.store.state().model).toEqual({ providerID: "p", modelID: "m1" });

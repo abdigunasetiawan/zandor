@@ -98,7 +98,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
           void projects.createSession(sel ?? CHAT_KEY).catch((e) => logger.error("chat baru gagal", { error: e }));
         },
       },
-      { id: "app.providers", titleKey: "cmd.providers", group: "app", run: () => nav.push("/providers") },
+      { id: "app.providers", titleKey: "cmd.providers", group: "app", run: () => nav.push("/settings/models") },
       { id: "app.memory", titleKey: "cmd.memory", group: "app", run: () => nav.push("/memory") },
       { id: "app.automation", titleKey: "cmd.automation", group: "app", run: () => nav.push("/automation") },
       { id: "app.appearance", titleKey: "cmd.appearance", group: "app", run: () => nav.push("/appearance") },

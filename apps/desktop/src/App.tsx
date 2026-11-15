@@ -18,7 +18,6 @@ import { AutomationPage } from "./shell/AutomationPage";
 import { CommandCenter } from "./shell/CommandCenter";
 import { MemoryPage } from "./shell/MemoryPage";
 import { NotificationDriver } from "./shell/NotificationDriver";
-import { ProvidersPage } from "./shell/ProvidersPage";
 import { SettingsPage } from "./shell/SettingsPage";
 import { ShellLayout } from "./shell/ShellLayout";
 import {
@@ -33,8 +32,7 @@ import { TitleBar } from "./shell/TitleBar";
 
 export type Route =
   | { page: "home" }
-  | { page: "settings" }
-  | { page: "providers" }
+  | { page: "settings"; section: "models" | null }
   | { page: "memory" }
   | { page: "appearance" }
   | { page: "automation" }
@@ -42,8 +40,9 @@ export type Route =
 
 /** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
 export function parseRoute(path: string): Route {
-  if (/^\/settings\/?$/.test(path)) return { page: "settings" };
-  if (/^\/providers\/?$/.test(path)) return { page: "providers" };
+  if (/^\/settings\/?$/.test(path)) return { page: "settings", section: null };
+  // Provider & model ada di Pengaturan (kategori "Provider dan model"); /providers dipertahankan sebagai alias.
+  if (/^\/(settings\/models|providers)\/?$/.test(path)) return { page: "settings", section: "models" };
   if (/^\/memory\/?$/.test(path)) return { page: "memory" };
   if (/^\/appearance\/?$/.test(path)) return { page: "appearance" };
   if (/^\/automation\/?$/.test(path)) return { page: "automation" };
@@ -156,8 +155,7 @@ function Page() {
   useEffect(() => {
     if (page === "design-system" && section) document.getElementById(section)?.scrollIntoView?.({ block: "start" });
   }, [page, section]);
-  if (page === "settings") return <SettingsPage />;
-  if (page === "providers") return <ProvidersPage />;
+  if (route.page === "settings") return <SettingsPage initial={route.section} />;
   if (page === "memory") return <MemoryPage />;
   if (page === "appearance") return <AppearancePage />;
   if (page === "automation") return <AutomationPage />;

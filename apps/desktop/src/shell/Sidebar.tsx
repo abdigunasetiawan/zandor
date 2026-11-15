@@ -11,18 +11,25 @@ import {
 import { useI18n } from "@zandor/i18n/react";
 import {
   Avatar,
+  BrainIcon,
   Button,
   ChatIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   ClockIcon,
+  CloseIcon,
   ContextMenu,
+  CopyIcon,
   Dialog,
+  EditIcon,
+  EyeIcon,
   Field,
   FileIcon,
   FolderIcon,
   FolderOpenIcon,
+  GlobeIcon,
   IconButton,
+  ImageIcon,
   Input,
   Kbd,
   Menu,
@@ -33,8 +40,10 @@ import {
   RefreshIcon,
   SearchField,
   SearchIcon,
+  SettingsIcon,
   Spinner,
   Tabs,
+  TrashIcon,
   useConfirm,
   useToast,
 } from "@zandor/ui";
@@ -293,7 +302,7 @@ function SessionsList({ query, kind }: { query: string; kind: "projects" | "chat
   const settings = useSettings();
   const { projects: store, sidebarPrefs, docHost } = useServices();
   const prefs = useSidebarPrefs();
-  const toast = useToast();
+  const _toast = useToast();
   const [styling, setStyling] = useState<Project | null>(null);
   const state = useProjects();
   const appearance = useAppearance();
@@ -374,6 +383,7 @@ function SessionsList({ query, kind }: { query: string; kind: "projects" | "chat
           const refresh: MenuEntry = {
             type: "item",
             id: "refresh",
+            icon: <RefreshIcon size="sm" />,
             label: t("sb.refresh"),
             onSelect: () => run(store.refresh(key)),
           };
@@ -382,6 +392,7 @@ function SessionsList({ query, kind }: { query: string; kind: "projects" | "chat
                 {
                   type: "item",
                   id: "new",
+                  icon: <PlusIcon size="sm" />,
                   label: t("sb.newSession"),
                   disabled: !state.engineReady,
                   onSelect: () => run(store.createSession(key)),
@@ -389,22 +400,31 @@ function SessionsList({ query, kind }: { query: string; kind: "projects" | "chat
                 {
                   type: "item",
                   id: "pin",
+                  icon: <PinIcon size="sm" />,
                   label: prefs.pinnedProjects.includes(project.id) ? t("sb.unpin") : t("sb.pin"),
                   onSelect: () => sidebarPrefs.toggleProjectPin(project.id),
                 },
                 {
                   type: "item",
                   id: "rename",
+                  icon: <EditIcon size="sm" />,
                   label: t("sb.rename"),
                   onSelect: () => setRename({ kind: "project", id: project.id, value: project.name }),
                 },
-                { type: "item", id: "style", label: t("sb.customize"), onSelect: () => setStyling(project) },
+                {
+                  type: "item",
+                  id: "style",
+                  icon: <ImageIcon size="sm" />,
+                  label: t("sb.customize"),
+                  onSelect: () => setStyling(project),
+                },
                 refresh,
                 ...(docHost.reveal
                   ? [
                       {
                         type: "item" as const,
                         id: "reveal",
+                        icon: <FolderOpenIcon size="sm" />,
                         label: t("sb.reveal"),
                         onSelect: () => void docHost.reveal?.(project.path, ".").catch(fail),
                       },
@@ -414,6 +434,7 @@ function SessionsList({ query, kind }: { query: string; kind: "projects" | "chat
                 {
                   type: "item",
                   id: "remove",
+                  icon: <CloseIcon size="sm" />,
                   label: t("sb.removeProject"),
                   danger: true,
                   onSelect: () => void removeProject(project),
@@ -587,13 +608,21 @@ function SessionRows({
           {
             type: "item",
             id: "pin",
+            icon: <PinIcon size="sm" />,
             label: pinned ? t("sb.unpin") : t("sb.pin"),
             onSelect: () => sidebarPrefs.toggleSessionPin(s.id),
           },
-          { type: "item", id: "rename", label: t("sb.rename"), onSelect: () => onRename(s) },
+          {
+            type: "item",
+            id: "rename",
+            icon: <EditIcon size="sm" />,
+            label: t("sb.rename"),
+            onSelect: () => onRename(s),
+          },
           {
             type: "item",
             id: "copyid",
+            icon: <CopyIcon size="sm" />,
             label: t("sb.copyId"),
             onSelect: () =>
               void navigator.clipboard
@@ -604,6 +633,7 @@ function SessionRows({
           {
             type: "item",
             id: "delete",
+            icon: <TrashIcon size="sm" />,
             label: t("sb.deleteSession"),
             danger: true,
             onSelect: () => onDelete(keyId, s),
@@ -651,10 +681,34 @@ function SidebarFooter() {
   const tone =
     engine.status === "ready" ? "ok" : engine.status === "error" || engine.status === "stopped" ? "bad" : "wait";
   const entries: MenuEntry[] = [
-    { type: "item", id: "settings", label: t("settings.title"), onSelect: () => nav.push("/settings") },
-    { type: "item", id: "providers", label: t("pv.manage"), onSelect: () => nav.push("/providers") },
-    { type: "item", id: "memory", label: t("mem.manage"), onSelect: () => nav.push("/memory") },
-    { type: "item", id: "appearance", label: t("cmd.appearance"), onSelect: () => nav.push("/appearance") },
+    {
+      type: "item",
+      id: "settings",
+      icon: <SettingsIcon size="sm" />,
+      label: t("settings.title"),
+      onSelect: () => nav.push("/settings"),
+    },
+    {
+      type: "item",
+      id: "providers",
+      icon: <GlobeIcon size="sm" />,
+      label: t("pv.manage"),
+      onSelect: () => nav.push("/settings/models"),
+    },
+    {
+      type: "item",
+      id: "memory",
+      icon: <BrainIcon size="sm" />,
+      label: t("mem.manage"),
+      onSelect: () => nav.push("/memory"),
+    },
+    {
+      type: "item",
+      id: "appearance",
+      icon: <EyeIcon size="sm" />,
+      label: t("cmd.appearance"),
+      onSelect: () => nav.push("/appearance"),
+    },
   ];
   return (
     <footer className="sidebar__foot">

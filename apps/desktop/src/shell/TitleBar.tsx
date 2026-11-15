@@ -6,6 +6,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   Button,
+  ChatIcon,
   CloseIcon,
   IconButton,
   Kbd,
@@ -15,6 +16,7 @@ import {
   MinimizeIcon,
   PanelDocIcon,
   PanelLeftIcon,
+  PanelRailIcon,
   PanelRightIcon,
   RestoreIcon,
   SearchIcon,
@@ -70,8 +72,10 @@ const MENUS: Array<{ labelKey: MessageKey; ids: Array<string | "-"> }> = [
     labelKey: "menu.view",
     ids: [
       "view.toggleSidebar",
+      "view.toggleChat",
       "view.toggleDocs",
       "view.toggleTools",
+      "view.toggleRail",
       "view.resetLayout",
       "-",
       "view.zoomIn",
@@ -138,9 +142,11 @@ function MenuBar() {
 }
 
 const PANEL_TOGGLES: Array<{ id: PanelId; icon: React.ReactNode; labelKey: MessageKey; shortcut: string }> = [
-  { id: "sidebar", icon: <PanelLeftIcon />, labelKey: "panel.sidebar", shortcut: "Ctrl+B" },
-  { id: "docs", icon: <PanelDocIcon />, labelKey: "panel.docs", shortcut: "Ctrl+Alt+B" },
-  { id: "tools", icon: <PanelRightIcon />, labelKey: "panel.tools", shortcut: "Ctrl+J" },
+  { id: "sidebar", icon: <PanelLeftIcon size="sm" />, labelKey: "panel.sidebar", shortcut: "Ctrl+B" },
+  { id: "chat", icon: <ChatIcon size="sm" />, labelKey: "panel.chat", shortcut: "" },
+  { id: "docs", icon: <PanelDocIcon size="sm" />, labelKey: "panel.docs", shortcut: "Ctrl+Alt+B" },
+  { id: "tools", icon: <PanelRightIcon size="sm" />, labelKey: "panel.tools", shortcut: "Ctrl+J" },
+  { id: "rail", icon: <PanelRailIcon size="sm" />, labelKey: "panel.rail", shortcut: "" },
 ];
 
 export function TitleBar() {
@@ -155,7 +161,7 @@ export function TitleBar() {
     <header
       className="titlebar"
       data-tauri-drag-region
-      data-surface={/^\/settings\/?$/.test(navState.current) ? "" : undefined}
+      data-surface={/^\/settings(\/|$)/.test(navState.current) ? "" : undefined}
     >
       <div className="titlebar__nav">
         <IconButton
@@ -174,7 +180,7 @@ export function TitleBar() {
       <MenuBar />
       <div className="titlebar__center" data-tauri-drag-region>
         {/* di halaman Pengaturan pencarian ada di sidebar halaman itu sendiri; omnibox disembunyikan */}
-        {!/^\/settings\/?$/.test(navState.current) && (
+        {!/^\/settings(\/|$)/.test(navState.current) && (
           <button
             type="button"
             className="omnibox"
@@ -188,20 +194,23 @@ export function TitleBar() {
           </button>
         )}
       </div>
-      <fieldset className="titlebar__tools" aria-label={t("panel.rail")}>
-        {panelState.ready &&
-          actions &&
-          PANEL_TOGGLES.map((p) => (
-            <IconButton
-              key={p.id}
-              label={`${t(p.labelKey)} (${formatCombo(p.shortcut)})`}
-              icon={p.icon}
-              aria-pressed={!panelState.collapsed[p.id]}
-              onClick={() => actions.toggle(p.id)}
-            />
-          ))}
+      <div className="titlebar__tools">
+        {panelState.ready && actions && (
+          <fieldset className="titlebar__toggles" aria-label={t("panel.toggles")}>
+            {PANEL_TOGGLES.map((p) => (
+              <IconButton
+                key={p.id}
+                label={p.shortcut ? `${t(p.labelKey)} (${formatCombo(p.shortcut)})` : t(p.labelKey)}
+                icon={p.icon}
+                size="sm"
+                aria-pressed={!panelState.collapsed[p.id]}
+                onClick={() => actions.toggle(p.id)}
+              />
+            ))}
+          </fieldset>
+        )}
         <IconButton label={t("settings.title")} icon={<SettingsIcon />} onClick={() => nav.push("/settings")} />
-      </fieldset>
+      </div>
       <WindowControls />
     </header>
   );

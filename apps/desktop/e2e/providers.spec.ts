@@ -6,7 +6,13 @@ type Seen = { auth: string[]; pings: string[] };
 /** Endpoint provider tiruan di http://provider.test/v1 (dicegat; tanpa jaringan). */
 async function mockProvider(
   page: Page,
-  opts: { models?: string[]; modelsStatus?: number; pingStatus?: Record<string, number> } = {},
+  opts: {
+    models?: string[];
+    modelsStatus?: number;
+    pingStatus?: Record<string, number>;
+    /** Metadata tambahan per id model pada GET /models (gaya OpenRouter). */
+    extra?: Record<string, Record<string, unknown>>;
+  } = {},
 ): Promise<Seen> {
   const seen: Seen = { auth: [], pings: [] };
   const cors = {
@@ -26,7 +32,9 @@ async function mockProvider(
       return route.fulfill({
         status: 200,
         headers: h,
-        body: JSON.stringify({ data: (opts.models ?? ["m-a", "m-b"]).map((id) => ({ id })) }),
+        body: JSON.stringify({
+          data: (opts.models ?? ["m-a", "m-b"]).map((id) => ({ id, ...(opts.extra?.[id] ?? {}) })),
+        }),
       });
     }
     if (url.pathname === "/v1/chat/completions") {
@@ -53,13 +61,14 @@ async function openProviders(page: Page, engine: MockOptions | null = {}) {
       return null;
     }) as typeof window.open;
   });
-  await page.goto("/#/providers");
-  await expect(page.getByRole("heading", { name: "Provider & model" })).toBeVisible();
+  await page.goto("/#/settings/models");
+  await expect(page.getByRole("heading", { name: "Provider AI dan kunci API" })).toBeVisible();
 }
 
 const addButton = (page: Page) => page.getByRole("button", { name: "Tambah koneksi" });
-const dialog = (page: Page) =>
-  page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: /koneksi|Pilih model/ }) });
+/** Panel tambah/ubah koneksi (inline, bukan popup). */
+const picker = (page: Page) => page.getByRole("dialog", { name: "Pilih model" });
+const dialog = (page: Page) => page.getByRole("region", { name: /koneksi/ });
 
 async function addCustom(page: Page) {
   await addButton(page).click();
@@ -73,7 +82,7 @@ test("tambah endpoint kustom: ambil model, pilih, tambah manual, simpan; kunci t
 }) => {
   const seen = await mockProvider(page);
   await openProviders(page);
-  await expect(page.getByText(/Belum ada koneksi/)).toBeVisible();
+  await expect(page.getByRole("listitem", { name: "Provider Uji" })).toHaveCount(0);
   await addCustom(page);
   await dialog(page).getByRole("button", { name: "Ambil daftar model" }).click();
   await expect(dialog(page).getByText("2 model ditemukan")).toBeVisible();
@@ -88,9 +97,60 @@ test("tambah endpoint kustom: ambil model, pilih, tambah manual, simpan; kunci t
   await expect(card).toBeVisible();
   await expect(card).toContainText("http://provider.test/v1");
   await expect(card).toContainText("Kunci tersimpan");
-  await expect(card).toContainText("m-a");
-  await expect(card).toContainText("m-manual");
+  await expect(card).toContainText("2 dari 2 model tampil");
+  await card.getByRole("button", { name: "Kelola model" }).click();
+  await expect(page.getByText("m-a", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("m-manual", { exact: true }).first()).toBeVisible();
   await expect(page.locator("body")).not.toContainText("sk-uji-123");
+});
+
+test("setelah ambil daftar model: Pilih semua / Batalkan semua (mengikuti filter)", async ({ page }) => {
+  await mockProvider(page, {
+    models: ["alfa-1", "alfa-2", "beta-1", "beta-2", "beta-3", "gama-1", "gama-2", "gama-3", "gama-4"],
+  });
+  await openProviders(page);
+  await addCustom(page);
+  await dialog(page).getByRole("button", { name: "Ambil daftar model" }).click();
+  await expect(dialog(page).getByText("9 model ditemukan")).toBeVisible();
+  await expect(dialog(page).getByText("0 model dipilih")).toBeVisible();
+  await dialog(page).getByRole("button", { name: "Pilih semua" }).click();
+  await expect(dialog(page).getByText("9 model dipilih")).toBeVisible();
+  await dialog(page).getByRole("button", { name: "Batalkan semua" }).click();
+  await expect(dialog(page).getByText("0 model dipilih")).toBeVisible();
+  // dengan filter, hanya yang tampil yang terpengaruh
+  await dialog(page).getByRole("searchbox", { name: "Cari model" }).fill("beta");
+  await dialog(page).getByRole("button", { name: "Pilih semua" }).click();
+  await expect(dialog(page).getByText("3 model dipilih")).toBeVisible();
+});
+
+test("hasil ambil model membawa info (konteks, keluaran, kemampuan) dan ikut tersimpan", async ({ page }) => {
+  await mockProvider(page, {
+    models: ["m-a", "m-b"],
+    extra: {
+      "m-a": {
+        name: "Model A Cantik",
+        context_length: 200000,
+        top_provider: { max_completion_tokens: 8192 },
+        supported_parameters: ["tools", "reasoning"],
+        architecture: { input_modalities: ["text", "image"] },
+      },
+    },
+  });
+  await openProviders(page);
+  await addCustom(page);
+  await dialog(page).getByRole("button", { name: "Ambil daftar model" }).click();
+  const row = dialog(page).getByRole("listitem").filter({ hasText: "Model A Cantik" });
+  await expect(row).toContainText("m-a");
+  await expect(row).toContainText("Konteks 200K");
+  await expect(row).toContainText("Keluaran 8K");
+  await expect(row).toContainText("Reasoning");
+  await expect(row).toContainText("Lampiran");
+  await dialog(page).getByRole("button", { name: "Pilih semua" }).click();
+  await dialog(page).getByRole("button", { name: "Simpan" }).click();
+  await page.getByRole("listitem", { name: "Provider Uji" }).getByRole("button", { name: "Kelola model" }).click();
+  const manager = page.getByRole("region", { name: /Kelola model/ });
+  await expect(manager).toContainText("Model A Cantik");
+  await expect(manager).toContainText("Konteks 200K");
 });
 
 test("gagal mengambil model ditampilkan jujur (kunci ditolak), tidak ada spinner abadi", async ({ page }) => {
@@ -122,13 +182,16 @@ test("uji model: OK dengan latensi, dan rate limit tampil apa adanya; hapus kone
   await dialog(page).getByRole("checkbox", { name: "m-b" }).check();
   await dialog(page).getByRole("button", { name: "Simpan" }).click();
   const card = page.getByRole("listitem", { name: "Provider Uji" });
+  await card.getByRole("button", { name: "Kelola model" }).click();
 
-  await card.getByRole("button", { name: "Uji m-a" }).click();
-  await expect(card).toContainText(/OK · \d+ ms/);
-  await card.getByRole("button", { name: "Uji m-b" }).click();
-  await expect(card).toContainText("Rate limit / kuota");
-  await expect(card).toContainText("kuota habis");
+  const manager = page.getByRole("region", { name: /Kelola model/ });
+  await manager.getByRole("button", { name: "Uji m-a" }).click();
+  await expect(manager).toContainText(/OK · \d+ ms/);
+  await manager.getByRole("button", { name: "Uji m-b" }).click();
+  await expect(manager).toContainText("Rate limit / kuota");
+  await expect(manager).toContainText("kuota habis");
   expect(seen.pings).toEqual(["m-a", "m-b"]);
+  await manager.getByRole("button", { name: "Kembali" }).click();
 
   await card.getByRole("button", { name: "Hapus koneksi" }).click();
   await expect(page.getByRole("alertdialog")).toContainText("Kunci di keychain ikut dihapus");
@@ -164,6 +227,57 @@ test("tab Provider katalog: cari, hubungkan dengan kunci; provider yang butuh ko
   await expect(card).toContainText("Provider katalog");
   await expect(card).toContainText("Kunci tersimpan");
   await expect(page.locator("body")).not.toContainText("sk-or-abc");
+});
+
+test("akun ganda pada provider katalog: tambah, ganti aktif, ganti nama, hapus (kunci tidak tampil)", async ({
+  page,
+}) => {
+  await openProviders(page);
+  await addButton(page).click();
+  await dialog(page).getByRole("tab", { name: "Provider katalog" }).click();
+  await dialog(page).getByRole("searchbox", { name: "Cari provider katalog" }).fill("openr");
+  await dialog(page)
+    .getByRole("button", { name: /^Hubungkan OpenRouter/ })
+    .click();
+  await dialog(page).getByLabel("Kunci API OpenRouter").fill("sk-or-satu");
+  await dialog(page).getByRole("button", { name: "Simpan" }).click();
+
+  // buka lagi: provider yang sudah tersambung kini menampilkan daftar akun dan bisa ditambah akun
+  await addButton(page).click();
+  await dialog(page).getByRole("tab", { name: "Provider katalog" }).click();
+  await dialog(page).getByRole("searchbox", { name: "Cari provider katalog" }).fill("openr");
+  const accounts = dialog(page).getByRole("region", { name: "Akun OpenRouter" });
+  await expect(accounts.getByRole("listitem", { name: "Akun utama" })).toContainText("Aktif");
+  await accounts.getByRole("button", { name: "Tambah akun OpenRouter" }).click();
+  await accounts.getByRole("textbox", { name: "Nama akun", exact: true }).fill("Kantor");
+  await accounts.getByRole("textbox", { name: "Kunci API OpenRouter" }).fill("sk-or-dua");
+  await accounts.getByRole("button", { name: "Simpan" }).click();
+  await expect(accounts.getByText("2 akun")).toBeVisible();
+  await expect(accounts.getByRole("listitem", { name: "Kantor" })).toContainText("Aktif");
+
+  await accounts.getByRole("button", { name: "Gunakan akun Akun utama" }).click();
+  await expect(accounts.getByRole("listitem", { name: "Akun utama" })).toContainText("Aktif");
+  await expect(accounts.getByRole("listitem", { name: "Kantor" })).not.toContainText("Aktif");
+
+  await accounts.getByRole("button", { name: "Ganti nama akun Kantor" }).click();
+  await accounts.getByRole("textbox", { name: "Ganti nama akun Kantor" }).fill("Kerja");
+  await accounts.getByRole("button", { name: "Simpan" }).click();
+  await expect(accounts.getByRole("listitem", { name: "Kerja" })).toBeVisible();
+
+  await accounts.getByRole("button", { name: "Hapus akun Kerja" }).click();
+  await page.getByRole("button", { name: "Hapus", exact: true }).click();
+  await expect(accounts.getByText("1 akun")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("sk-or-");
+});
+
+test("tab Sign-in menampilkan OpenWork sebagai kartu biasa (build web: hanya aplikasi desktop)", async ({ page }) => {
+  await openProviders(page);
+  await addButton(page).click();
+  await dialog(page).getByRole("tab", { name: "Sign-in" }).click();
+  const card = dialog(page).getByRole("listitem", { name: "OpenWork" });
+  await expect(card).toContainText("OpenWork Cloud");
+  await expect(card).toContainText("hanya tersedia di aplikasi desktop");
+  await expect(dialog(page).getByText(/satu login per provider/)).toBeVisible();
 });
 
 test("sign-in OAuth otomatis: membuka browser sistem lalu selesai", async ({ page }) => {
@@ -232,13 +346,13 @@ test("pemilih model: pencarian langsung fokus, saring, sematkan, pilih; prompt m
     if (r.url().includes("prompt_async")) engineCalls.push(r.postData() ?? "");
   });
   await page.getByRole("button", { name: /^Model: Model Satu/ }).click();
-  const search = dialog(page).getByRole("searchbox", { name: "Cari model atau provider" });
+  const search = picker(page).getByRole("searchbox", { name: "Cari model atau provider" });
   await expect(search).toBeFocused();
   await search.fill("dua");
-  await expect(dialog(page).getByRole("button", { name: /Model Tiga/ })).toHaveCount(0);
-  await dialog(page).getByRole("button", { name: "Sematkan Model Dua" }).click();
-  await expect(dialog(page).getByRole("region", { name: "Disematkan" })).toContainText("Model Dua");
-  await dialog(page)
+  await expect(picker(page).getByRole("button", { name: /Model Tiga/ })).toHaveCount(0);
+  await picker(page).getByRole("button", { name: "Sematkan Model Dua" }).click();
+  await expect(picker(page).getByRole("region", { name: "Disematkan" })).toContainText("Model Dua");
+  await picker(page)
     .getByRole("region", { name: "Disematkan" })
     .getByRole("button", { name: /Model Dua/ })
     .first()
@@ -254,20 +368,21 @@ test("pemilih model: pencarian langsung fokus, saring, sematkan, pilih; prompt m
   await page.reload();
   await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
   await page.getByRole("button", { name: /^Model: Model Dua/ }).click();
-  await expect(dialog(page).getByRole("region", { name: "Disematkan" })).toContainText("Model Dua");
+  await expect(picker(page).getByRole("region", { name: "Disematkan" })).toContainText("Model Dua");
 });
 
 test("pemilih model: ping model milik koneksi kustom; model provider lain tidak punya tombol uji", async ({ page }) => {
   await mockProvider(page, { pingStatus: { "m-satu": 429 } });
   await openChat(page, [{ id: "m-satu", name: "Model Satu" }], true);
   await page.getByRole("button", { name: /^Model: Model Satu/ }).click();
-  await dialog(page).getByRole("button", { name: "Uji Model Satu" }).click();
-  await expect(dialog(page)).toContainText("Rate limit / kuota");
+  await picker(page).getByRole("button", { name: "Uji Model Satu" }).click();
+  await expect(picker(page)).toContainText("Rate limit / kuota");
 });
 
 test("pemilih model: 'Kelola provider…' membuka halaman provider", async ({ page }) => {
   await openChat(page, [{ id: "m-satu", name: "Model Satu" }]);
   await page.getByRole("button", { name: /^Model: Model Satu/ }).click();
-  await dialog(page).getByRole("button", { name: "Kelola provider…" }).click();
-  await expect(page.getByRole("heading", { name: "Provider & model" })).toBeVisible();
+  await picker(page).getByRole("button", { name: "Kelola provider…" }).click();
+  await expect(page).toHaveURL(/#\/settings\/models$/);
+  await expect(page.getByRole("heading", { name: "Provider AI dan kunci API" })).toBeVisible();
 });

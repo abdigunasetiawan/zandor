@@ -35,7 +35,7 @@ Diurutkan terbaru dulu. Judul bawaan engine tampil sebagai "Sesi tanpa judul". P
 
 ## Batasan (jujur)
 
-- Belum ada UI warna project (data & validasi sudah ada). Remote engine belum (Fase 11). Hanya Windows.
+- UI gaya/warna project ada (ADR-051). Remote engine belum (Fase 11). Single-instance belum (dua Zandor bisa mengunci DB). Hanya Windows.
 
 ## Cara test
 

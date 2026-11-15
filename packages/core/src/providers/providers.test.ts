@@ -92,6 +92,42 @@ describe("helper", () => {
   });
 });
 
+describe("ProviderStore: protokol dan kemampuan model", () => {
+  test("protokol non-default dan kemampuan dibawa ke host; saveModels tidak menyentuh kunci", async () => {
+    const host = fakeHost();
+    const store = new ProviderStore({ host });
+    const id = await store.saveEndpoint({
+      name: "Claude GW",
+      kind: "custom",
+      baseUrl: "http://gw.test/v1",
+      protocol: "anthropic",
+      apiKey: "sk-x",
+      models: [{ id: "a", context: 200000.4, output: -1, reasoning: true, toolCall: false }],
+    });
+    const v = store.state().providers[0];
+    expect(v?.protocol).toBe("anthropic");
+    expect(v?.models[0]).toEqual({ id: "a", context: 200000, reasoning: true, toolCall: false });
+    await store.saveModels(id, [{ id: "a", attachment: true }, { id: "b" }]);
+    expect(store.state().providers[0]?.models.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(store.state().providers[0]?.protocol).toBe("anthropic");
+    expect(host.keys.get(id)).toBe("sk-x");
+    await expect(store.saveModels(id, [])).rejects.toThrow();
+    await expect(store.saveModels("tidak-ada", [{ id: "z" }])).rejects.toThrow();
+  });
+  test("openai-compatible (default) tidak ditulis sebagai protokol", async () => {
+    const host = fakeHost();
+    const store = new ProviderStore({ host });
+    await store.saveEndpoint({
+      name: "X",
+      kind: "custom",
+      baseUrl: "http://x.test/v1",
+      protocol: "openai-compatible",
+      models: [{ id: "a" }],
+    });
+    expect(store.state().providers[0]?.protocol).toBeUndefined();
+  });
+});
+
 describe("ProviderStore: koneksi", () => {
   test("tambah endpoint kustom: id dari nama, base URL dirapikan, kunci ke host, model unik", async () => {
     const host = fakeHost();

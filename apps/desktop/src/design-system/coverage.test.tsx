@@ -139,8 +139,10 @@ describe("halaman design system", () => {
 describe("routing", () => {
   test.each([
     ["/", { page: "home" }],
-    ["/settings", { page: "settings" }],
-    ["/settings/", { page: "settings" }],
+    ["/settings", { page: "settings", section: null }],
+    ["/settings/", { page: "settings", section: null }],
+    ["/settings/models", { page: "settings", section: "models" }],
+    ["/providers", { page: "settings", section: "models" }],
     ["/design-system", { page: "design-system", section: null }],
     ["/design-system/atoms", { page: "design-system", section: "atoms" }],
     ["/design-system/atoms/", { page: "design-system", section: "atoms" }],

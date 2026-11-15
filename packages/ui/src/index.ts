@@ -6,7 +6,14 @@ export { Button, IconButton } from "./atoms/Button";
 export { Badge, Skeleton, Spinner, Working, type WorkingVariant } from "./atoms/Feedback";
 export { Checkbox, Input, Select, Slider, Switch, Textarea } from "./atoms/Fields";
 export { Kbd } from "./atoms/Kbd";
-export { ModelLogo, type ModelLogoProps, modelLogoKey } from "./atoms/ModelLogo";
+export {
+  detectLogoKey,
+  type LogoOverrides,
+  ModelLogo,
+  ModelLogoOverrides,
+  type ModelLogoProps,
+  modelLogoKey,
+} from "./atoms/ModelLogo";
 export { Tooltip } from "./atoms/Tooltip";
 export type { AtomName, MoleculeName } from "./catalog";
 export { ATOMS, CATALOG, INFRASTRUCTURE, MOLECULES } from "./catalog";

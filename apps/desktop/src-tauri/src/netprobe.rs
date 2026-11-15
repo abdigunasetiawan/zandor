@@ -3,9 +3,28 @@
 // JavaScript. Hanya http/https; waktu tunggu selalu terbatas supaya status provider tidak berputar tanpa akhir.
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 const MAX_ERROR_CHARS: usize = 300;
+
+/// Info tambahan satu model dari `GET /models` (hanya yang disediakan endpoint). Padanan TS: `parseModelInfo`.
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<bool>,
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -14,6 +33,9 @@ pub struct ProbeResult {
     pub status: Option<u16>,
     pub latency_ms: u64,
     pub models: Vec<String>,
+    /// Metadata per model bila endpoint menyediakannya (konteks, keluaran, kemampuan); id → info.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub info: BTreeMap<String, ModelInfo>,
     /// "ok" | "auth" | "notfound" | "ratelimit" | "server" | "network" | "invalid"
     pub kind: String,
     pub error: Option<String>,
@@ -90,6 +112,7 @@ fn failure(kind: &str, started: Instant, error: String) -> ProbeResult {
         status: None,
         latency_ms: started.elapsed().as_millis() as u64,
         models: vec![],
+        info: Default::default(),
         kind: kind.into(),
         error: Some(error),
     }
@@ -119,11 +142,13 @@ pub fn probe(base_url: &str, api_key: Option<&str>, timeout: Duration) -> ProbeR
             status: Some(status),
             latency_ms: started.elapsed().as_millis() as u64,
             models: vec![],
+            info: Default::default(),
             kind: kind.into(),
             error: Some(explain(kind, status, &body)),
         };
     }
     let models = parse_models(&body);
+    let info = parse_model_info(&body);
     ProbeResult {
         ok: true,
         status: Some(status),
@@ -134,8 +159,90 @@ pub fn probe(base_url: &str, api_key: Option<&str>, timeout: Duration) -> ProbeR
             None
         },
         models,
+        info,
         kind: "ok".into(),
     }
+}
+
+fn pos_u64(v: Option<&Value>) -> Option<u64> {
+    v.and_then(Value::as_u64).filter(|n| *n > 0)
+}
+
+fn str_list(v: Option<&Value>) -> Vec<String> {
+    v.and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_lowercase)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// id model → metadata yang disediakan endpoint (OpenRouter, LM Studio, vLLM, dll). Yang tidak ada dibiarkan kosong.
+pub fn parse_model_info(body: &str) -> BTreeMap<String, ModelInfo> {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return BTreeMap::new();
+    };
+    let arr = v
+        .get("data")
+        .and_then(Value::as_array)
+        .or_else(|| v.as_array());
+    let mut out = BTreeMap::new();
+    for m in arr.into_iter().flatten() {
+        let Some(id) = m
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|i| !i.is_empty())
+        else {
+            continue;
+        };
+        let top = m.get("top_provider");
+        let params = str_list(m.get("supported_parameters"));
+        let caps = str_list(m.get("capabilities"));
+        let inputs = str_list(
+            m.get("architecture")
+                .and_then(|a| a.get("input_modalities")),
+        );
+        let has = |keys: &[&str]| {
+            keys.iter()
+                .any(|k| params.iter().any(|p| p == k) || caps.iter().any(|c| c == k))
+        };
+        let name = ["name", "display_name", "displayName"]
+            .iter()
+            .filter_map(|k| m.get(*k).and_then(Value::as_str))
+            .map(str::trim)
+            .find(|n| !n.is_empty() && *n != id)
+            .map(str::to_string);
+        let mut info = ModelInfo {
+            name,
+            ..ModelInfo::default()
+        };
+        info.context = pos_u64(m.get("context_length"))
+            .or_else(|| pos_u64(m.get("context_window")))
+            .or_else(|| pos_u64(m.get("max_context_length")))
+            .or_else(|| pos_u64(m.get("max_model_len")))
+            .or_else(|| pos_u64(top.and_then(|t| t.get("context_length"))));
+        info.output = pos_u64(top.and_then(|t| t.get("max_completion_tokens")))
+            .or_else(|| pos_u64(m.get("max_output_tokens")))
+            .or_else(|| pos_u64(m.get("max_completion_tokens")));
+        if has(&["reasoning", "include_reasoning", "thinking"]) {
+            info.reasoning = Some(true);
+        }
+        if has(&["tools", "tool_use", "tool_choice", "function_calling"]) {
+            info.tool_call = Some(true);
+        }
+        if inputs.iter().any(|i| i == "image")
+            || caps.iter().any(|c| c == "vision" || c == "image")
+            || m.get("type").and_then(Value::as_str) == Some("vlm")
+        {
+            info.attachment = Some(true);
+        }
+        if info != ModelInfo::default() {
+            out.insert(id.to_string(), info);
+        }
+    }
+    out
 }
 
 pub fn parse_models(body: &str) -> Vec<String> {
@@ -196,6 +303,7 @@ pub fn ping_model(
         status: Some(status),
         latency_ms: started.elapsed().as_millis() as u64,
         models: vec![],
+        info: Default::default(),
         kind: kind.into(),
         error: if kind == "ok" {
             None
@@ -421,6 +529,7 @@ pub fn ping_anthropic(
         status: Some(status),
         latency_ms: started.elapsed().as_millis() as u64,
         models: vec![],
+        info: Default::default(),
         kind: kind.into(),
         error: if kind == "ok" {
             None
@@ -684,6 +793,31 @@ mod tests {
         );
         let p = probe(&url, None, Duration::from_millis(700));
         assert_eq!(p.kind, "network");
+    }
+
+    #[test]
+    fn model_info_reads_openrouter_and_lmstudio_fields() {
+        let body = r#"{"data":[
+            {"id":"v/m1","name":"V: M1","context_length":200000,"top_provider":{"max_completion_tokens":8192},
+             "supported_parameters":["tools","reasoning"],"architecture":{"input_modalities":["text","image"]}},
+            {"id":"a","max_context_length":32768,"capabilities":["tool_use"],"type":"vlm"},
+            {"id":"plain","object":"model"}]}"#;
+        let m = parse_model_info(body);
+        let v = &m["v/m1"];
+        assert_eq!(v.name.as_deref(), Some("V: M1"));
+        assert_eq!((v.context, v.output), (Some(200000), Some(8192)));
+        assert_eq!(
+            (v.reasoning, v.tool_call, v.attachment),
+            (Some(true), Some(true), Some(true))
+        );
+        assert_eq!(m["a"].context, Some(32768));
+        assert_eq!(m["a"].tool_call, Some(true));
+        assert_eq!(m["a"].attachment, Some(true));
+        assert!(
+            !m.contains_key("plain"),
+            "tanpa info tambahan → tidak dicatat"
+        );
+        assert!(parse_model_info("sampah").is_empty());
     }
 
     #[test]

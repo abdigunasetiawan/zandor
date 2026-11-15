@@ -858,7 +858,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
       {(noModel || (modelsStatus === "ready" && models.length === 0)) && (
         <p className="chat__note chat__note--warn z-small">
           {t("chat.noModel")}{" "}
-          <Button size="sm" onClick={() => nav.push("/providers")}>
+          <Button size="sm" onClick={() => nav.push("/settings/models")}>
             {t("pv.manage")}
           </Button>
         </p>

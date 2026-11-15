@@ -2,17 +2,34 @@
 // ping model, deteksi server lokal, dan alur sign-in OAuth lewat engine. Logika murni terhadap `ProviderHost` dan
 // `EngineApi` agar bisa diuji dengan fake. Kunci API tidak pernah disimpan di state ini: hanya `hasKey`.
 import type { AuthMethod, CatalogProvider, EngineApi, OAuthStart } from "../engine/api";
+import type { ModelMeta } from "./model-info";
 
 export type ProviderKind = "custom" | "local" | "builtin";
-export type ProviderModelSpec = { id: string; name?: string };
+/** Protokol API endpoint kustom (menentukan adapter AI SDK di engine). Kosong = openai-compatible. */
+export type ProviderProtocol = "openai-compatible" | "openai" | "anthropic" | "google";
+export const PROVIDER_PROTOCOLS: readonly ProviderProtocol[] = ["openai-compatible", "openai", "anthropic", "google"];
+export type ProviderModelSpec = {
+  id: string;
+  name?: string;
+  /** Jendela konteks (token). */
+  context?: number;
+  /** Batas token keluaran. */
+  output?: number;
+  reasoning?: boolean;
+  toolCall?: boolean;
+  attachment?: boolean;
+};
 export type ProviderSpec = {
   id: string;
   name: string;
   kind: ProviderKind;
   baseUrl?: string;
+  protocol?: ProviderProtocol;
   models: ProviderModelSpec[];
 };
-export type ProviderView = ProviderSpec & { hasKey: boolean };
+/** Satu kunci/akun pada sebuah provider (ADR-056). Kunci tidak pernah sampai ke UI; `active` = yang dipakai engine. */
+export type ProviderAccount = { id: string; label: string; active: boolean };
+export type ProviderView = ProviderSpec & { hasKey: boolean; accounts?: ProviderAccount[] };
 
 export type ProbeKind = "ok" | "auth" | "notfound" | "ratelimit" | "server" | "network" | "invalid";
 export type ProbeResult = {
@@ -20,12 +37,13 @@ export type ProbeResult = {
   status: number | null;
   latencyMs: number;
   models: string[];
+  /** Metadata per model bila endpoint menyediakannya (konteks, keluaran, kemampuan). */
+  info?: Record<string, ModelMeta>;
   kind: ProbeKind;
   error: string | null;
 };
 export type LocalFound = { id: string; name: string; baseUrl: string; models: string[] };
 
-/** Akses ke sisi native (Tauri): keychain, berkas provider, dan probe jaringan. */
 /** Masuk dengan OpenWork (OAuth device flow, ADR-040). Token/kunci tidak pernah sampai ke UI. */
 export type OpenWorkDevice = { userCode: string; verificationUri: string; interval: number; expiresIn: number };
 export type OpenWorkPoll =
@@ -48,8 +66,9 @@ export type OpenWorkState =
   | { status: "connected"; account: string; models: number }
   | { status: "error"; message: string };
 
+/** Akses ke sisi native (Tauri): keychain, berkas provider, dan probe jaringan. */
 export interface ProviderHost {
-  /** Hanya aplikasi desktop: masuk dengan akun OpenWork. */
+  /** Hanya aplikasi desktop: masuk dengan akun OpenWork (device-code). */
   openwork?: OpenWorkHost;
   /** true bila kunci disimpan di keychain OS. Di luar Tauri (dev/e2e) kunci hanya disimpan sementara. */
   secure: boolean;
@@ -57,6 +76,12 @@ export interface ProviderHost {
   /** `apiKey` undefined = pertahankan kunci lama. Memulai ulang engine agar konfigurasi terbaca. */
   save(provider: ProviderSpec, apiKey?: string): Promise<void>;
   remove(id: string): Promise<void>;
+  /** Tambah akun (kunci) pada provider yang sudah disimpan; mengembalikan id akun. Memulai ulang engine. */
+  addAccount?(providerId: string, label: string, apiKey: string, activate: boolean): Promise<string>;
+  activateAccount?(providerId: string, accountId: string): Promise<void>;
+  renameAccount?(providerId: string, accountId: string, label: string): Promise<void>;
+  /** Mengembalikan jumlah akun tersisa. */
+  removeAccount?(providerId: string, accountId: string): Promise<number>;
   probe(baseUrl: string, apiKey?: string, providerId?: string): Promise<ProbeResult>;
   ping(providerId: string, model: string): Promise<ProbeResult>;
   detectLocal(): Promise<LocalFound[]>;
@@ -77,6 +102,7 @@ export type ProvidersState = {
   pings: Record<string, PingState>;
   /** Id provider yang dianggap tersambung oleh engine (dari katalog). */
   connected: string[];
+  /** Status masuk OpenWork (device-code). */
   openwork: OpenWorkState;
 };
 
@@ -84,11 +110,11 @@ export type ProviderStoreOptions = {
   host: ProviderHost;
   /** Dipanggil setelah koneksi berubah supaya daftar model chat dimuat ulang. */
   onChanged?: () => void;
+  /** Penjadwal untuk polling OpenWork (bisa diganti pada tes). */
+  schedule?: (fn: () => void, ms: number) => () => void;
   now?: () => number;
   /** Batas tunggu ping di sisi UI (detik); host juga punya batas sendiri. */
   pingWatchdogMs?: number;
-  /** Penjadwal untuk polling OpenWork (bisa diganti pada tes). */
-  schedule?: (fn: () => void, ms: number) => () => void;
 };
 
 export const pingKey = (providerId: string, modelId: string) => `${providerId}/${modelId}`;
@@ -311,6 +337,7 @@ export class ProviderStore {
     name: string;
     kind: "custom" | "local";
     baseUrl: string;
+    protocol?: ProviderProtocol;
     apiKey?: string;
     models: ProviderModelSpec[];
   }): Promise<string> {
@@ -328,9 +355,29 @@ export class ProviderStore {
       );
     const baseUrl = input.baseUrl.trim().replace(/\/+$/, "");
     await this.commit(() =>
-      this.options.host.save({ id, name, kind: input.kind, baseUrl, models }, input.apiKey || undefined),
+      this.options.host.save(
+        {
+          id,
+          name,
+          kind: input.kind,
+          baseUrl,
+          ...(input.protocol && input.protocol !== "openai-compatible" ? { protocol: input.protocol } : {}),
+          models,
+        },
+        input.apiKey || undefined,
+      ),
     );
     return id;
+  }
+
+  /** Ubah daftar model sebuah endpoint tanpa menyentuh kunci (mis. dari pengelola model). */
+  async saveModels(id: string, models: ProviderModelSpec[]): Promise<void> {
+    const cur = this.snap.providers.find((p) => p.id === id);
+    if (!cur || cur.kind === "builtin") throw new Error("koneksi tidak ditemukan");
+    const next = dedupeModels(models);
+    if (next.length === 0) throw new Error("minimal satu model");
+    const { hasKey: _k, ...spec } = cur;
+    await this.commit(() => this.options.host.save({ ...spec, models: next }));
   }
 
   /** Simpan kunci API untuk provider katalog (builtin). Model datang dari katalog engine. */
@@ -339,6 +386,57 @@ export class ProviderStore {
     await this.commit(() =>
       this.options.host.save({ id: input.id, name: input.name, kind: "builtin", models: [] }, input.apiKey.trim()),
     );
+  }
+
+  /**
+   * Tambah akun (kunci API) pada provider. Provider katalog yang belum tersimpan dibuat dulu (tanpa kunci).
+   * Akun baru langsung aktif secara bawaan. Kunci hanya lewat host (keychain).
+   */
+  async addAccount(input: {
+    providerId: string;
+    name: string;
+    label: string;
+    apiKey: string;
+    activate?: boolean;
+  }): Promise<string> {
+    const host = this.options.host;
+    const apiKey = input.apiKey.trim();
+    if (!apiKey) throw new Error("kunci API wajib diisi");
+    if (!host.addAccount) throw new Error("akun ganda tidak tersedia di lingkungan ini");
+    const add = host.addAccount.bind(host);
+    let id = "";
+    await this.commit(async () => {
+      if (!this.snap.providers.some((p) => p.id === input.providerId)) {
+        await host.save({ id: input.providerId, name: input.name, kind: "builtin", models: [] });
+      }
+      id = await add(input.providerId, input.label.trim(), apiKey, input.activate ?? true);
+    });
+    return id;
+  }
+
+  async activateAccount(providerId: string, accountId: string): Promise<void> {
+    const fn = this.options.host.activateAccount?.bind(this.options.host);
+    if (!fn) throw new Error("akun ganda tidak tersedia di lingkungan ini");
+    await this.commit(() => fn(providerId, accountId));
+  }
+
+  async renameAccount(providerId: string, accountId: string, label: string): Promise<void> {
+    const fn = this.options.host.renameAccount?.bind(this.options.host);
+    if (!fn) throw new Error("akun ganda tidak tersedia di lingkungan ini");
+    await fn(providerId, accountId, label.trim());
+    await this.refresh();
+  }
+
+  /** Hapus satu akun. Bila akun terakhir sebuah provider katalog dihapus, provider ikut dilepas. */
+  async removeAccount(providerId: string, accountId: string): Promise<void> {
+    const host = this.options.host;
+    const fn = host.removeAccount?.bind(host);
+    if (!fn) throw new Error("akun ganda tidak tersedia di lingkungan ini");
+    const cur = this.snap.providers.find((p) => p.id === providerId);
+    await this.commit(async () => {
+      const left = await fn(providerId, accountId);
+      if (left === 0 && cur?.kind === "builtin") await host.remove(providerId);
+    });
   }
 
   async remove(id: string): Promise<void> {
@@ -409,7 +507,14 @@ function dedupeModels(models: ProviderModelSpec[]): ProviderModelSpec[] {
     const id = m.id.trim();
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    out.push(m.name?.trim() ? { id, name: m.name.trim() } : { id });
+    const e: ProviderModelSpec = { id };
+    if (m.name?.trim()) e.name = m.name.trim();
+    if (m.context && m.context > 0) e.context = Math.round(m.context);
+    if (m.output && m.output > 0) e.output = Math.round(m.output);
+    if (m.reasoning !== undefined) e.reasoning = m.reasoning;
+    if (m.toolCall !== undefined) e.toolCall = m.toolCall;
+    if (m.attachment !== undefined) e.attachment = m.attachment;
+    out.push(e);
   }
   return out;
 }

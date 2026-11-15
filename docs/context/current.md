@@ -1,6 +1,6 @@
 # Kondisi Saat Ini
 
-> Snapshot, selalu ditimpa. Terakhir diperbarui: 14-11-2026.
+> Snapshot, selalu ditimpa. Terakhir diperbarui: 15-11-2026 (audit fase 0–11).
 
 ## Fase
 
@@ -14,10 +14,11 @@
 - **Fase 7 — Panel 3 Viewer Dokumen:** selesai (CI hijau).
 - **Fase 8 — Panel 4 Tools:** selesai (CI hijau).
 - **Fase 9 — Memori & Skill Creator:** selesai di lokal (belum di-push); ADR-037, `docs/features/memory.md`. Adapter Hindsight/Graphify dan opt-in di dialog Tambah project belum.
-- **Penyempurnaan chat (permintaan pemilik 14-11-2026):** render kaya, form pertanyaan agent, info pemakaian composer, Masuk dengan OpenWork — ADR-040; belum: login OpenWork penuh dengan akun nyata, kuota provider.
-- **Fase 11 — Panel 3 lanjutan & fitur ekstra:** sebagian selesai di lokal (ADR-039); belum: input suara, remote engine, model peran, manual konfigurasi agent.
+- **Penyempurnaan chat (permintaan pemilik 14-11-2026):** render kaya, form pertanyaan agent, info pemakaian composer — ADR-040 (Masuk dengan OpenWork dihapus oleh ADR-055 lalu dikembalikan sebagai kartu Sign-in + akun ganda oleh ADR-056, belum diuji ke akun OpenWork sungguhan); belum: kuota provider (engine tidak menyediakannya, lihat chat.md).
+- **Fase 11 — Panel 3 lanjutan & fitur ekstra:** sebagian selesai di lokal (ADR-039, ADR-045, ADR-050): edit berkas, DOCX/XLSX/PPTX/ipynb, saran prompt, automasi + notifikasi, input suara (dikte, Web Speech), save-as pesan (teks/gambar/SVG). Belum: remote engine, model peran (memori/image generator), skill bawaan "agent mengonfigurasi Zandor".
 - **Fase 10 — Kustomisasi:** selesai di lokal; ADR-038, `docs/features/appearance.md`. Belum: paket ikon file Open VSX.
-- **Layout shell baru (permintaan pemilik 14-11-2026):** panel mengambang, sidebar bertingkat, sapaan sesi baru — ADR-041; belum: notifikasi, nama pengguna di pengaturan.
+- **Layout shell baru (permintaan pemilik 14-11-2026):** panel mengambang, sidebar bertingkat, sapaan sesi baru — ADR-041; notifikasi sudah ada (ADR-050); belum: nama pengguna di pengaturan.
+- **Pengaturan Provider & model (permintaan pemilik 14-11-2026):** model bawaan, provider (protokol/id/kunci/ambil model), pengelola model (visibilitas, kemampuan, grup), logo kustom + otomatis — ADR-054; belum: fitur generate gambar, deteksi kemampuan dari endpoint.
 - **Status MVP:** audit PRD §13 selesai — kelima kriteria terpenuhi (`docs/features/mvp.md`); menunggu keputusan rilis `0.1.0`.
 
 ## Checklist Fase 1
