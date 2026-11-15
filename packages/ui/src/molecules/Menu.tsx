@@ -79,12 +79,14 @@ export type MenuProps = {
   /** Elemen pemicu tunggal (mis. <Button>). */
   trigger: ReactElement;
   entries: MenuEntry[];
+  /** `false` bila pemicu bukan `<button>` asli (mis. tautan `<a>`); Base UI lalu menambah peran dan keyboard tombol. */
+  nativeButton?: boolean;
 };
 
-export function Menu({ trigger, entries }: MenuProps) {
+export function Menu({ trigger, entries, nativeButton = true }: MenuProps) {
   return (
     <BaseMenu.Root>
-      <BaseMenu.Trigger render={trigger} />
+      <BaseMenu.Trigger render={trigger} nativeButton={nativeButton} />
       <BaseMenu.Portal>
         <BaseMenu.Positioner sideOffset={OFFSET_TIGHT} align="start" className="z-popup-positioner">
           <BaseMenu.Popup className="z-popup" data-shortcut-scope="menu">

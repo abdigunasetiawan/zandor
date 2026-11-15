@@ -47,6 +47,23 @@ describe("Menu", () => {
     await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
   });
 
+  test("pemicu tautan (nativeButton=false) berperan tombol dan membuka menu", async () => {
+    const user = userEvent.setup();
+    renderUi(
+      <Menu
+        nativeButton={false}
+        trigger={
+          <a href="https://contoh.dev" onClick={(e) => e.preventDefault()}>
+            contoh
+          </a>
+        }
+        entries={[{ type: "item", id: "a", label: "Buka", onSelect: () => {} }]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "contoh" }));
+    expect(await screen.findByRole("menuitem", { name: "Buka" })).toBeInTheDocument();
+  });
+
   test("item checkbox mengubah state; Esc menutup", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

@@ -7,7 +7,7 @@ import { Button, Switch, useToast } from "@zandor/ui";
 import Papa from "papaparse";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useServices } from "../services";
-import { requestBrowserOpen } from "../tools/browser-bridge";
+import { openInZandorBrowser } from "../tools/browser-bridge";
 import type { ViewerProps } from "./types";
 
 /** Blob URL yang dilepas otomatis saat berkas/komponen berganti. */
@@ -104,8 +104,7 @@ export function HtmlViewer({ bytes }: ViewerProps) {
     try {
       if (!docHost.previewUrl) return;
       const target = await docHost.previewUrl(decoded.text);
-      panels.actions?.openTool("browser");
-      requestBrowserOpen(target);
+      openInZandorBrowser(panels, target);
     } catch (e) {
       toast.show({ title: t("sb.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" });
     }

@@ -14,6 +14,7 @@ import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { SAFE_IMAGE_URI } from "../image-uri";
+import { ChatLink, isWebLink } from "./ChatLink";
 import { Mermaid } from "./Mermaid";
 
 const SAFE_LINK = /^(https?:|mailto:|#)/i;
@@ -78,8 +79,11 @@ function Pre({ node, children }: { node?: unknown; children?: ReactNode }) {
 }
 
 const COMPONENTS: Components = {
+  // tautan web → menu pilihan (browser Zandor / eksternal / salin); mailto dan jangkar tetap tautan biasa
   a: ({ href, children }) =>
-    href && SAFE_LINK.test(href) ? (
+    href && isWebLink(href) ? (
+      <ChatLink href={href}>{children}</ChatLink>
+    ) : href && SAFE_LINK.test(href) ? (
       <a href={href} target="_blank" rel="noreferrer noopener">
         {children}
       </a>
