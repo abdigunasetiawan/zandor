@@ -76,6 +76,8 @@ export type PanelActions = {
   /** Buka panel bila terlipat. */
   reveal: (id: PanelId) => void;
   reset: () => void;
+  /** Bagi ulang lebar panel yang terlihat secara pintar (ADR-066). */
+  smartResize: () => void;
 };
 
 /** Status panel yang bisa diamati; aksinya dipasang ShellLayout selama terpasang. */

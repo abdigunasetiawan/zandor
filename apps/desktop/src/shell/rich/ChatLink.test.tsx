@@ -17,7 +17,14 @@ vi.mock("../services", async (orig) => ({
 
 const { ChatLink, isWebLink } = await import("./ChatLink");
 
-const actions = { toggle: vi.fn(), close: vi.fn(), openTool: vi.fn(), reveal: vi.fn(), reset: vi.fn() };
+const actions = {
+  toggle: vi.fn(),
+  close: vi.fn(),
+  openTool: vi.fn(),
+  reveal: vi.fn(),
+  reset: vi.fn(),
+  smartResize: vi.fn(),
+};
 
 function mount(href = "https://contoh.dev/dok") {
   return render(

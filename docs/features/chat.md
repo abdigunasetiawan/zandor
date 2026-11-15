@@ -52,6 +52,11 @@ pesan (tidak langsung terkirim); chip hilang saat mulai mengetik. Tes: `suggesti
 
 - **Render respons:** Markdown GFM, KaTeX, blok kode berwarna (label bahasa, Salin, ciut > 30 baris), Mermaid (setelah jawaban
   selesai), tabel yang bisa digulir. HTML mentah/skrip/gambar luar tidak aktif.
+- **Tautan di respons** (16-11-2026): klik/Enter pada tautan http(s) tidak langsung membuka halaman, tetapi menu kecil yang
+  menempel pada tautan (`ChatLink`, `Menu nativeButton={false}`): **Buka di browser Zandor** (Panel 4 → alat Browser, tab aktif),
+  **Buka di browser eksternal** (perintah Rust `open_external`, browser bawaan sistem), **Salin tautan**. Batas jujur: di aplikasi
+  desktop browser eksternal hanya untuk `https` (aturan `open_external`); di versi web browser Zandor dinonaktifkan dengan label
+  "hanya di aplikasi desktop". `mailto:` dan jangkar `#` tetap tautan biasa. Tes: `bun x vitest run apps/desktop/src/shell/rich`.
 - **Form pertanyaan agent** (tool `question`): kartu dengan pilihan tunggal/jamak dan jawaban sendiri; Kirim/Lewati. **Rencana
   agent** (todo) tampil di atas composer.
 - **Info pemakaian** di composer: model, konteks terpakai vs batas (peringatan hampir penuh), token, biaya, rincian.

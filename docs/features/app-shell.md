@@ -21,14 +21,15 @@
 
 ## Pintasan
 
-| Pintasan                           | Aksi                      |
-| ---------------------------------- | ------------------------- |
-| `Ctrl+K`, `Ctrl+Shift+P`           | command palette           |
-| `Ctrl+,`                           | Pengaturan                |
-| `Alt+←` / `Alt+→`                  | kembali / maju            |
-| `Ctrl+B` / `Ctrl+Alt+B` / `Ctrl+J` | Sidebar / Dokumen / Tools |
-| `Ctrl +` `Ctrl -` `Ctrl 0`         | zoom UI 75–150%           |
-| `Ctrl+Alt+T`                       | ganti tema                |
+| Pintasan                   | Aksi                                                                                                       |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `Ctrl+K`, `Ctrl+Shift+P`   | command palette                                                                                            |
+| `Ctrl+,`                   | Pengaturan                                                                                                 |
+| `Alt+←` / `Alt+→`          | kembali / maju                                                                                             |
+| `Ctrl+1` … `Ctrl+5`        | tampil/sembunyi panel 1 Sidebar, 2 Chat, 3 Dokumen, 4 Tools, 5 Rel (minimal satu dari 2/3/4 tetap terbuka) |
+| `Ctrl+Alt+0`               | smart resize panel yang terbuka (juga tombol pertama di grup toggle panel; ADR-066)                        |
+| `Ctrl +` `Ctrl -` `Ctrl 0` | zoom UI 75–150%                                                                                            |
+| `Ctrl+Alt+T`               | ganti tema                                                                                                 |
 
 ## Cara test
 

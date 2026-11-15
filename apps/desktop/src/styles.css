@@ -2336,6 +2336,11 @@
 .brw__url {
   flex: 1;
 }
+/* .stabs ber-flex: 1 (untuk baris horizontal); di .brw (kolom) itu membuat bilah tab memanjang vertikal dan
+   merebut separuh tinggi webview. Bilah tab browser harus setinggi isinya. */
+.brw .brw__tabs {
+  flex: none;
+}
 .brw__note {
   margin: 0;
   padding: 0 var(--z-space-3);

@@ -77,10 +77,10 @@ test("menu Tampilan memuat perintah panel; Tentang menampilkan versi", async ({ 
   await expect(page.getByRole("dialog", { name: "Tentang Zandor" })).toContainText(/Versi 0\.0\.\d+/);
 });
 
-test("toggle panel: Ctrl+B dan tombol; keadaan tersimpan setelah reload", async ({ page }) => {
+test("toggle panel: Ctrl+1 dan tombol; keadaan tersimpan setelah reload", async ({ page }) => {
   await home(page);
   expect(await width(page, "sidebar")).toBeGreaterThan(100);
-  await page.keyboard.press("Control+b");
+  await page.keyboard.press("Control+1");
   await settled(page);
   expect(await width(page, "sidebar")).toBeLessThan(2);
   await expect(page.getByRole("button", { name: /^Sidebar/ })).toHaveAttribute("aria-pressed", "false");
@@ -110,7 +110,7 @@ test("tombol tutup Panel Chat, Dokumen, dan Tools ada di baris tab paling atas, 
   await mockEngine(page);
   await page.goto("/");
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
-  await expect(page.getByRole("button", { name: "Dokumen (Ctrl+Alt+B)" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dokumen (Ctrl+3)" })).toBeVisible();
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:\\Work\\close-panels");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
@@ -124,13 +124,13 @@ test("tombol tutup Panel Chat, Dokumen, dan Tools ada di baris tab paling atas, 
   heights.push(await expectTopBar(chat, closeChat));
   await closeChat.click();
   await expect.poll(() => width(page, "chat")).toBeLessThan(2);
-  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Chat (Ctrl+2)" }).click();
   await settled(page);
   expect(await width(page, "chat")).toBeGreaterThan(100);
 
   await page.getByRole("button", { name: /^Sidebar/ }).click();
   if ((await width(page, "docs")) < 2) {
-    await page.getByRole("button", { name: "Dokumen (Ctrl+Alt+B)" }).click();
+    await page.getByRole("button", { name: "Dokumen (Ctrl+3)" }).click();
     await settled(page);
   }
   expect(await width(page, "docs")).toBeGreaterThan(100);
@@ -288,8 +288,8 @@ test("tata letak tidak disimpan bila 'ingat tata letak' dimatikan", async ({ pag
 
 test("Reset tata letak mengembalikan ukuran dan membuka semua panel", async ({ page }) => {
   await home(page);
-  await page.keyboard.press("Control+b");
-  await page.keyboard.press("Control+j");
+  await page.keyboard.press("Control+1");
+  await page.keyboard.press("Control+4");
   await settled(page);
   await page.keyboard.press("Control+k");
   await page.getByRole("combobox", { name: "Command palette" }).fill("reset tata");
@@ -297,6 +297,69 @@ test("Reset tata letak mengembalikan ukuran dan membuka semua panel", async ({ p
   await settled(page);
   expect(await width(page, "sidebar")).toBeGreaterThan(100);
   expect(await width(page, "tools")).toBeGreaterThan(100);
+});
+
+test("pintasan Ctrl+1..5: panel utama terakhir tidak bisa ditutup (sidebar/rel tidak boleh sendirian)", async ({
+  page,
+}) => {
+  await home(page);
+  await page.keyboard.press("Control+5"); // rel
+  await expect(page.getByRole("navigation", { name: "Rel alat" })).toHaveCount(0);
+  await page.keyboard.press("Control+5");
+  await expect(page.getByRole("navigation", { name: "Rel alat" })).toBeVisible();
+  await page.keyboard.press("Control+3");
+  await page.keyboard.press("Control+4");
+  await settled(page);
+  expect(await width(page, "docs")).toBeLessThan(2);
+  expect(await width(page, "tools")).toBeLessThan(2);
+  await page.keyboard.press("Control+2"); // Chat = panel utama terakhir → ditolak dengan pesan
+  await settled(page);
+  expect(await width(page, "chat")).toBeGreaterThan(100);
+  await expect(page.getByText("Minimal satu panel Chat, Dokumen, atau Tools harus tetap terbuka.")).toBeVisible();
+  await page.keyboard.press("Control+4"); // buka Tools → sekarang Chat boleh ditutup
+  await settled(page);
+  await page.keyboard.press("Control+2");
+  await settled(page);
+  expect(await width(page, "chat")).toBeLessThan(2);
+  expect(await width(page, "tools")).toBeGreaterThan(100);
+});
+
+test("smart resize: sidebar secukupnya, 2 panel utama 50/50, 3 panel utama Chat terbesar", async ({ page }) => {
+  await home(page);
+  await page.setViewportSize({ width: 1800, height: 800 });
+  await settled(page);
+  const smart = page.getByRole("button", { name: "Atur ukuran panel otomatis (Ctrl+Alt+0)" });
+  // tombol baru paling awal, sebelum tombol Sidebar
+  const toggles = page.getByRole("group", { name: "Tampilkan/sembunyikan panel" }).getByRole("button");
+  await expect(toggles.first()).toHaveAccessibleName("Atur ukuran panel otomatis (Ctrl+Alt+0)");
+
+  // sidebar + 3 panel utama
+  await smart.click();
+  await settled(page);
+  const s = await width(page, "sidebar");
+  const c = await width(page, "chat");
+  const d = await width(page, "docs");
+  const t = await width(page, "tools");
+  expect(s).toBeLessThanOrEqual(16 * 16 + 2); // secukupnya (≤ 16rem)
+  expect(c).toBeGreaterThan(d + 20); // Chat lebih besar
+  expect(Math.abs(d - t)).toBeLessThan(3); // sisanya 50/50
+
+  // sembunyikan sidebar dan Tools → Chat/Dokumen 50/50
+  await page.keyboard.press("Control+1");
+  await page.keyboard.press("Control+4");
+  await settled(page);
+  await page.keyboard.press("Control+Alt+0");
+  await settled(page);
+  expect(Math.abs((await width(page, "chat")) - (await width(page, "docs")))).toBeLessThan(3);
+
+  // sidebar + Dokumen saja → Dokumen mengambil sisa lebar
+  await page.keyboard.press("Control+1");
+  await page.keyboard.press("Control+2");
+  await settled(page);
+  await smart.click();
+  await settled(page);
+  expect(await width(page, "sidebar")).toBeLessThanOrEqual(16 * 16 + 2);
+  expect(await width(page, "docs")).toBeGreaterThan(1800 - 16 * 16 - 120);
 });
 
 test("di luar Tauri tidak ada kontrol jendela palsu", async ({ page }) => {

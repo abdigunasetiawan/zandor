@@ -1,6 +1,6 @@
 // Lima panel (ADR-015/025): P1 Sidebar | P2 Chat | P3 Dokumen | P4 Tools | P5 Rail.
 // Auto-collapse ditentukan perencana murni (@zandor/core `desiredCollapsed`), bukan reaksi pustaka UI.
-import { desiredCollapsed, formatCombo, type PanelSpec, remToPx } from "@zandor/core";
+import { canHidePanel, desiredCollapsed, formatCombo, type PanelSpec, remToPx, smartLayout } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
   ActivityIcon,
@@ -15,6 +15,7 @@ import {
   ListIcon,
   ShortcutScope,
   TerminalIcon,
+  useToast,
 } from "@zandor/ui";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
 import { Group, Panel, Separator, useDefaultLayout, useGroupRef, usePanelRef } from "react-resizable-panels";
@@ -45,6 +46,20 @@ export const PANEL_DEFS: PanelDef[] = [
 ];
 const MIN_REM = Object.fromEntries(PANEL_DEFS.map((p) => [p.id, p.minRem])) as Record<ResizableId, number>;
 const DEFAULT_LAYOUT = { sidebar: 18, chat: 34, docs: 22, tools: 26 };
+/** Smart resize: lebar sidebar "secukupnya" (rem) dan batas proporsinya terhadap lebar grup. */
+const SIDEBAR_SMART_REM = 16;
+const SIDEBAR_SMART_MAX_RATIO = 0.22;
+const MAIN_IDS: ResizableId[] = ["chat", "docs", "tools"];
+
+/** Pintasan panel bernomor (1 Sidebar, 2 Chat, 3 Dokumen, 4 Tools, 5 Rel) dan smart resize (ADR-066). */
+export const PANEL_SHORTCUTS: Record<PanelId, string> = {
+  sidebar: "Ctrl+1",
+  chat: "Ctrl+2",
+  docs: "Ctrl+3",
+  tools: "Ctrl+4",
+  rail: "Ctrl+5",
+};
+export const SMART_RESIZE_SHORTCUT = "Ctrl+Alt+0";
 const FALLBACK_SEPARATOR_PX = 6;
 const MAX_LAYOUT_REAPPLY = 6;
 const COLLAPSED_KEY = "zandor.layout.userCollapsed";
@@ -98,6 +113,9 @@ export function ShellLayout() {
   const [remember] = useSetting("rememberLayout");
   const [scale] = useSetting("uiScale");
   const panelState = usePanelState();
+  const toast = useToast();
+  const ui = useRef({ toast, t });
+  ui.current = { toast, t };
 
   const group = useGroupRef();
   const sidebarRef = usePanelRef();
@@ -170,6 +188,11 @@ export function ShellLayout() {
         userCollapsed: userCollapsed.current,
         protectedId: protectedId.current,
       });
+      // Aturan: minimal satu panel utama (Chat/Dokumen/Tools) terlihat — sidebar/rel tidak boleh sendirian.
+      if (MAIN_IDS.every((id) => desired.has(id))) {
+        desired.delete("chat");
+        userCollapsed.current.delete("chat");
+      }
       for (const def of PANEL_DEFS) {
         if (!def.collapsible) continue;
         const ref = refs[def.id].current;
@@ -187,6 +210,16 @@ export function ShellLayout() {
     [bridge, refs],
   );
 
+  /** Panel resizable yang saat ini terlihat (menurut rencana terakhir yang diterapkan). */
+  const visibleNow = useCallback(
+    () => new Set<string>(PANEL_DEFS.map((p) => p.id).filter((id) => !lastApplied.current.has(id))),
+    [],
+  );
+
+  const warnLastMain = useCallback(() => {
+    ui.current.toast.show({ title: ui.current.t("panel.lastMain"), tone: "warning" });
+  }, []);
+
   const toggle = useCallback(
     (id: PanelId) => {
       if (id === "rail") {
@@ -200,6 +233,10 @@ export function ShellLayout() {
       const def = PANEL_DEFS.find((p) => p.id === id);
       if (!def?.collapsible) return;
       const isCollapsed = refs[id]?.current?.isCollapsed() ?? lastApplied.current.has(id);
+      if (!isCollapsed && !canHidePanel(id, visibleNow())) {
+        warnLastMain();
+        return;
+      }
       if (isCollapsed) {
         userCollapsed.current.delete(id);
         protectedId.current = id; // yang baru dibuka pengguna tidak boleh langsung dilipat otomatis
@@ -210,17 +247,21 @@ export function ShellLayout() {
       persistCollapsed();
       apply();
     },
-    [apply, persistCollapsed, refs],
+    [apply, persistCollapsed, refs, visibleNow, warnLastMain],
   );
 
   const closePanel = useCallback(
     (id: Exclude<PanelId, "rail">) => {
+      if (!canHidePanel(id, visibleNow())) {
+        warnLastMain();
+        return;
+      }
       userCollapsed.current.add(id);
       if (protectedId.current === id) protectedId.current = null;
       persistCollapsed();
       apply();
     },
-    [apply, persistCollapsed],
+    [apply, persistCollapsed, visibleNow, warnLastMain],
   );
 
   /** Tampilkan panel bila sedang terlipat (tanpa menutupnya bila sudah terbuka). */
@@ -252,15 +293,46 @@ export function ShellLayout() {
     apply();
   }, [apply, group, persistCollapsed]);
 
+  /** Smart resize: bagi ulang lebar panel yang sedang terlihat menurut aturan `smartLayout` (ADR-066). */
+  const smartResize = useCallback(() => {
+    const el = groupEl.current;
+    const g = group.current;
+    if (!el || !g) return;
+    const root = rootFontPx();
+    const sep = el.querySelector("[data-separator]:not([data-hidden])")?.getBoundingClientRect().width ?? 0;
+    const layout = smartLayout({
+      availablePx: el.getBoundingClientRect().width,
+      separatorPx: sep || FALLBACK_SEPARATOR_PX,
+      visible: visibleNow(),
+      side: {
+        id: "sidebar",
+        targetPx: remToPx(SIDEBAR_SMART_REM, root),
+        minPx: remToPx(MIN_REM.sidebar, root),
+        maxRatio: SIDEBAR_SMART_MAX_RATIO,
+      },
+      main: MAIN_IDS.map((id) => ({ id, minPx: remToPx(MIN_REM[id], root) })),
+    });
+    if (!layout) return; // tidak terjadi: apply() selalu menjaga satu panel utama terlihat
+    g.setLayout(layout);
+    apply();
+  }, [apply, group, visibleNow]);
+
   // Pasang aksi ke jembatan + daftarkan perintah panel selama tata letak terpasang.
   useEffect(() => {
-    bridge.setActions({ toggle, close: closePanel, openTool, reveal, reset });
-    const defs = [
-      { id: "view.toggleSidebar", titleKey: "cmd.toggleSidebar", shortcut: "Ctrl+B", run: () => toggle("sidebar") },
-      { id: "view.toggleDocs", titleKey: "cmd.toggleDocs", shortcut: "Ctrl+Alt+B", run: () => toggle("docs") },
-      { id: "view.toggleTools", titleKey: "cmd.toggleTools", shortcut: "Ctrl+J", run: () => toggle("tools") },
-      { id: "view.toggleChat", titleKey: "cmd.toggleChat", run: () => toggle("chat") },
-      { id: "view.toggleRail", titleKey: "cmd.toggleRail", run: () => toggle("rail") },
+    bridge.setActions({ toggle, close: closePanel, openTool, reveal, reset, smartResize });
+    const panelCmd = (id: string, titleKey: string, panel: PanelId) => ({
+      id,
+      titleKey,
+      shortcut: PANEL_SHORTCUTS[panel],
+      run: () => toggle(panel),
+    });
+    const defs: Array<{ id: string; titleKey: string; shortcut?: string; run: () => void }> = [
+      panelCmd("view.toggleSidebar", "cmd.toggleSidebar", "sidebar"),
+      panelCmd("view.toggleChat", "cmd.toggleChat", "chat"),
+      panelCmd("view.toggleDocs", "cmd.toggleDocs", "docs"),
+      panelCmd("view.toggleTools", "cmd.toggleTools", "tools"),
+      panelCmd("view.toggleRail", "cmd.toggleRail", "rail"),
+      { id: "view.smartResize", titleKey: "cmd.smartResize", shortcut: SMART_RESIZE_SHORTCUT, run: smartResize },
       { id: "view.resetLayout", titleKey: "cmd.resetLayout", run: reset },
     ];
     const offs = defs.map((d) => commands.register({ ...d, group: "view" }));
@@ -268,7 +340,7 @@ export function ShellLayout() {
       for (const off of offs) off();
       bridge.setActions(null);
     };
-  }, [bridge, commands, toggle, closePanel, openTool, reveal, reset]);
+  }, [bridge, commands, toggle, closePanel, openTool, reveal, reset, smartResize]);
 
   // Hitung ulang saat ukuran grup berubah, skala UI berubah, atau saat pertama muncul.
   // biome-ignore lint/correctness/useExhaustiveDependencies: `scale` memicu perhitungan ulang (rem berubah)

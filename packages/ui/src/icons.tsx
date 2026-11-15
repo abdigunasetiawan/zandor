@@ -18,6 +18,7 @@ import {
   ChevronsUpDown,
   Clock,
   Code,
+  Columns3Cog,
   Copy,
   Database,
   Download,
@@ -147,6 +148,7 @@ export const PanelRailIcon = icon(PanelRightDashed, "PanelRailIcon");
 export const BellIcon = icon(Bell, "BellIcon");
 export const DatabaseIcon = icon(Database, "DatabaseIcon");
 export const LayoutIcon = icon(LayoutPanelLeft, "LayoutIcon");
+export const SmartLayoutIcon = icon(Columns3Cog, "SmartLayoutIcon");
 export const WrenchIcon = icon(Wrench, "WrenchIcon");
 export const StopIcon = icon(Square, "StopIcon");
 export const MicIcon = icon(Mic, "MicIcon");

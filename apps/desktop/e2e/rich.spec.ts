@@ -59,8 +59,16 @@ test("respons kaya: konten berbahaya tidak aktif (skrip, tautan javascript:, gam
   page.on("request", (r) => requests.push(r.url()));
   const msg = await setup(page);
   await expect(msg.getByRole("heading", { name: "Ringkasan" })).toBeVisible({ timeout: 15_000 });
-  await expect(msg.getByRole("link", { name: "aman" })).toHaveAttribute("href", "https://example.com");
-  await expect(msg.getByRole("link", { name: "jahat" })).toHaveCount(0);
+  // tautan web = pemicu menu (browser Zandor / eksternal / salin), bukan navigasi langsung
+  const safe = msg.locator('a[href="https://example.com"]');
+  await expect(safe).toHaveText("aman");
+  await expect(msg.locator("a", { hasText: "jahat" })).toHaveCount(0);
+  const before = page.url();
+  await safe.click();
+  await expect(page.getByRole("menuitem", { name: "Buka di browser eksternal" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Buka di browser Zandor/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+  expect(page.url()).toBe(before);
   await expect(msg.locator("script")).toHaveCount(0);
   await expect(msg.locator("img")).toHaveCount(0);
   await expect(msg.getByText("gambar luar")).toBeVisible();

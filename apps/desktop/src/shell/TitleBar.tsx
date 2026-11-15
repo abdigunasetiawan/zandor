@@ -21,9 +21,11 @@ import {
   RestoreIcon,
   SearchIcon,
   SettingsIcon,
+  SmartLayoutIcon,
 } from "@zandor/ui";
 import { useEffect, useState } from "react";
 import { useCommandCenter } from "./CommandCenter";
+import { PANEL_SHORTCUTS, SMART_RESIZE_SHORTCUT } from "./ShellLayout";
 import { type PanelId, useCommandList, useNavState, usePanelState, useServices, useWindowApi } from "./services";
 
 function WindowControls() {
@@ -76,6 +78,7 @@ const MENUS: Array<{ labelKey: MessageKey; ids: Array<string | "-"> }> = [
       "view.toggleDocs",
       "view.toggleTools",
       "view.toggleRail",
+      "view.smartResize",
       "view.resetLayout",
       "-",
       "view.zoomIn",
@@ -141,12 +144,12 @@ function MenuBar() {
   );
 }
 
-const PANEL_TOGGLES: Array<{ id: PanelId; icon: React.ReactNode; labelKey: MessageKey; shortcut: string }> = [
-  { id: "sidebar", icon: <PanelLeftIcon size="sm" />, labelKey: "panel.sidebar", shortcut: "Ctrl+B" },
-  { id: "chat", icon: <ChatIcon size="sm" />, labelKey: "panel.chat", shortcut: "" },
-  { id: "docs", icon: <PanelDocIcon size="sm" />, labelKey: "panel.docs", shortcut: "Ctrl+Alt+B" },
-  { id: "tools", icon: <PanelRightIcon size="sm" />, labelKey: "panel.tools", shortcut: "Ctrl+J" },
-  { id: "rail", icon: <PanelRailIcon size="sm" />, labelKey: "panel.rail", shortcut: "" },
+const PANEL_TOGGLES: Array<{ id: PanelId; icon: React.ReactNode; labelKey: MessageKey }> = [
+  { id: "sidebar", icon: <PanelLeftIcon size="sm" />, labelKey: "panel.sidebar" },
+  { id: "chat", icon: <ChatIcon size="sm" />, labelKey: "panel.chat" },
+  { id: "docs", icon: <PanelDocIcon size="sm" />, labelKey: "panel.docs" },
+  { id: "tools", icon: <PanelRightIcon size="sm" />, labelKey: "panel.tools" },
+  { id: "rail", icon: <PanelRailIcon size="sm" />, labelKey: "panel.rail" },
 ];
 
 export function TitleBar() {
@@ -197,10 +200,16 @@ export function TitleBar() {
       <div className="titlebar__tools">
         {panelState.ready && actions && (
           <fieldset className="titlebar__toggles" aria-label={t("panel.toggles")}>
+            <IconButton
+              label={`${t("panel.smartResize")} (${formatCombo(SMART_RESIZE_SHORTCUT)})`}
+              icon={<SmartLayoutIcon size="sm" />}
+              size="sm"
+              onClick={() => actions.smartResize()}
+            />
             {PANEL_TOGGLES.map((p) => (
               <IconButton
                 key={p.id}
-                label={p.shortcut ? `${t(p.labelKey)} (${formatCombo(p.shortcut)})` : t(p.labelKey)}
+                label={`${t(p.labelKey)} (${formatCombo(PANEL_SHORTCUTS[p.id])})`}
                 icon={p.icon}
                 size="sm"
                 aria-pressed={!panelState.collapsed[p.id]}

@@ -29,7 +29,7 @@
    bahasa), Bantuan (palette, Tentang), Dev Tools (design system). Menu **Edit ditunda** sampai ada fitur yang
    bisa diedit (Fase 5+), bukan diisi item palsu. Item panel hanya muncul saat tata letak panel terpasang.
 7. **Tata letak tersimpan** (ukuran + panel yang dilipat pengguna) bila pengaturan `rememberLayout` aktif.
-8. Pintasan baru: `Ctrl+K`/`Ctrl+Shift+P` palette, `Ctrl+,` Pengaturan, `Alt+←/→` back/next, `Ctrl+B`/`Ctrl+Alt+B`/`Ctrl+J`
+8. Pintasan baru: `Ctrl+K`/`Ctrl+Shift+P` palette, `Ctrl+,` Pengaturan, `Alt+←/→` back/next, `Ctrl+B`/`Ctrl+Alt+B`/`Ctrl+J` (diganti `Ctrl+1..5` oleh ADR-066)
    panel, `Ctrl +/−/0` zoom (juga `Ctrl+Shift++`), `Ctrl+Alt+T` tema.
 
 ## Bukti
