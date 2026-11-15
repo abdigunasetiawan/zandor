@@ -116,3 +116,5 @@
 - [ ] Belum: airspace diuji otomatis, Git Bash di terminal (Git push/pull/stash/discard sudah ada, ADR-057)
 - [x] Audit PRD §13: 5/5 terpenuhi; smoke native 40/40 dengan model nyata (chat, tulis file, bash, webfetch + izin; 3 project/10 sesi)
 - Temuan: perintah Tauri yang membuat webview wajib `async` (jika tidak, child webview macet di about:blank).
+- [x] Izin auto-approve tidak lagi berkedip: permintaan yang dijawab otomatis tidak pernah masuk state chat (tanpa kartu, tanpa geser layout, tanpa notifikasi "butuh aksi"); bila jawaban gagal, kartu muncul untuk dijawab manual (`ChatStore.maybeAutoReply`, tes di `chat-extra.test.ts`).
+- [x] Toast tidak lagi menyembunyikan webview browser Panel 4 (`BrowserPanel.OVERLAY`): sebelumnya tiap notifikasi membuat halaman browser hilang 6–10 detik. Konsekuensi: toast yang beririsan dengan webview tertutup webview (notifikasi sistem dan suara tetap jalan).

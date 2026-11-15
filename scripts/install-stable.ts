@@ -2,7 +2,7 @@
 //   bun scripts/install-stable.ts [--profile release|debug] [--dest <folder>] [--no-build]
 // Salinan ini berjalan dari folder sendiri (bukan target/), jadi build baru tidak terhalang file exe yang terkunci.
 // Ia memakai identifier produksi (id.web.zandor.app); build dev memakai id.web.zandor.dev (data dan single-instance terpisah).
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
@@ -41,6 +41,31 @@ for (const f of files) {
     process.exit(1);
   }
 }
+const destExe = join(dest, "zandor-desktop.exe");
+// Tutup HANYA salinan stabil di dest (bukan zandor-desktop.exe lain, mis. build dev di target/debug).
+const psPath = destExe.replace(/'/g, "''");
+spawnSync(
+  "powershell",
+  [
+    "-NoProfile",
+    "-Command",
+    `Get-CimInstance Win32_Process -Filter "Name='zandor-desktop.exe'" | Where-Object { $_.ExecutablePath -eq '${psPath}' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`,
+  ],
+  { stdio: "ignore" },
+);
+await new Promise((r) => setTimeout(r, 1500));
+// Cadangan versi sebelumnya (satu generasi) supaya bisa kembali.
+if (existsSync(destExe)) {
+  const bak = `${dest}.bak`;
+  try {
+    rmSync(bak, { recursive: true, force: true });
+    cpSync(dest, bak, { recursive: true });
+    console.log(`Cadangan versi lama: ${bak}`);
+  } catch (e) {
+    console.error(`Gagal membuat cadangan (${(e as Error).message}); pemasangan dibatalkan.`);
+    process.exit(1);
+  }
+}
 mkdirSync(dest, { recursive: true });
 try {
   for (const f of files) cpSync(join(out, f), join(dest, f));
@@ -52,5 +77,9 @@ try {
   );
   process.exit(1);
 }
-console.log(`Terpasang di ${join(dest, "zandor-desktop.exe")}`);
+console.log(`Terpasang di ${destExe}`);
+if (!args.includes("--no-launch")) {
+  spawn(destExe, [], { detached: true, stdio: "ignore" }).unref();
+  console.log("Zandor stabil dibuka.");
+}
 console.log("Data: %APPDATA%id.web.zandor.app (sama dengan Zandor yang Anda pakai sehari-hari).");

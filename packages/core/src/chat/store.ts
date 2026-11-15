@@ -226,13 +226,25 @@ export class ChatStore {
     }
   }
 
-  private maybeAutoReply(directory: string, req: PermissionRequest) {
+  private autoAllowed(req: PermissionRequest): boolean {
     const mode = this.snap.permissionMode;
-    const allowed = mode === "auto-all" || (mode === "auto-edit" && req.permission === "edit");
-    if (!allowed || !this.api) return;
+    return mode === "auto-all" || (mode === "auto-edit" && req.permission === "edit");
+  }
+
+  /**
+   * Jawab izin otomatis sesuai mode. Mengembalikan true bila permintaan ditangani otomatis, sehingga TIDAK boleh
+   * masuk ke state (kartu izin tidak berkedip, tidak menggeser layout, tidak memicu notifikasi "butuh aksi").
+   * Bila jawaban gagal, permintaan dimunculkan sebagai kartu biasa agar pengguna bisa menjawabnya sendiri.
+   */
+  private maybeAutoReply(directory: string, req: PermissionRequest, sessionIds?: string[]): boolean {
+    if (!this.autoAllowed(req) || !this.api) return false;
     void this.api.replyPermission(directory, req.id, "once").catch((e) => {
       this.options.onWarning?.(`gagal menjawab izin otomatis: ${errMsg(e)}`);
+      for (const id of sessionIds ?? this.sessionsOf(directory)) {
+        this.patchSession(id, (s) => ({ ...s, ...applyEvent(s, { type: "permission.asked", request: req }) }));
+      }
     });
+    return true;
   }
 
   /** Sematkan/lepas sematan satu pesan di sesi. Pesan yang hilang dari riwayat tetap tercatat sampai dilepas. */
@@ -371,7 +383,8 @@ export class ChatStore {
     } catch {
       // pengamat tidak boleh mengganggu aliran event
     }
-    if (ev.type === "permission.asked") this.maybeAutoReply(directory, ev.request);
+    // Izin yang dijawab otomatis tidak pernah masuk state (lihat maybeAutoReply).
+    if (ev.type === "permission.asked" && this.maybeAutoReply(directory, ev.request)) return;
     const isMessageEvent = MESSAGE_EVENTS.has(ev.type);
     for (const id of this.sessionsOf(directory)) {
       if (isMessageEvent && this.reloading.has(id)) {
@@ -401,7 +414,9 @@ export class ChatStore {
           api.listTodos(start.directory, sessionId).catch((): Todo[] => []),
         ]);
         if (api !== this.api || !this.snap.sessions[sessionId]) return;
-        const mine = permissions.filter((p) => p.sessionID === sessionId);
+        const mine = permissions.filter(
+          (p) => p.sessionID === sessionId && !this.maybeAutoReply(start.directory, p, [sessionId]),
+        );
         const myQuestions = questions.filter((q) => q.sessionID === sessionId);
         this.patchSession(sessionId, (s) => ({
           ...s,

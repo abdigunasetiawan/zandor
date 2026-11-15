@@ -2,14 +2,13 @@
 
 Pakai **dua salinan**: satu stabil untuk bekerja, satu dev untuk menguji perubahan (ADR-061).
 
-## 1. Pasang salinan stabil (sekali, ulangi bila ingin versi baru)
+## 1. Pasang atau perbarui salinan stabil (sekali klik)
 
-```bash
-bun run install:stable
-```
-
-Membangun release lalu menyalinnya ke `%LOCALAPPDATA%\ZandorStable\zandor-desktop.exe` (ubah dengan `--dest <folder>`; `--profile debug`
-bila ingin cepat; `--no-build` untuk hanya menyalin). Tutup salinan stabil yang sedang terbuka sebelum memasang ulang.
+Klik dua kali **`Perbarui-Zandor.cmd`** di akar repo (atau `bun run install:stable`). Urutannya: bangun release → tutup
+salinan stabil yang berjalan (hanya yang di `%LOCALAPPDATA%\ZandorStable`) → cadangkan versi lama ke `ZandorStable.bak`
+(satu generasi) → salin → buka. Opsi: `--dest <folder>`, `--profile debug`, `--no-build`, `--no-launch`.
+Kembali ke versi lama: tutup Zandor, hapus `ZandorStable`, ganti nama `ZandorStable.bak` menjadi `ZandorStable`.
+Prod yang berjalan dari `target\debug` tidak ditutup otomatis (dan mengunci build debug); pindahkan ke `ZandorStable`.
 Buka project Zandor dari sini dan minta agent mengubah kode.
 
 ## 2. Jalankan salinan dev untuk menguji

@@ -83,6 +83,27 @@ describe("mode izin", () => {
     expect(engine.replies).toEqual([{ requestId: "per_bash", reply: "once" }]);
   });
 
+  test("izin yang dijawab otomatis tidak pernah masuk state (tanpa kartu berkedip/notifikasi)", async () => {
+    const { engine, store } = await setup();
+    const seen: number[] = [];
+    store.subscribe(() => seen.push(store.state().sessions.s1?.permissions.length ?? 0));
+    store.setPermissionMode("auto-all");
+    engine.emit(DIR, ask("bash"));
+    await flush();
+    expect(engine.replies).toEqual([{ requestId: "per_bash", reply: "once" }]);
+    expect(store.state().sessions.s1?.permissions).toEqual([]);
+    expect(Math.max(0, ...seen)).toBe(0);
+  });
+
+  test("bila jawaban otomatis gagal, izin muncul sebagai kartu agar bisa dijawab manual", async () => {
+    const { engine, store } = await setup();
+    store.setPermissionMode("auto-all");
+    engine.failWith = "putus";
+    engine.emit(DIR, ask("bash"));
+    await flush();
+    expect(store.state().sessions.s1?.permissions.map((p) => p.id)).toEqual(["per_bash"]);
+  });
+
   test("mode tersimpan, dipulihkan, dan nilai rusak diabaikan", async () => {
     const a = await setup();
     a.store.setPermissionMode("auto-edit");

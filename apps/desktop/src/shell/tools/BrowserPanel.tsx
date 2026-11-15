@@ -36,7 +36,10 @@ let store: BrowserTabs = initialBrowserTabs();
 const created = new Set<string>();
 
 const OVERLAY =
-  '[data-shortcut-scope="modal"],[data-shortcut-scope="menu"],[data-shortcut-scope="palette"],[role="alertdialog"],.z-backdrop,.z-popup,.z-toast';
+  '[data-shortcut-scope="modal"],[data-shortcut-scope="menu"],[data-shortcut-scope="palette"],[role="alertdialog"],.z-backdrop,.z-popup';
+// Toast sengaja TIDAK termasuk: ia tidak memblokir dan muncul tiap notifikasi; menyembunyikan webview selama 6–10 detik
+// membuat halaman yang sedang dijelajahi menghilang/ter-render ulang. Konsekuensinya toast yang beririsan dengan webview
+// tertutup webview (notifikasi sistem dan suara tetap berjalan).
 
 export function BrowserPanel() {
   const { t } = useI18n();
