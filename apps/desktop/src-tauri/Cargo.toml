@@ -14,8 +14,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "=2.7.4", features = [] }
 
 [dependencies]
-# `unstable` = child webview (browser Panel 4, ADR-020); versi di-pin persis.
-tauri = { version = "=2.12.5", features = ["unstable"] }
+# `unstable` = child webview (browser Panel 4, ADR-020); `devtools` = Inspect Element/F12 juga di build rilis (ADR-062); versi di-pin persis.
+tauri = { version = "=2.12.5", features = ["unstable", "devtools"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "=2.8.4"

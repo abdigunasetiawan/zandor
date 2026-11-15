@@ -12,8 +12,9 @@ import {
   useShortcutRegistry,
   useToast,
 } from "@zandor/ui";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { build } from "../build";
+import { buildPanelDump } from "./dev-dump";
 import { requestMessageFocus } from "./message-focus";
 import { useAppearance, useCommandList, useServices, useWindowApi } from "./services";
 
@@ -58,8 +59,11 @@ function useCommandShortcuts(logger: Logger) {
 
 export function CommandCenter({ children }: { children: ReactNode }) {
   const { t } = useI18n();
-  const { commands, settings, nav, logger, projects } = useServices();
+  const { commands, settings, nav, logger, projects, chat } = useServices();
   const toast = useToast();
+  // nilai terbaru untuk perintah berumur panjang (tanpa mendaftarkan ulang perintah tiap render)
+  const ui = useRef({ toast, t });
+  ui.current = { toast, t };
   const windowApi = useWindowApi();
   const list = useCommandList();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -160,16 +164,65 @@ export function CommandCenter({ children }: { children: ReactNode }) {
       { id: "view.langId", titleKey: "cmd.langId", group: "view", run: () => settings.set("language", "id") },
       { id: "view.langEn", titleKey: "cmd.langEn", group: "view", run: () => settings.set("language", "en") },
       { id: "dev.designSystem", titleKey: "cmd.designSystem", group: "dev", run: () => nav.push("/design-system") },
+      {
+        id: "dev.copyChatHtml",
+        titleKey: "cmd.copyChatHtml",
+        group: "dev",
+        run: async () => {
+          const root = document.querySelector<HTMLElement>('[data-panel="chat"]');
+          if (!root) {
+            ui.current.toast.show({ title: ui.current.t("dev.copyChat.noPanel"), tone: "danger" });
+            return;
+          }
+          const sessionId = projects.state().selection.sessionId;
+          const session = sessionId ? chat.state().sessions[sessionId] : undefined;
+          try {
+            const html = buildPanelDump({
+              doc: document,
+              root,
+              title: "Zandor — dump Panel Chat",
+              meta: {
+                waktu: new Date().toISOString(),
+                versi: build.version,
+                userAgent: navigator.userAgent,
+                sesi: sessionId,
+                jumlahPesan: session?.messages.length ?? 0,
+                skalaUi: settings.get("uiScale"),
+                tema: settings.get("theme"),
+              },
+              data: session ? { sessionId, messages: session.messages } : undefined,
+            });
+            await navigator.clipboard.writeText(html);
+            ui.current.toast.show({
+              title: ui.current.t("dev.copyChat.done", { kb: String(Math.round(html.length / 1024)) }),
+              tone: "success",
+            });
+          } catch (e) {
+            logger.error("salin HTML Panel Chat gagal", { error: e });
+            ui.current.toast.show({ title: ui.current.t("dev.copyChat.fail", { error: String(e) }), tone: "danger" });
+          }
+        },
+      },
       { id: "help.about", titleKey: "cmd.about", group: "help", run: () => setAboutOpen(true) },
     ];
     if (windowApi) {
+      defs.push({
+        id: "dev.openDevtools",
+        titleKey: "cmd.openDevtools",
+        group: "dev",
+        shortcut: "F12",
+        run: async () => {
+          const { invoke } = await import("@tauri-apps/api/core");
+          await invoke("open_devtools");
+        },
+      });
       defs.push({ id: "window.close", titleKey: "cmd.closeWindow", group: "app", run: () => void windowApi.close() });
     }
     const offs = defs.map((d) => commands.register(d));
     return () => {
       for (const off of offs) off();
     };
-  }, [commands, settings, nav, openPalette, windowApi, projects, logger]);
+  }, [commands, settings, nav, openPalette, windowApi, projects, logger, chat]);
 
   // Pintasan tambahan yang tidak punya perintah sendiri (alias).
   useShortcut({

@@ -40,6 +40,13 @@ fn engine_restart(manager: State<EngineManager>) {
     manager.restart();
 }
 
+/// Buka DevTools (Inspect Element) untuk jendela utama. Tersedia juga di build rilis lewat fitur `devtools` (ADR-062);
+/// F12 dan klik kanan → Inspect memakai mekanisme WebView2 yang sama. Hanya webview UI lokal yang bisa memanggilnya.
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    window.open_devtools();
+}
+
 /// Direktori kerja untuk sesi tanpa project ("Chat").
 #[tauri::command]
 fn chats_dir(app: tauri::AppHandle) -> Result<String, String> {
@@ -942,6 +949,7 @@ pub fn run() {
             engine_state,
             engine_restart,
             chats_dir,
+            open_devtools,
             os_user,
             chat_folder_new,
             chat_folders,

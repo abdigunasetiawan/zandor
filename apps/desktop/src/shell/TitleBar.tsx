@@ -88,7 +88,7 @@ const MENUS: Array<{ labelKey: MessageKey; ids: Array<string | "-"> }> = [
     ],
   },
   { labelKey: "menu.help", ids: ["app.palette", "help.about"] },
-  { labelKey: "menu.dev", ids: ["dev.designSystem"] },
+  { labelKey: "menu.dev", ids: ["dev.copyChatHtml", "dev.openDevtools", "-", "dev.designSystem"] },
 ];
 
 function MenuBar() {

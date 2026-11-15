@@ -379,7 +379,7 @@ export function ShellLayout() {
           defaultSize={PANEL_DEFS[1]?.defaultSize}
           className="shell-panel"
         >
-          <section aria-label={t("panel.chat")} className="shell-panel__inner">
+          <section aria-label={t("panel.chat")} className="shell-panel__inner" data-panel="chat">
             {guarded("chat", "panel.chat", <ChatPanel />)}
           </section>
         </Panel>

@@ -38,3 +38,11 @@ Bawaannya memakai data salinan dev (terisolasi). Hanya proses yang diluncurkan s
 - Jangan jalankan salinan stabil dari `target/`; exe di sana terkunci saat dibangun ulang.
 - **Run pertama salinan dev lebih lama:** di folder data baru, opencode memasang dependensinya lewat jaringan (belasan detik). Batas tunggu plugin guard dinaikkan dari 8 ke 90 detik karena ini (sebelumnya engine dimatikan "demi keamanan" di run pertama).
 - **Build dev saat salinan lain terkunci:** bila `target/debug/zandor-desktop.exe` sedang berjalan, bangun dev ke folder lain: `CARGO_TARGET_DIR=<folder> bun run --filter @zandor/desktop tauri:build:dev`.
+
+## Debug render: Inspect Element dan salin HTML Panel Chat
+
+- **Inspect Element** aktif juga di salinan stabil: tekan **F12**, klik kanan → _Inspect_, atau menu **Dev Tools → Buka Inspect Element**.
+- **Salin HTML Panel Chat** (menu **Dev Tools**, atau palet perintah): menyalin satu dokumen HTML mandiri ke clipboard. Isinya DOM
+  Panel Chat saat ini, semua CSS, tema/skala, info build, dan **data pesan mentah** sesi aktif (termasuk langkah proses agent yang
+  terlipat). Simpan sebagai `.html` untuk dibuka di browser, atau tempelkan ke percakapan dengan agent.
+- Dump memuat isi percakapan Anda. Periksa dulu sebelum membagikannya.
