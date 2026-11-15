@@ -208,12 +208,28 @@
   object-fit: cover;
 }
 
-/* ---------- Kbd ---------- */
 .z-model-logo {
   flex: none;
   width: var(--z-icon-md);
   height: var(--z-icon-md);
 }
+
+/* ---------- AppLogo ---------- */
+.z-app-logo {
+  flex: none;
+  width: var(--z-icon-md);
+  height: var(--z-icon-md);
+}
+.z-app-logo--sm {
+  width: var(--z-icon-sm);
+  height: var(--z-icon-sm);
+}
+.z-app-logo--lg {
+  width: var(--z-icon-lg);
+  height: var(--z-icon-lg);
+}
+
+/* ---------- Kbd ---------- */
 .z-kbd-group {
   display: inline-flex;
   align-items: center;

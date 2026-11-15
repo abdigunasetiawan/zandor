@@ -2,6 +2,7 @@
 // `demoCoverage` test memastikan kunci di sini == katalog komponen di @zandor/ui.
 import type { AtomName, MoleculeName } from "@zandor/ui";
 import {
+  AppLogo,
   Avatar,
   Badge,
   Button,
@@ -305,6 +306,14 @@ export const ATOM_DEMOS: Record<AtomName, () => ReactNode> = {
         <ModelLogo providerID="opencode" modelID="gpt-5" />
         <ModelLogo providerID="openrouter" modelID="deepseek-chat" />
         <ModelLogo providerID="zeta-lab" modelID="model-baru" name="Zeta Lab" />
+      </>,
+    ),
+  AppLogo: () =>
+    row(
+      <>
+        <AppLogo size="sm" />
+        <AppLogo />
+        <AppLogo size="lg" />
       </>,
     ),
   Kbd: () =>

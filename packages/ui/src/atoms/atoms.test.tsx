@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
+  AppLogo,
   Avatar,
   Badge,
   Button,
@@ -233,5 +234,21 @@ describe("Badge, Avatar, Kbd, Spinner, Skeleton", () => {
   test("Skeleton dekoratif (aria-hidden)", () => {
     const { container } = renderUi(<Skeleton />);
     expect(container.querySelector(".z-skeleton")).toHaveAttribute("aria-hidden", "true");
+  });
+});
+
+describe("AppLogo", () => {
+  test("dekoratif tanpa label: disembunyikan dari pembaca layar", () => {
+    const { container } = renderUi(<AppLogo />);
+    const svg = container.querySelector("svg");
+    expect(svg?.getAttribute("aria-hidden")).toBe("true");
+    expect(svg?.classList.contains("z-app-logo--md")).toBe(true);
+    expect(svg?.querySelectorAll("rect, polygon")).toHaveLength(3);
+  });
+
+  test("dengan label: gambar bernama, ukuran lewat kelas token", () => {
+    renderUi(<AppLogo label="Zandor" size="lg" />);
+    const img = screen.getByRole("img", { name: "Zandor" });
+    expect(img.classList.contains("z-app-logo--lg")).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import "./styles/index.css";
 
+export { AppLogo, type AppLogoProps, type AppLogoSize } from "./atoms/AppLogo";
 export { Avatar, initials } from "./atoms/Avatar";
 export type { ButtonProps, ButtonVariant, ControlSize, IconButtonProps } from "./atoms/Button";
 export { Button, IconButton } from "./atoms/Button";

@@ -10,6 +10,7 @@ import {
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
+  AppLogo,
   Avatar,
   Badge,
   BrainIcon,
@@ -99,8 +100,8 @@ export function Sidebar() {
   return (
     <div className="sidebar">
       <div className="sidebar__head">
-        <span className="sidebar__logo" aria-hidden="true">
-          Z
+        <span className="sidebar__logo">
+          <AppLogo size="lg" />
         </span>
         <div className="sidebar__brandwrap">
           <h2 className="z-h4 sidebar__brand">{t("app.name")}</h2>

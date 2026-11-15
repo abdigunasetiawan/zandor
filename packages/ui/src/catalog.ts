@@ -13,6 +13,7 @@ export const ATOMS = [
   "Badge",
   "Avatar",
   "ModelLogo",
+  "AppLogo",
   "Kbd",
   "Tooltip",
   "Spinner",
