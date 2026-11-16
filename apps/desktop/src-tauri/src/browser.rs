@@ -50,7 +50,21 @@ pub fn mode() -> &'static str {
     "child-webview"
 }
 
-/// Normalisasi masukan bilah alamat: tanpa skema → https; hanya http/https; panjang dibatasi.
+/// Host lokal (localhost, *.localhost, 127.x, 0.0.0.0, [::1]) pada masukan tanpa skema.
+fn is_local_host(t: &str) -> bool {
+    let host = if let Some(rest) = t.strip_prefix('[') {
+        return rest.starts_with("::1]");
+    } else {
+        t.split(['/', ':', '?', '#']).next().unwrap_or("")
+    };
+    let host = host.to_ascii_lowercase();
+    host == "localhost"
+        || host.ends_with(".localhost")
+        || host == "0.0.0.0"
+        || host.starts_with("127.")
+}
+
+/// Normalisasi masukan bilah alamat: tanpa skema → https (host lokal → http); hanya http/https; panjang dibatasi.
 pub fn parse_url(input: &str) -> Result<Url, String> {
     let t = input.trim();
     if t.is_empty() || t.len() > 4096 {
@@ -58,6 +72,9 @@ pub fn parse_url(input: &str) -> Result<Url, String> {
     }
     let with_scheme = if t.contains("://") {
         t.to_string()
+    } else if is_local_host(t) {
+        // Server dev lokal hampir selalu http polos; https:// membuat halaman kosong/gagal.
+        format!("http://{t}")
     } else {
         format!("https://{t}")
     };
@@ -265,6 +282,15 @@ mod tests {
             "http"
         );
         assert_eq!(parse_url("https://a.b/c?d=1#e").unwrap().path(), "/c");
+        for local in [
+            "localhost:5173",
+            "127.0.0.1:8080/x",
+            "app.localhost:3000",
+            "[::1]:4000",
+        ] {
+            assert_eq!(parse_url(local).unwrap().scheme(), "http", "{local:?}");
+        }
+        assert_eq!(parse_url("localhostx.com").unwrap().scheme(), "https");
         for bad in [
             "",
             "   ",
