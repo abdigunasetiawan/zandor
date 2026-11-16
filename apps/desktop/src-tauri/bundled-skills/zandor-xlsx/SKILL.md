@@ -1,4 +1,5 @@
 ---
+
 name: zandor-xlsx
 description: "Membuat, membaca, atau mengubah spreadsheet Excel (.xlsx/.xlsm) dan CSV: isi sel, rumus, lembar, format, membersihkan data, merangkum tabel. Pakai setiap kali user menyebut Excel, .xlsx, spreadsheet, atau lembar kerja."
 ---
@@ -27,6 +28,7 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
 
 1. **Baca dulu**: `python "{{SKILL_DIR}}/office_check.py" data.xlsx --text` (lembar, jumlah sel, jumlah rumus).
    Untuk melihat isi terstruktur:
+
    ```python
    from openpyxl import load_workbook
    wb = load_workbook("data.xlsx")
@@ -34,12 +36,14 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
    for row in ws.iter_rows(min_row=1, max_row=10, values_only=True): print(row)
    ```
 2. **Ubah** (skrip sementara di folder temp):
+
    ```python
    ws["D2"] = "=B2*C2"            # rumus, bukan angka
    ws.append(["Baru", 3, 1500])   # baris baru
    ws["D2"].number_format = "#,##0"
    wb.save("data.xlsx")
    ```
+
    Saat menambah baris, perbarui juga rentang rumus agregat (mis. `=SUM(D2:D10)` → `D2:D11`).
 3. **Verifikasi wajib**: `python "{{SKILL_DIR}}/office_check.py" data.xlsx --expect "Baru"` → `valid: true`.
    Bila LibreOffice tersedia, hitung ulang untuk memeriksa galat rumus:

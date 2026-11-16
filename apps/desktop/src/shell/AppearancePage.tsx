@@ -21,6 +21,8 @@ import {
   TYPE_VARS,
   type TypeProp,
   type TypeVar,
+  themesFromVsix,
+  type VsixThemeResult,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
@@ -36,7 +38,8 @@ import {
   useToast,
 } from "@zandor/ui";
 import { useEffect, useRef, useState } from "react";
-import { ChatStyleControls } from "./ChatStyleControls";
+import { ChatStyleControls, FONTS } from "./ChatStyleControls";
+import { FontPicker } from "./FontPicker";
 import { PageFrame } from "./PageFrame";
 import { ProjectStyleDialog } from "./ProjectStyleDialog";
 import { useAppearance, useProjects, useServices, useSettings } from "./services";
@@ -378,14 +381,15 @@ function TypeTab({ a }: { a: Appearance }) {
       <p className="z-small mempage__muted">{t("ap.type.intro")}</p>
       <h2 className="z-h4">{t("ap.type.fonts")}</h2>
       {FONT_SLOTS.map((slot: FontSlot) => (
-        <ValueField
-          key={slot}
-          label={t(`ap.font.${slot}` as never)}
-          value={a.fonts[slot] ?? ""}
-          placeholder={t("ap.editor.default")}
-          description={t("ap.type.fontHint")}
-          onCommit={(v) => store.setFont(slot, v)}
-        />
+        <div key={slot} className="cstyle__row">
+          <span className="z-label">{t(`ap.font.${slot}` as never)}</span>
+          <FontPicker
+            label={t(`ap.font.${slot}` as never)}
+            value={a.fonts[slot] ?? null}
+            presets={FONTS}
+            onChange={(v) => store.setFont(slot, v)}
+          />
+        </div>
       ))}
       <h2 className="z-h4">{t("ap.type.vars")}</h2>
       <p className="z-small mempage__muted">{t("ap.type.varsHint")}</p>
@@ -486,8 +490,28 @@ function EditorTab({ a }: { a: Appearance }) {
     ...a.editorThemes.map((th) => ({ value: th.id, label: th.name })),
   ];
 
+  const addThemes = (r: VsixThemeResult, label: string) => {
+    const problems = [...r.errors];
+    let first: string | null = null;
+    for (const th of r.themes) {
+      const err = store.addEditorTheme(th);
+      if (err) problems.push(`${th.name}: ${err}`);
+      else first ??= th.id;
+    }
+    if (r.skipped.length) problems.push(t("ap.editor2.skipped", { list: r.skipped.join("; ") }));
+    if (first) {
+      store.setEditorTheme(first);
+      toast.show({ title: t("ap.editor2.imported", { name: label }), tone: "success" });
+    }
+    setErrors(problems);
+  };
+
   const importFile = async (file: File) => {
     setErrors([]);
+    if (/\.vsix$/i.test(file.name)) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      return addThemes(themesFromVsix(bytes, `berkas:${file.name}`), file.name.replace(/\.vsix$/i, ""));
+    }
     const r = convertVsCodeTheme(await file.text(), { name: file.name.replace(/\.jsonc?$/i, ""), source: "berkas" });
     if (!r.theme) return setErrors(r.errors);
     const err = store.addEditorTheme(r.theme);
@@ -512,20 +536,7 @@ function EditorTab({ a }: { a: Appearance }) {
     setErrors([]);
     setBusy(item.download);
     try {
-      const r = await fetchOpenVsxThemes(openVsx, item);
-      const problems = [...r.errors];
-      let first: string | null = null;
-      for (const th of r.themes) {
-        const err = store.addEditorTheme(th);
-        if (err) problems.push(`${th.name}: ${err}`);
-        else first ??= th.id;
-      }
-      if (r.skipped.length) problems.push(t("ap.editor2.skipped", { list: r.skipped.join("; ") }));
-      if (first) {
-        store.setEditorTheme(first);
-        toast.show({ title: t("ap.editor2.imported", { name: item.display_name }), tone: "success" });
-      }
-      setErrors(problems);
+      addThemes(await fetchOpenVsxThemes(openVsx, item), item.display_name);
     } catch (e) {
       setErrors([errMsg(e)]);
     } finally {
@@ -553,7 +564,7 @@ function EditorTab({ a }: { a: Appearance }) {
         <input
           ref={fileRef}
           type="file"
-          accept="application/json,.json,.jsonc"
+          accept="application/json,.json,.jsonc,.vsix"
           hidden
           aria-label={t("ap.editor2.importFile")}
           onChange={(e) => {

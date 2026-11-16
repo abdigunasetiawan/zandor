@@ -248,6 +248,15 @@ describe("AppearanceStore", () => {
     expect(st.setProjectStyle("p1", "logo", "🚀")).toBeNull();
     expect(st.setProjectStyle("p1", "border", "red")).not.toBeNull();
     expect(st.setProjectStyle("p1", "logo", null)).toBeNull();
+    expect(st.setProjectStyle("p1", "imageY", "30")).toBeNull();
+    expect(st.setProjectStyle("p1", "imageY", "101")).not.toBeNull();
+    expect(st.setProjectStyle("p1", "imageZoom", "150")).toBeNull();
+    expect(st.setProjectStyle("p1", "imageZoom", "50")).not.toBeNull();
+    expect(st.setProjectStyle("p1", "overlay", "blur")).not.toBeNull();
+    expect(st.setProjectStyle("p1", "overlayOpacity", "200")).not.toBeNull();
+    expect(st.setProjectStyle("p1", "fg", "nope")).not.toBeNull();
+    st.setProjectStyle("p1", "imageY", null);
+    st.setProjectStyle("p1", "imageZoom", null);
     expect(st.state().projects.p1).toBeUndefined();
     st.resetAll();
     expect(st.state()).toEqual(DEFAULT_APPEARANCE);

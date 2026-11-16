@@ -128,13 +128,21 @@ function Changes({ adds, dels }: { adds?: number | undefined; dels?: number | un
   );
 }
 
-function useDuration(state: ToolPart["state"]): string {
-  const { t } = useI18n();
-  if (!state.time?.end) return "";
-  const ms = state.time.end - state.time.start;
-  if (ms < 1500) return "";
+/** Jam selesai + durasi kerja satu langkah tool (kosong bila belum selesai atau waktu tak dilaporkan engine). */
+function useFinished(state: ToolPart["state"]): { text: string; title: string } | null {
+  const { t, locale } = useI18n();
+  const end = state.time?.end;
+  if (!end || !state.time?.start) return null;
+  const ms = Math.max(0, end - state.time.start);
   const s = Math.round(ms / 1000);
-  return s >= 60 ? t("time.minsec", { m: Math.floor(s / 60), s: s % 60 }) : t("time.sec", { s });
+  const dur =
+    ms < 1000
+      ? t("time.ms", { ms })
+      : s >= 60
+        ? t("time.minsec", { m: Math.floor(s / 60), s: s % 60 })
+        : t("time.sec", { s });
+  const at = new Date(end).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return { text: t("tool.finished", { at, dur }), title: t("tool.finishedTitle", { at, dur }) };
 }
 
 function Status({ status }: { status: ToolPart["state"]["status"] }) {
@@ -293,7 +301,7 @@ export function ToolCard({ part }: { part: ToolPart }) {
   const [open, setOpen] = useOpenState(`tool:${part.id}`);
   const { state } = part;
   const view = describeTool(part);
-  const duration = useDuration(state);
+  const finished = useFinished(state);
   const web = WEB_SEARCH.has(part.tool);
   const openDoc = useOpenDoc();
   const toast = useToast();
@@ -341,7 +349,11 @@ export function ToolCard({ part }: { part: ToolPart }) {
             {failedExit && (
               <span className="tstep__chip tstep__chip--bad">{t("tool.exit", { code: view.exit ?? 0 })}</span>
             )}
-            {duration && <span className="tstep__time">{duration}</span>}
+            {finished && (
+              <span className="tstep__time" title={finished.title}>
+                {finished.text}
+              </span>
+            )}
           </span>
           <Status status={state.status} />
         </button>

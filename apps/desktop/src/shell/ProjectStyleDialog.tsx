@@ -2,6 +2,7 @@
 // gambar unggahan), dan warna border. Pratinjau langsung. Disimpan lewat AppearanceStore (tervalidasi) per project.
 import {
   DEFAULT_GRADIENT,
+  DEFAULT_OVERLAY_COLOR,
   DEFAULT_PROJECT_COLOR,
   FALLBACK_PICKER_COLOR,
   GRADIENT_TEMPLATES,
@@ -18,7 +19,21 @@ import {
   randomGradient,
 } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { Button, Dialog, Field, IconButton, Input, Select, Slider, Tabs, TrashIcon, useToast } from "@zandor/ui";
+import {
+  Button,
+  Dialog,
+  Field,
+  FolderIcon,
+  IconButton,
+  Input,
+  MoreIcon,
+  PlusIcon,
+  Select,
+  Slider,
+  Tabs,
+  TrashIcon,
+  useToast,
+} from "@zandor/ui";
 import { useRef, useState } from "react";
 import { imageToDataUrl } from "./image-resize";
 import { useAppearance, useServices } from "./services";
@@ -29,8 +44,31 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** CSS latar untuk pratinjau/sidebar dari gaya (image > gradient > background). */
 export function projectBackground(s: ProjectStyle | undefined): string | undefined {
+  const base = baseBackground(s);
+  if (!base || !s?.overlay) return base;
+  const c = `color-mix(in srgb, ${s.overlayColor ?? DEFAULT_OVERLAY_COLOR} ${s.overlayOpacity ?? 50}%, transparent)`;
+  const dir = OVERLAY_DIRECTION[s.overlay];
+  const layer = dir ? `linear-gradient(${dir}, ${c}, transparent)` : `linear-gradient(${c}, ${c})`;
+  return `${layer}, ${base}`;
+}
+
+/** Arah gradasi overlay: dari sisi pekat menuju sisi transparan. */
+const OVERLAY_DIRECTION: Record<string, string> = {
+  gradient: "to right",
+  "gradient-rtl": "to left",
+  "gradient-ttb": "to bottom",
+  "gradient-btt": "to top",
+};
+
+function baseBackground(s: ProjectStyle | undefined): string | undefined {
   if (!s) return undefined;
-  if (s.image) return `center / cover no-repeat url(${s.image})`;
+  if (s.image) {
+    const zoom = Number(s.imageZoom ?? 100);
+    // Baris sidebar sangat pipih (~8:1): `cover` hanya menampilkan irisan; posisi Y memilih irisan, zoom memperbesar.
+    // Baris lebih pipih dari gambar, jadi `cover` = lebar 100%; zoom > 100 memperbesar dari lebar itu.
+    const size = zoom > 100 ? `${zoom}% auto` : "cover";
+    return `center ${s.imageY ?? 50}% / ${size} no-repeat url(${s.image})`;
+  }
   return s.gradient ?? s.background;
 }
 
@@ -55,6 +93,14 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
   const [logo, setLogo] = useState(saved?.logo ?? "");
   const [logoImage, setLogoImage] = useState<string | null>(saved?.logoImage ?? null);
   const [border, setBorder] = useState(saved?.border ?? "");
+  const [overlay, setOverlay] = useState(saved?.overlay ?? "none");
+  const [overlayColor, setOverlayColor] = useState(saved?.overlayColor ?? DEFAULT_OVERLAY_COLOR);
+  const [overlayOpacity, setOverlayOpacity] = useState(Number(saved?.overlayOpacity ?? 50));
+  const [fg, setFg] = useState(saved?.fg ?? "");
+  const [imageY, setImageY] = useState(Number(saved?.imageY ?? 50));
+  const [imageZoom, setImageZoom] = useState(Number(saved?.imageZoom ?? 100));
+  // Lebar baris project di sidebar saat ini, agar pratinjau memakai rasio yang sama persis dengan hasilnya.
+  const [rowWidth] = useState(() => document.querySelector<HTMLElement>(".sidebar .tree__row")?.offsetWidth ?? 0);
   const bgFile = useRef<HTMLInputElement>(null);
   const logoFile = useRef<HTMLInputElement>(null);
 
@@ -62,9 +108,23 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
     ...(border && isColor(border) ? { border } : {}),
     ...(logo.trim() ? { logo: logo.trim() } : {}),
     ...(logoImage ? { logoImage } : {}),
+    ...(fg && isColor(fg) ? { fg } : {}),
+    ...(mode !== "none" && overlay !== "none"
+      ? {
+          overlay,
+          ...(isColor(overlayColor) && overlayColor !== DEFAULT_OVERLAY_COLOR ? { overlayColor } : {}),
+          ...(overlayOpacity !== 50 ? { overlayOpacity: String(overlayOpacity) } : {}),
+        }
+      : {}),
     ...(mode === "color" && isColor(color) ? { background: color } : {}),
     ...(mode === "gradient" ? { gradient: gradientCss(spec) } : {}),
-    ...(mode === "image" && image ? { image } : {}),
+    ...(mode === "image" && image
+      ? {
+          image,
+          ...(imageY !== 50 ? { imageY: String(imageY) } : {}),
+          ...(imageZoom !== 100 ? { imageZoom: String(imageZoom) } : {}),
+        }
+      : {}),
   };
 
   const save = () => {
@@ -75,6 +135,12 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
       ["background", draft.background],
       ["gradient", draft.gradient],
       ["image", draft.image],
+      ["imageY", draft.imageY],
+      ["imageZoom", draft.imageZoom],
+      ["overlay", draft.overlay],
+      ["overlayColor", draft.overlayColor],
+      ["overlayOpacity", draft.overlayOpacity],
+      ["fg", draft.fg],
     ];
     for (const [k, v] of entries) {
       const err = store.setProjectStyle(project.id, k, v ?? null);
@@ -92,7 +158,7 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
       if (kind === "bg") {
         setImage(
           await imageToDataUrl(file, {
-            maxSide: 640,
+            maxSide: 1280,
             mime: "image/jpeg",
             quality: 0.8,
             maxChars: MAX_STYLE_IMAGE_CHARS,
@@ -143,6 +209,12 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
               setLogoImage(null);
               setBorder("");
               setImage(null);
+              setImageY(50);
+              setImageZoom(100);
+              setOverlay("none");
+              setOverlayColor(DEFAULT_OVERLAY_COLOR);
+              setOverlayOpacity(50);
+              setFg("");
             }}
           >
             {t("pstyle.reset")}
@@ -158,8 +230,11 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
         <div
           className="pstyle__preview"
           data-bg={bg ? "" : undefined}
+          data-fg={draft.fg ? "" : undefined}
           style={{
             ...(bg ? { background: bg } : {}),
+            ...(draft.fg ? ({ "--pstyle-fg": draft.fg } as React.CSSProperties) : {}),
+            ...(rowWidth ? { width: `${rowWidth}px`, maxWidth: "100%" } : {}),
             ...(draft.border ? { boxShadow: `inset 0 0 0 var(--z-border-width) ${draft.border}` } : {}),
           }}
           data-testid="pstyle-preview"
@@ -168,6 +243,11 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
             {logoImage ? <img src={logoImage} alt="" className="pstyle__logoimg" /> : logo.trim() || "📁"}
           </span>
           <span className="tree__label">{project.name}</span>
+          <span className="pstyle__previcons" aria-hidden="true">
+            <FolderIcon size="sm" />
+            <PlusIcon size="sm" />
+            <MoreIcon size="sm" />
+          </span>
         </div>
 
         <section className="pstyle__group" aria-labelledby="pstyle-bg-head">
@@ -273,25 +353,46 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
                 value: "image",
                 label: t("pstyle.bg.image"),
                 content: (
-                  <div className="pstyle__row">
-                    <input
-                      ref={bgFile}
-                      type="file"
-                      accept="image/png,image/jpeg,image/webp,image/gif"
-                      hidden
-                      aria-label={t("pstyle.bg.upload")}
-                      onChange={(e) => {
-                        void upload(e.target.files?.[0], "bg");
-                        e.target.value = "";
-                      }}
-                    />
-                    <Button size="sm" onClick={() => bgFile.current?.click()}>
-                      {t("pstyle.bg.upload")}
-                    </Button>
-                    {image && (
-                      <Button size="sm" variant="ghost" onClick={() => setImage(null)}>
-                        {t("pstyle.bg.removeImage")}
+                  <div className="pstyle__gradient">
+                    <div className="pstyle__row">
+                      <input
+                        ref={bgFile}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        hidden
+                        aria-label={t("pstyle.bg.upload")}
+                        onChange={(e) => {
+                          void upload(e.target.files?.[0], "bg");
+                          e.target.value = "";
+                        }}
+                      />
+                      <Button size="sm" onClick={() => bgFile.current?.click()}>
+                        {t("pstyle.bg.upload")}
                       </Button>
+                      {image && (
+                        <Button size="sm" variant="ghost" onClick={() => setImage(null)}>
+                          {t("pstyle.bg.removeImage")}
+                        </Button>
+                      )}
+                    </div>
+                    {image && (
+                      <>
+                        <Slider
+                          label={t("pstyle.bg.posY", { pct: imageY })}
+                          min={0}
+                          max={100}
+                          value={imageY}
+                          onValueChange={setImageY}
+                        />
+                        <Slider
+                          label={t("pstyle.bg.zoom", { pct: imageZoom })}
+                          min={100}
+                          max={300}
+                          step={5}
+                          value={imageZoom}
+                          onValueChange={setImageZoom}
+                        />
+                      </>
                     )}
                     <p className="z-small pstyle__hint">{t("pstyle.bg.imageHint")}</p>
                   </div>
@@ -300,6 +401,47 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
             ]}
           />
         </section>
+
+        {mode !== "none" && (
+          <section className="pstyle__group" aria-labelledby="pstyle-ov-head">
+            <h3 id="pstyle-ov-head" className="z-label pstyle__head">
+              {t("pstyle.overlay")}
+            </h3>
+            <Field label={t("pstyle.overlay.type")}>
+              {(c) => (
+                <Select
+                  {...c}
+                  value={overlay}
+                  onValueChange={setOverlay}
+                  items={[
+                    { value: "none", label: t("pstyle.overlay.none") },
+                    { value: "full", label: t("pstyle.overlay.full") },
+                    { value: "gradient", label: t("pstyle.overlay.gradient") },
+                    { value: "gradient-rtl", label: t("pstyle.overlay.gradientRtl") },
+                    { value: "gradient-ttb", label: t("pstyle.overlay.gradientTtb") },
+                    { value: "gradient-btt", label: t("pstyle.overlay.gradientBtt") },
+                  ]}
+                />
+              )}
+            </Field>
+            {overlay !== "none" && (
+              <>
+                {colorField(t("pstyle.overlay.color"), overlayColor, setOverlayColor)}
+                <Slider
+                  label={t("pstyle.overlay.opacity", { pct: overlayOpacity })}
+                  min={0}
+                  max={100}
+                  value={overlayOpacity}
+                  onValueChange={setOverlayOpacity}
+                />
+              </>
+            )}
+          </section>
+        )}
+
+        <Field label={t("pstyle.fg")} description={t("pstyle.fgHint")}>
+          {() => colorField(t("pstyle.fg"), fg, setFg)}
+        </Field>
 
         <Field label={t("pstyle.logo")} description={t("pstyle.logoHint")}>
           {(c) => (

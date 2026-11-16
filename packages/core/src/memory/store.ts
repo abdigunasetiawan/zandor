@@ -297,11 +297,19 @@ export class MemoryStore {
 
   // ---- pengaturan (baca ulang dulu agar perubahan lain tidak tertimpa) ----
 
-  async patchSettings(fn: (s: MemorySettings) => MemorySettings): Promise<void> {
-    const cur = parseSettings(await this.host.read(FILE_SETTINGS));
-    const next = fn(cur);
-    await this.host.write(FILE_SETTINGS, JSON.stringify(next, null, 2));
-    this.update({ settings: next });
+  /** Antrean patch: baca-ubah-tulis harus berurutan, kalau tidak patch paralel saling menimpa (mis. memori + skill
+   * yang diterapkan bersamaan saat sesi baru dibuat). */
+  private settingsQueue: Promise<void> = Promise.resolve();
+
+  patchSettings(fn: (s: MemorySettings) => MemorySettings): Promise<void> {
+    const run = this.settingsQueue.then(async () => {
+      const cur = parseSettings(await this.host.read(FILE_SETTINGS));
+      const next = fn(cur);
+      await this.host.write(FILE_SETTINGS, JSON.stringify(next, null, 2));
+      this.update({ settings: next });
+    });
+    this.settingsQueue = run.catch(() => {});
+    return run;
   }
 
   setDefaultEnabled = (on: boolean) => this.patchSettings((s) => ({ ...s, defaultEnabled: on }));

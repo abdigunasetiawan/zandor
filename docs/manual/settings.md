@@ -23,6 +23,7 @@ Pengaturan disimpan sebagai satu objek JSON. Properti yang tidak ada memakai def
 | `soundFailed` | string | `chime`, `pop`, `bell`, `soft`, `alert`, `low`, `none`, `custom` | `"low"` | Suara saat sesi gagal atau terkena batas. |
 | `soundAction` | string | `chime`, `pop`, `bell`, `soft`, `alert`, `low`, `none`, `custom` | `"bell"` | Suara saat izin atau pertanyaan menunggu. |
 | `sendKey` | string | `enter`, `ctrl-enter` | `"enter"` | Enter mengirim (Shift+Enter baris baru), atau Ctrl+Enter mengirim (Enter baris baru). |
+| `pasteLongText` | string | `attach`, `inline` | `"attach"` | Teks lebih dari 30 baris atau 2.000 karakter dijadikan lampiran teks agar composer tetap rapi. Ctrl+Shift+V selalu menempel apa adanya. |
 | `chatWidth` | string | `narrow`, `normal`, `wide` | `"normal"` | Lebar kolom pesan di Panel Chat. |
 | `confirmDelete` | boolean | boolean | `true` | Tanyakan dulu sebelum menghapus sesi dari sidebar. |
 | `showDemos` | boolean | boolean | `true` | Tampilkan tiga sesi demo bawaan di daftar Chat. |

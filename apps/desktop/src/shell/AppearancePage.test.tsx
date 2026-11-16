@@ -80,7 +80,7 @@ describe("tab Editor", () => {
     await openTab("Editor");
     expect(await screen.findByText(/hanya tersedia di aplikasi desktop/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cari" })).toBeNull();
-    const input = screen.getByLabelText("Impor tema VS Code (.json)") as HTMLInputElement;
+    const input = screen.getByLabelText("Impor tema VS Code (.json/.vsix)") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File([THEME], "senja.json", { type: "application/json" })] } });
     await waitFor(() => expect(s.appearance.state().editorTheme).toBe("senja"));
     expect(s.appearance.state().editorThemes[0]?.colors["editor.background"]).toBe("#101820");
@@ -90,10 +90,24 @@ describe("tab Editor", () => {
   test("berkas tema jahat/rusak ditolak dengan pesan, tidak tersimpan", async () => {
     const s = mount();
     await openTab("Editor");
-    const input = screen.getByLabelText("Impor tema VS Code (.json)") as HTMLInputElement;
+    const input = screen.getByLabelText("Impor tema VS Code (.json/.vsix)") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(["{rusak"], "x.json")] } });
     expect(await screen.findByRole("alert")).toHaveTextContent(/bukan JSON tema/);
     expect(s.appearance.state().editorThemes).toEqual([]);
+  });
+
+  test("impor berkas .vsix lokal: semua tema diambil dan yang pertama terpilih", async () => {
+    const s = mount();
+    await openTab("Editor");
+    const pkg = { contributes: { themes: [{ label: "Lokal Gelap", uiTheme: "vs-dark", path: "./t/d.json" }] } };
+    const bytes = zipSync({
+      "extension/package.json": strToU8(JSON.stringify(pkg)),
+      "extension/t/d.json": strToU8('{"colors":{"editor.background":"#111111"},"tokenColors":[]}'),
+    });
+    const input = screen.getByLabelText("Impor tema VS Code (.json/.vsix)") as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File([bytes], "lokal.vsix")] } });
+    await waitFor(() => expect(s.appearance.state().editorTheme).toBe("lokal-gelap"));
+    expect(s.appearance.state().editorThemes[0]?.colors["editor.background"]).toBe("#111111");
   });
 
   test("Open VSX: cari → pasang → tema terpasang dan terpilih; yang dilewati dilaporkan", async () => {

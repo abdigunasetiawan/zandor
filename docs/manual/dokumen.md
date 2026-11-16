@@ -31,3 +31,5 @@
 - Tombol **Buka di browser** (ikon globe di toolbar) menjalankan live server lokal dan membuka halaman di Browser
   Panel 4: CSS/JS/gambar di folder project ikut dimuat, dan halaman **dimuat ulang otomatis** saat Anda menyimpan berkas.
   Hanya di aplikasi desktop.
+
+- Menutup tab dokumen terakhir otomatis menutup Panel 3; membuka berkas lagi memunculkannya kembali.

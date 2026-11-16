@@ -35,7 +35,10 @@ Token: `bg surface raised hover active border border-strong fg fg-muted fg-subtl
 
 Pilih "Otomatis" (mengikuti tema aplikasi), tema bawaan Monaco, atau tema VS Code yang diimpor:
 
-- **Impor berkas** `.json`/`.jsonc` tema VS Code.
+- **Impor berkas** tema VS Code: `.json`/`.jsonc`, atau paket ekstensi `.vsix` (semua tema di dalamnya ikut dipasang).
+- Tema VS Code mewarnai kode dengan grammar TextMate yang sama seperti VS Code, jadi warna fungsi, parameter, properti, dan
+  kata kunci ditempatkan sama. Pengecualian: warna dari *semantic highlighting* VS Code tidak didukung. Tema yang
+  dipasang sebelum 16-11-2026 sebaiknya diimpor ulang agar aturan warnanya lengkap.
 - **Open VSX** (aplikasi desktop): cari, lalu **Pasang**. Hanya berkas tema yang dibaca dari paket; tidak ada kode yang dijalankan.
   Tema milik pihak ketiga dengan lisensinya sendiri — periksa sebelum memakai.
 

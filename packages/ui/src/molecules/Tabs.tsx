@@ -9,12 +9,15 @@ export type TabsProps = {
   defaultValue?: string;
   onValueChange?: (value: string) => void;
   "aria-label"?: string;
+  /** "vertical": daftar tab di sisi kiri, panel di kanan. */
+  orientation?: "horizontal" | "vertical";
 };
 
-export function Tabs({ items, value, defaultValue, onValueChange, ...aria }: TabsProps) {
+export function Tabs({ items, value, defaultValue, onValueChange, orientation = "horizontal", ...aria }: TabsProps) {
   return (
     <BaseTabs.Root
       className="z-tabs"
+      orientation={orientation}
       value={value}
       defaultValue={defaultValue ?? items[0]?.value}
       onValueChange={(v) => onValueChange?.(String(v))}

@@ -226,6 +226,19 @@ export const SETTINGS_SCHEMA = {
         enumLabelKeys: { enter: "settings.sendKey.enter", "ctrl-enter": "settings.sendKey.ctrl" },
       },
     },
+    pasteLongText: {
+      type: "string",
+      title: "Tempel teks panjang",
+      description:
+        "Teks lebih dari 30 baris atau 2.000 karakter dijadikan lampiran teks agar composer tetap rapi. Ctrl+Shift+V selalu menempel apa adanya.",
+      enum: ["attach", "inline"],
+      default: "attach",
+      "x-zandor": {
+        titleKey: "settings.pasteLongText",
+        group: "chat",
+        enumLabelKeys: { attach: "settings.pasteLongText.attach", inline: "settings.pasteLongText.inline" },
+      },
+    },
     chatWidth: {
       type: "string",
       title: "Lebar isi chat",
@@ -288,6 +301,7 @@ export type Settings = {
   soundFailed: SoundSetting;
   soundAction: SoundSetting;
   sendKey: "enter" | "ctrl-enter";
+  pasteLongText: "attach" | "inline";
   chatWidth: "narrow" | "normal" | "wide";
   confirmDelete: boolean;
   showDemos: boolean;

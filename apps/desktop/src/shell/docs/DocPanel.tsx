@@ -21,7 +21,7 @@ import {
   useToast,
   WrapIcon,
 } from "@zandor/ui";
-import { lazy, type ReactNode, Suspense, useCallback, useState } from "react";
+import { lazy, type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { FileTypeIcon } from "../FileTypeIcon";
 import { PanelTabBar } from "../PanelTabBar";
 import { useAppearance, useDocs, useServices } from "../services";
@@ -99,6 +99,13 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   const [handle, setHandle] = useState<ViewerHandle | null>(null);
   const onHandle = useCallback((h: ViewerHandle | null) => setHandle(h), []);
   const tab = state.tabs.find((x) => x.id === state.activeId) ?? null;
+  // Tab dokumen terakhir ditutup → Panel 3 ikut tertutup. Hanya pada peralihan ada → kosong, sehingga membuka panel
+  // secara manual tanpa dokumen (tombol panel / Ctrl+3) tetap menampilkan keadaan kosongnya.
+  const prevCount = useRef(state.tabs.length);
+  useEffect(() => {
+    if (prevCount.current > 0 && state.tabs.length === 0) panels.actions?.close("docs");
+    prevCount.current = state.tabs.length;
+  }, [state.tabs.length, panels]);
   if (!tab) {
     return (
       <div className="docs">

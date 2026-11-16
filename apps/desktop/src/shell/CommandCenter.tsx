@@ -97,10 +97,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         titleKey: "cmd.newChat",
         group: "app",
         shortcut: "Ctrl+N",
-        run: () => {
-          const sel = projects.state().selection.key;
-          void projects.createSession(sel ?? CHAT_KEY).catch((e) => logger.error("chat baru gagal", { error: e }));
-        },
+        run: () => projects.select(CHAT_KEY, null),
       },
       { id: "app.providers", titleKey: "cmd.providers", group: "app", run: () => nav.push("/settings/models") },
       { id: "app.memory", titleKey: "cmd.memory", group: "app", run: () => nav.push("/memory") },

@@ -43,6 +43,18 @@ test("kirim pesan dan terima jawaban streaming ber-Markdown; pilihan model ikut 
   await expect(page.locator(".msg__meta")).toContainText("m-satu");
 });
 
+test("composer siap ketik: sesi baru, Chat baru, dan setelah kirim lewat tombol", async ({ page }) => {
+  await mockEngine(page);
+  await openSession(page);
+  await expect(composer(page)).toBeFocused();
+  await composer(page).fill("halo");
+  await page.getByRole("button", { name: "Kirim" }).click();
+  await expect(page.getByRole("article", { name: "Asisten" })).toContainText("Halo", { timeout: 10_000 });
+  await expect(composer(page)).toBeFocused();
+  await page.getByRole("button", { name: /^Chat baru/ }).click();
+  await expect(composer(page)).toBeFocused();
+});
+
 test("Enter mengirim, Shift+Enter baris baru", async ({ page }) => {
   const engine = await mockEngine(page);
   await openSession(page);
@@ -55,6 +67,99 @@ test("Enter mengirim, Shift+Enter baris baru", async ({ page }) => {
   await box.press("Enter");
   await expect.poll(() => engine.prompts.length).toBe(1);
   expect(engine.prompts[0]?.text).toBe("baris satu\nbaris dua");
+});
+
+const pasteText = (page: Page, text: string) =>
+  composer(page).evaluate((el, value) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", value);
+    el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }, text);
+
+test("composer membesar mengikuti isi sampai batas lalu menggulir", async ({ page }) => {
+  await mockEngine(page);
+  await openSession(page);
+  const box = composer(page);
+  const small = (await box.boundingBox())?.height ?? 0;
+  await box.fill(Array(8).fill("baris").join("\n"));
+  const grown = (await box.boundingBox())?.height ?? 0;
+  expect(grown).toBeGreaterThan(small);
+  await box.fill(Array(200).fill("baris").join("\n"));
+  const capped = await box.evaluate((el) => ({ h: el.clientHeight, sh: el.scrollHeight, max: innerHeight * 0.4 }));
+  expect(capped.h).toBeLessThanOrEqual(capped.max + 1);
+  expect(capped.sh).toBeGreaterThan(capped.h);
+});
+
+test("teks panjang di composer: gulir naik-turun tidak menggeser composer", async ({ page }) => {
+  // layar laptop pendek: di sini halaman sapaan dulu meluap dan ikut tergulir (guliran merambat dari textarea)
+  await page.setViewportSize({ width: 1000, height: 560 });
+  await mockEngine(page);
+  await openSession(page);
+  const box = composer(page);
+  await box.fill(Array.from({ length: 300 }, (_, i) => `baris ${i + 1} dengan isi yang cukup panjang`).join("\n"));
+  const card = page.locator(".composer__card").last();
+  const before = await card.boundingBox();
+  await box.hover();
+  for (const dy of [-3000, 1500, -800, 3000, -3000]) {
+    await page.mouse.wheel(0, dy);
+    await page.waitForTimeout(60);
+  }
+  // kursor di akhir teks, lalu gulir ke atas: baris kursor keluar layar → kursor halus tak boleh tergambar di luar textarea
+  await box.press("Control+End");
+  await page.mouse.wheel(0, -100000);
+  await page.waitForTimeout(150);
+  const caretOut = await box.evaluate((el) => {
+    const c = el.parentElement?.querySelector(".composer__caret") as HTMLElement;
+    const r = c.getBoundingClientRect();
+    const t = el.getBoundingClientRect();
+    const shown = getComputedStyle(c).opacity !== "0" && c.dataset.visible !== undefined;
+    return shown && (r.top < t.top - 1 || r.bottom > t.bottom + 1);
+  });
+  expect(caretOut).toBe(false);
+  await box.press("Control+Home");
+  await box.press("Control+End");
+  await page.waitForTimeout(100);
+  const after = await card.boundingBox();
+  expect(Math.abs((after?.y ?? 0) - (before?.y ?? 0))).toBeLessThan(1);
+  expect(Math.abs((after?.x ?? 0) - (before?.x ?? 0))).toBeLessThan(1);
+  // tidak ada leluhur composer yang ikut tergulir
+  const shifted = await box.evaluate((el) => {
+    const out: string[] = [];
+    for (let p = el.parentElement; p; p = p.parentElement)
+      if (p.scrollTop !== 0 || p.scrollLeft !== 0) out.push(`${p.className}:${p.scrollTop},${p.scrollLeft}`);
+    return out;
+  });
+  expect(shifted).toEqual([]);
+});
+
+test("tempel teks panjang menjadi lampiran teks, bisa dikembalikan, dan terkirim utuh", async ({ page }) => {
+  const engine = await mockEngine(page);
+  await openSession(page);
+  const long = Array.from({ length: 40 }, (_, i) => `baris ${i + 1}`).join("\n");
+  await pasteText(page, long);
+  await expect(composer(page)).toHaveValue("");
+  await expect(page.getByText("Teks ditempel · 40 baris")).toBeVisible();
+  // kembalikan jadi teks biasa
+  await page.getByRole("button", { name: "Kembalikan jadi teks biasa di composer" }).click();
+  await expect(composer(page)).toHaveValue(long);
+  await expect(page.getByText("Teks ditempel · 40 baris")).toHaveCount(0);
+  // tempel lagi lalu kirim: isi sampai ke engine sebagai berkas teks
+  await composer(page).fill("");
+  await pasteText(page, long);
+  await composer(page).fill("ringkas ini");
+  await composer(page).press("Enter");
+  await expect.poll(() => engine.files.length).toBe(1);
+  const sent = engine.files[0];
+  expect(sent?.mime).toBe("text/plain");
+  const b64 = sent?.url.slice(sent.url.indexOf(",") + 1) ?? "";
+  expect(Buffer.from(b64, "base64").toString("utf8")).toBe(long);
+});
+
+test("tempel teks pendek tetap masuk ke composer", async ({ page }) => {
+  await mockEngine(page);
+  await openSession(page);
+  await pasteText(page, "pendek saja");
+  await expect(page.getByText(/Teks ditempel/)).toHaveCount(0);
 });
 
 test("tool call tampil sebagai kartu yang bisa dibuka", async ({ page }) => {
@@ -79,7 +184,7 @@ test("kartu izin: Izinkan sekali dikirim ke engine lalu kartu hilang dan jawaban
   const card = page.getByRole("alertdialog", { name: /Izin diperlukan: edit/ });
   await expect(card).toBeVisible({ timeout: 10_000 });
   await expect(card).toContainText(".env.local");
-  await expect(card).toContainText("berkas rahasia"); // alasan dari mode bawaan "Otomatis, tanya yang berisiko"
+  await expect(card).toContainText("berkas rahasia"); // alasan dari mode bawaan "Otomatis, kecuali aksi penting"
   await card.getByRole("button", { name: "Izinkan sekali" }).click();
   await expect(card).toHaveCount(0);
   expect(engine.permissionReplies[0]?.reply).toBe("once");
@@ -89,7 +194,7 @@ test("kartu izin: Izinkan sekali dikirim ke engine lalu kartu hilang dan jawaban
 test("mode bawaan menyetujui edit berkas biasa tanpa kartu izin", async ({ page }) => {
   const engine = await mockEngine(page);
   await openSession(page);
-  await expect(page.getByRole("combobox", { name: "Mode izin" })).toHaveText(/Otomatis, tanya yang berisiko/);
+  await expect(page.getByRole("combobox", { name: "Mode izin" })).toHaveText(/Otomatis, kecuali aksi penting/);
   await composer(page).fill("ubah file aman, butuh izin");
   await composer(page).press("Enter");
   await expect(page.getByRole("article", { name: "Asisten" })).toContainText("Sudah diubah.", { timeout: 10_000 });

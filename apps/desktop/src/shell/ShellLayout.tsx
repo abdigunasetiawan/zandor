@@ -12,8 +12,10 @@ import {
   IconButton,
   InfoIcon,
   ListIcon,
+  ServerIcon,
   ShortcutScope,
   TerminalIcon,
+  TrajectoryIcon,
   useToast,
 } from "@zandor/ui";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef } from "react";
@@ -25,12 +27,15 @@ import { Sidebar } from "./Sidebar";
 import { PANEL_IDS, type PanelId, TOOL_IDS, type ToolId, usePanelState, useServices, useSetting } from "./services";
 import { ActivityPanel } from "./tools/ActivityPanel";
 import { BrowserPanel } from "./tools/BrowserPanel";
+import { PANEL_ANIM_EVENT } from "./tools/browser-bridge";
 import { ChangesPanel } from "./tools/ChangesPanel";
 import { GitPanel } from "./tools/GitPanel";
 import { InfoPanel } from "./tools/InfoPanel";
+import { JobsPanel } from "./tools/JobsPanel";
 import { SessionActivityPanel } from "./tools/SessionActivityPanel";
 import { SessionFilesPanel } from "./tools/SessionFilesPanel";
 import { TerminalPanel } from "./tools/TerminalPanel";
+import { TrajectoryPanel } from "./tools/TrajectoryPanel";
 
 /** Panel yang dirender pustaka resizable (rail di kanan hanya bisa ditampilkan/disembunyikan). */
 type ResizableId = Exclude<PanelId, "rail">;
@@ -61,17 +66,21 @@ export const PANEL_SHORTCUTS: Record<PanelId, string> = {
 export const SMART_RESIZE_SHORTCUT = "Ctrl+Alt+0";
 const FALLBACK_SEPARATOR_PX = 6;
 const MAX_LAYOUT_REAPPLY = 6;
+/** Lama penanda animasi tata letak; sedikit lebih panjang dari transisi CSS. */
+const LAYOUT_ANIM_MS = 320;
 const COLLAPSED_KEY = "zandor.layout.userCollapsed";
 const LAYOUT_ID = "zandor-main";
 
 export const TOOL_ICONS: Record<ToolId, ReactNode> = {
   terminal: <TerminalIcon />,
+  jobs: <ServerIcon />,
   git: <GitIcon />,
   changes: <DiffIcon />,
   files: <FilesIcon />,
   browser: <GlobeIcon />,
   info: <InfoIcon />,
   session: <ActivityIcon />,
+  trajectory: <TrajectoryIcon />,
   log: <ListIcon />,
 };
 
@@ -152,6 +161,75 @@ export function ShellLayout() {
     }
   }, []);
 
+  /** Rencana smart resize (ADR-066) untuk himpunan panel terlihat tertentu; null bila tak ada panel utama. */
+  const computeSmart = useCallback((visible: Set<string>) => {
+    const el = groupEl.current;
+    if (!el) return null;
+    const root = rootFontPx();
+    const sep = el.querySelector("[data-separator]:not([data-hidden])")?.getBoundingClientRect().width ?? 0;
+    return smartLayout({
+      availablePx: el.getBoundingClientRect().width,
+      separatorPx: sep || FALLBACK_SEPARATOR_PX,
+      visible,
+      side: {
+        id: "sidebar",
+        targetPx: remToPx(SIDEBAR_SMART_REM, root),
+        minPx: remToPx(MIN_REM.sidebar, root),
+        maxRatio: SIDEBAR_SMART_MAX_RATIO,
+      },
+      main: MAIN_IDS.map((id) => ({ id, minPx: remToPx(MIN_REM[id], root) })),
+    });
+  }, []);
+
+  /**
+   * Animasi tampil/sembunyi panel (ADR-066). Tata letak akhir dihitung SEKALI lalu semua panel
+   * bertransisi bersamaan ke sana (tanpa tahap "lipat dulu, bagi ulang kemudian"). Hanya panel yang
+   * MENYEMPIT yang isinya dibekukan pada lebar px awal (terpotong, bukan terhimpit); panel yang
+   * melebar mengikuti lebarnya langsung sehingga tidak ada lompatan di akhir. Panel yang ditutup memudar.
+   */
+  const animTimer = useRef<number | undefined>(undefined);
+  /** Catat lebar isi panel + layout saat ini; panggil SEBELUM tata letak diubah. */
+  const snapshot = useCallback(() => {
+    const widths = new Map<HTMLElement, number>();
+    for (const inner of groupEl.current?.querySelectorAll<HTMLElement>(".shell-panel__inner") ?? []) {
+      widths.set(inner, inner.getBoundingClientRect().width);
+    }
+    return { widths, layout: group.current?.getLayout() ?? {} };
+  }, [group]);
+  const startAnim = useCallback(
+    (snap: ReturnType<typeof snapshot>, target: Record<string, number> | null, closing: PanelId | null) => {
+      const el = groupEl.current;
+      if (!el) return;
+      window.clearTimeout(animTimer.current);
+      // Lebar AKHIR tiap panel (px) dari rencana: isi langsung ditata pada ukuran akhirnya satu kali,
+      // lalu selama transisi panel hanya membuka/menutup tirai (overflow hidden) — tidak ada isi yang
+      // terhimpit selama animasi maupun "lompat" di akhir, baik saat panel ditutup maupun dimunculkan.
+      const visibleCount = target ? Object.values(target).filter((v) => v > 0).length : 0;
+      const sep =
+        el.querySelector("[data-separator]:not([data-hidden])")?.getBoundingClientRect().width || FALLBACK_SEPARATOR_PX;
+      const content = el.getBoundingClientRect().width - sep * Math.max(0, visibleCount - 1);
+      for (const [inner, w] of snap.widths) {
+        const id = inner.dataset.zPanel ?? "";
+        const pct = target?.[id] ?? 0;
+        if (pct > 0) inner.style.width = `${(pct / 100) * content}px`;
+        else if (w > 0) inner.style.width = `${w}px`; // panel yang ditutup: pertahankan lebar lamanya
+        // panel yang ditutup (termasuk yang ikut terlipat otomatis) memudar
+        inner.toggleAttribute("data-closing", id === closing || (!!target && w > 0 && pct === 0));
+      }
+      el.dataset.animating = "";
+      window.dispatchEvent(new CustomEvent(PANEL_ANIM_EVENT, { detail: { active: true } }));
+      animTimer.current = window.setTimeout(() => {
+        delete el.dataset.animating;
+        window.dispatchEvent(new CustomEvent(PANEL_ANIM_EVENT, { detail: { active: false } }));
+        for (const inner of el.querySelectorAll<HTMLElement>(".shell-panel__inner")) {
+          inner.style.width = "";
+          inner.removeAttribute("data-closing");
+        }
+      }, LAYOUT_ANIM_MS);
+    },
+    [],
+  );
+
   /** Pengaman: terapkan-ulang akibat perubahan layout berturut-turut dibatasi (mencegah berputar bila pustaka menolak). */
   const layoutChurn = useRef(0);
 
@@ -215,6 +293,19 @@ export function ShellLayout() {
     ui.current.toast.show({ title: ui.current.t("panel.lastMain"), tone: "warning" });
   }, []);
 
+  /** Tampilkan/sembunyikan panel resizable dengan animasi ke tata letak smart akhir. */
+  const animateTo = useCallback(
+    (closing: PanelId | null) => {
+      const snap = snapshot();
+      apply(); // rencana lipat (termasuk auto-collapse karena sempit) → lastApplied
+      const target = computeSmart(visibleNow());
+      startAnim(snap, target, closing);
+      // timpa hasil lipat/buka pustaka dengan tata letak akhir di tick yang sama → satu transisi
+      if (target) group.current?.setLayout(target);
+    },
+    [apply, computeSmart, group, snapshot, startAnim, visibleNow],
+  );
+
   const toggle = useCallback(
     (id: PanelId) => {
       if (id === "rail") {
@@ -223,6 +314,8 @@ export function ShellLayout() {
         else userCollapsed.current.add("rail");
         persistCollapsed();
         apply();
+        // lebar grup baru final setelah rel dirender: bagi ulang di frame berikutnya, beranimasi
+        requestAnimationFrame(() => animateTo(null));
         return;
       }
       const def = PANEL_DEFS.find((p) => p.id === id);
@@ -240,9 +333,9 @@ export function ShellLayout() {
         if (protectedId.current === id) protectedId.current = null;
       }
       persistCollapsed();
-      apply();
+      animateTo(isCollapsed ? null : id);
     },
-    [apply, persistCollapsed, refs, visibleNow, warnLastMain],
+    [animateTo, apply, persistCollapsed, refs, visibleNow, warnLastMain],
   );
 
   const closePanel = useCallback(
@@ -254,9 +347,9 @@ export function ShellLayout() {
       userCollapsed.current.add(id);
       if (protectedId.current === id) protectedId.current = null;
       persistCollapsed();
-      apply();
+      animateTo(id);
     },
-    [apply, persistCollapsed, visibleNow, warnLastMain],
+    [animateTo, persistCollapsed, visibleNow, warnLastMain],
   );
 
   /** Tampilkan panel bila sedang terlipat (tanpa menutupnya bila sudah terbuka). */
@@ -290,27 +383,11 @@ export function ShellLayout() {
 
   /** Smart resize: bagi ulang lebar panel yang sedang terlihat menurut aturan `smartLayout` (ADR-066). */
   const smartResize = useCallback(() => {
-    const el = groupEl.current;
-    const g = group.current;
-    if (!el || !g) return;
-    const root = rootFontPx();
-    const sep = el.querySelector("[data-separator]:not([data-hidden])")?.getBoundingClientRect().width ?? 0;
-    const layout = smartLayout({
-      availablePx: el.getBoundingClientRect().width,
-      separatorPx: sep || FALLBACK_SEPARATOR_PX,
-      visible: visibleNow(),
-      side: {
-        id: "sidebar",
-        targetPx: remToPx(SIDEBAR_SMART_REM, root),
-        minPx: remToPx(MIN_REM.sidebar, root),
-        maxRatio: SIDEBAR_SMART_MAX_RATIO,
-      },
-      main: MAIN_IDS.map((id) => ({ id, minPx: remToPx(MIN_REM[id], root) })),
-    });
-    if (!layout) return; // tidak terjadi: apply() selalu menjaga satu panel utama terlihat
-    g.setLayout(layout);
+    const layout = computeSmart(visibleNow());
+    if (!layout || !group.current) return; // tidak terjadi: apply() selalu menjaga satu panel utama terlihat
+    group.current.setLayout(layout);
     apply();
-  }, [apply, group, visibleNow]);
+  }, [apply, computeSmart, group, visibleNow]);
 
   // Pasang aksi ke jembatan + daftarkan perintah panel selama tata letak terpasang.
   useEffect(() => {
@@ -388,6 +465,8 @@ export function ShellLayout() {
     switch (tool) {
       case "terminal":
         return <TerminalPanel />;
+      case "jobs":
+        return <JobsPanel />;
       case "git":
         return <GitPanel />;
       case "changes":
@@ -398,6 +477,8 @@ export function ShellLayout() {
         return <BrowserPanel />;
       case "session":
         return <SessionActivityPanel />;
+      case "trajectory":
+        return <TrajectoryPanel />;
       case "info":
         return <InfoPanel />;
       case "log":
@@ -431,7 +512,7 @@ export function ShellLayout() {
           defaultSize={PANEL_DEFS[0]?.defaultSize}
           className="shell-panel"
         >
-          <section aria-label={t("panel.sidebar")} className="shell-panel__inner">
+          <section aria-label={t("panel.sidebar")} className="shell-panel__inner" data-z-panel="sidebar">
             {guarded("sidebar", "panel.sidebar", <Sidebar />)}
           </section>
         </Panel>
@@ -446,7 +527,7 @@ export function ShellLayout() {
           defaultSize={PANEL_DEFS[1]?.defaultSize}
           className="shell-panel"
         >
-          <section aria-label={t("panel.chat")} className="shell-panel__inner" data-panel="chat">
+          <section aria-label={t("panel.chat")} className="shell-panel__inner" data-z-panel="chat" data-panel="chat">
             {guarded("chat", "panel.chat", <ChatPanel />)}
           </section>
         </Panel>
@@ -461,7 +542,7 @@ export function ShellLayout() {
           defaultSize={PANEL_DEFS[2]?.defaultSize}
           className="shell-panel"
         >
-          <section aria-label={t("panel.docs")} className="shell-panel__inner">
+          <section aria-label={t("panel.docs")} className="shell-panel__inner" data-z-panel="docs">
             {guarded(
               "docs",
               "panel.docs",
@@ -480,7 +561,7 @@ export function ShellLayout() {
           defaultSize={PANEL_DEFS[3]?.defaultSize}
           className="shell-panel"
         >
-          <section aria-label={t("panel.tools")} className="shell-panel__inner">
+          <section aria-label={t("panel.tools")} className="shell-panel__inner" data-z-panel="tools">
             {guarded(
               "tools",
               "panel.tools",

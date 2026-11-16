@@ -2,7 +2,10 @@
 // mermaid), ELK di-stub (ADR-035) sehingga layout dagre. Saat teks masih mengalir (streaming) diagram belum lengkap, jadi
 // sumbernya ditampilkan dulu dan dirender setelah selesai; diagram tidak valid selalu menampilkan galat + sumber.
 import { useI18n } from "@zandor/i18n/react";
-import { useEffect, useId, useState } from "react";
+import { CodeIcon, CopyIcon, DownloadIcon, FileTextIcon, ImageDownIcon, ImageIcon } from "@zandor/ui";
+import { useEffect, useId, useRef, useState } from "react";
+import { RichBar, useRichActions } from "./RichActions";
+import { fenced, stampedName, textBytesOf } from "./rich-export";
 
 function isDark(): boolean {
   const a = document.documentElement.dataset.theme;
@@ -15,6 +18,8 @@ export function Mermaid({ code, streaming = false }: { code: string; streaming?:
   const { t } = useI18n();
   const id = `mmd-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const [state, setState] = useState<{ svg: string } | { error: string } | null>(null);
+  const act = useRichActions();
+  const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (streaming) return;
@@ -57,6 +62,55 @@ export function Mermaid({ code, streaming = false }: { code: string; streaming?:
       </div>
     );
   }
-  // biome-ignore lint/security/noDangerouslySetInnerHtml: SVG dihasilkan mermaid (securityLevel strict, disanitasi DOMPurify), bukan HTML mentah dari model/berkas
-  return <div className="docview__mermaid" data-testid="mermaid" dangerouslySetInnerHTML={{ __html: state.svg }} />;
+  const svg = state.svg;
+  const diagram = () => box.current?.querySelector<HTMLElement>(".docview__mermaid") ?? null;
+  return (
+    <div ref={box} className="rblock rblock--mermaid">
+      <RichBar
+        primary={[
+          { id: "src", label: t("rich.copySource"), icon: <CopyIcon />, onSelect: () => void act.copyText(code) },
+          {
+            id: "png",
+            label: t("rich.saveImage"),
+            icon: <ImageIcon />,
+            onSelect: () => void act.saveNode(diagram(), "png", stampedName("diagram", "png")),
+          },
+        ]}
+        more={[
+          {
+            id: "copypng",
+            label: t("rich.copyImage"),
+            icon: <ImageDownIcon size="sm" />,
+            onSelect: () => void act.copyImage(diagram()),
+          },
+          {
+            id: "copysvg",
+            label: t("rich.copySvg"),
+            icon: <CodeIcon size="sm" />,
+            onSelect: () => void act.copyText(svg),
+          },
+          {
+            id: "svg",
+            label: t("rich.saveSvg"),
+            icon: <CodeIcon size="sm" />,
+            onSelect: () => void act.saveBytes(stampedName("diagram", "svg"), textBytesOf(svg)),
+          },
+          {
+            id: "mmd",
+            label: t("rich.saveFile", { ext: ".mmd" }),
+            icon: <DownloadIcon size="sm" />,
+            onSelect: () => void act.saveText(stampedName("diagram", "mmd"), code),
+          },
+          {
+            id: "fenced",
+            label: t("rich.copyFenced"),
+            icon: <FileTextIcon size="sm" />,
+            onSelect: () => void act.copyText(fenced("mermaid", code)),
+          },
+        ]}
+      />
+      {/* biome-ignore lint/security/noDangerouslySetInnerHtml: SVG dihasilkan mermaid (securityLevel strict, disanitasi DOMPurify), bukan HTML mentah dari model/berkas */}
+      <div className="docview__mermaid" data-testid="mermaid" dangerouslySetInnerHTML={{ __html: svg }} />
+    </div>
+  );
 }

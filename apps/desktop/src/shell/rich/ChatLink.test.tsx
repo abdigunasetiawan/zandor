@@ -85,13 +85,11 @@ describe("ChatLink", () => {
     await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith("open_external", { url: "https://contoh.dev/dok" }));
   });
 
-  test("http di desktop: browser eksternal dinonaktifkan dengan alasan; di web browser Zandor dinonaktifkan", async () => {
-    mount("http://contoh.dev");
+  test("http://localhost bisa dibuka di browser eksternal; di web browser Zandor dinonaktifkan", async () => {
+    mount("http://localhost:3000/");
     fireEvent.click(screen.getByRole("button", { name: "dokumentasi" }));
-    expect(await screen.findByRole("menuitem", { name: /hanya tautan https/ })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Buka di browser eksternal" }));
+    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith("open_external", { url: "http://localhost:3000/" }));
     cleanup();
     tauri.isTauri.mockReturnValue(false);
     mount();

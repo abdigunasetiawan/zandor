@@ -19,8 +19,6 @@ export function ChatLink({ href, children }: { href: string; children?: ReactNod
   const toast = useToast();
   const { panels } = useServices();
   const desktop = isTauri();
-  // perintah Rust `open_external` hanya menerima https (lib.rs)
-  const externalOk = !desktop || /^https:\/\//i.test(href);
   const fail = (e: unknown) =>
     toast.show({ title: t("sb.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" });
 
@@ -53,9 +51,8 @@ export function ChatLink({ href, children }: { href: string; children?: ReactNod
     {
       type: "item",
       id: "external",
-      label: externalOk ? t("link.openExternal") : t("link.openExternalHttps"),
+      label: t("link.openExternal"),
       icon: <ExternalLinkIcon size="sm" />,
-      disabled: !externalOk,
       onSelect: () => void openExternal(),
     },
     { type: "separator", id: "sep" },

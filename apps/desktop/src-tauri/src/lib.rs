@@ -6,6 +6,7 @@ mod engine;
 mod files;
 mod fonts;
 mod git;
+mod jobs;
 mod liveserver;
 mod memory;
 mod netprobe;
@@ -419,12 +420,11 @@ async fn providers_detect_local() -> Result<Vec<netprobe::LocalFound>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Buka URL (hanya https) di browser sistem — untuk sign-in provider.
+/// Buka URL http/https di browser sistem — sign-in provider, tautan di respons model, tombol "browser sistem" Panel 4.
+/// Skema wajib eksplisit dan URL dinormalisasi `Url` sebelum diteruskan (lihat `browser::external_url`).
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
-    if !url.starts_with("https://") {
-        return Err("hanya URL https yang boleh dibuka".into());
-    }
+    let url = browser::external_url(&url)?.to_string();
     #[cfg(windows)]
     {
         // `cmd /c start` menafsirkan karakter khusus; PowerShell Start-Process dengan argumen terkutip aman.
@@ -436,6 +436,7 @@ fn open_external(url: String) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
+        let _ = url; // TODO(port): xdg-open / open
         Err("belum didukung di platform ini (ADR-027)".into())
     }
 }
@@ -489,6 +490,36 @@ fn memory_read(app: tauri::AppHandle, rel: String) -> Result<String, String> {
 #[tauri::command]
 fn memory_write(app: tauri::AppHandle, rel: String, text: String) -> Result<(), String> {
     memory::write_memory(&memory_dir(&app)?, &rel, &text)
+}
+
+// ---------- Background job (ADR-072) ----------
+
+fn jobs_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data(app)?.join("jobs"))
+}
+
+#[tauri::command]
+fn jobs_list(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    Ok(jobs::list(&jobs_dir(&app)?))
+}
+
+#[tauri::command]
+fn job_log(app: tauri::AppHandle, id: String, max: Option<u64>) -> Result<String, String> {
+    jobs::log(
+        &jobs_dir(&app)?,
+        &id,
+        max.unwrap_or(128 * 1024).min(1024 * 1024),
+    )
+}
+
+#[tauri::command]
+fn job_control(app: tauri::AppHandle, id: String, action: String) -> Result<(), String> {
+    jobs::control(&jobs_dir(&app)?, &id, &action)
+}
+
+#[tauri::command]
+fn job_forget(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    jobs::forget(&jobs_dir(&app)?, &id)
 }
 
 #[tauri::command]
@@ -943,6 +974,10 @@ pub fn run() {
             openvsx_search,
             openvsx_download,
             memory_list,
+            jobs_list,
+            job_log,
+            job_control,
+            job_forget,
             memory_read,
             memory_write,
             memory_delete,

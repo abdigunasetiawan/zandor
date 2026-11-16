@@ -196,7 +196,7 @@ test("tema editor: impor berkas tema VS Code dipilih dan tersimpan", async ({ pa
   await openPage(page);
   await page.getByRole("tab", { name: "Editor" }).click();
   await expect(page.getByText(/hanya tersedia di aplikasi desktop/)).toBeVisible();
-  await page.getByLabel("Impor tema VS Code (.json)").setInputFiles({
+  await page.getByLabel("Impor tema VS Code (.json/.vsix)").setInputFiles({
     name: "senja.json",
     mimeType: "application/json",
     buffer: Buffer.from(

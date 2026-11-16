@@ -263,6 +263,7 @@ export function ModelPicker() {
       <div className="mpicker">
         <Tabs
           aria-label={t("mp.title")}
+          orientation="vertical"
           value={tab}
           onValueChange={setTab}
           items={[

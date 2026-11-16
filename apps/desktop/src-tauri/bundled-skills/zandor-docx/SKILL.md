@@ -1,4 +1,5 @@
 ---
+
 name: zandor-docx
 description: "Membuat, membaca, atau mengubah dokumen Word (.docx): ganti teks, tambah/ubah paragraf, tabel, gambar, header/footer, gaya. Pakai setiap kali user menyebut .docx, dokumen Word, atau meminta laporan/surat dalam format Word."
 ---
@@ -12,7 +13,7 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
 - **Jangan menimpa berkas asli tanpa cadangan.** Sebelum mengubah, salin ke `<nama>.bak.docx` di folder yang sama
   (kecuali user menolak), atau tulis hasil ke berkas baru bila user tidak minta menimpa.
 - Jangan pernah menulis `.docx` dengan editor teks biasa: berkas ini paket ZIP berisi XML.
-- Pertahankan gaya yang ada: ubah teks di dalam *run* yang sudah ada, jangan hapus lalu buat ulang paragraf.
+- Pertahankan gaya yang ada: ubah teks di dalam _run_ yang sudah ada, jangan hapus lalu buat ulang paragraf.
 
 ## Lingkungan
 
@@ -25,6 +26,7 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
 
 1. **Baca dulu**: `python "{{SKILL_DIR}}/office_check.py" berkas.docx --text` untuk melihat struktur dan isi.
 2. **Ubah** dengan skrip Python sementara (simpan di folder temp, bukan di project), memakai `python-docx`:
+
    ```python
    from docx import Document
    d = Document("in.docx")
@@ -35,7 +37,8 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
    # tabel: d.tables[i].cell(r, c).text ; tambah baris: t.add_row()
    d.save("out.docx")
    ```
-   Teks yang terpecah di beberapa *run* tidak tertangkap penggantian per run: gabungkan run paragraf itu dengan
+
+   Teks yang terpecah di beberapa _run_ tidak tertangkap penggantian per run: gabungkan run paragraf itu dengan
    hati-hati (pertahankan format run pertama) bila perlu. Header/footer: `d.sections[i].header.paragraphs`.
 3. **Verifikasi wajib**: `python "{{SKILL_DIR}}/office_check.py" out.docx --expect "BARU"`. Hasil harus
    `"valid": true` dan `expect_missing` kosong. Bila gagal, perbaiki; jangan menyerahkan berkas rusak.

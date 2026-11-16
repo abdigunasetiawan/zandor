@@ -126,10 +126,12 @@ pub fn config_content(
     providers: &[Provider],
     with_key: &dyn Fn(&str) -> bool,
 ) -> String {
+    // Background job (ADR-072) tinggal di sebelah memori: `<app_data>/jobs`.
+    let jobs = memory.parent().unwrap_or(memory).join("jobs");
     serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
-        "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy(), "memoryDir": memory.to_string_lossy() }]],
+        "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy(), "memoryDir": memory.to_string_lossy(), "jobsDir": jobs.to_string_lossy() }]],
         // Bawaan aman: opencode mengizinkan edit/shell tanpa bertanya. Zandor meminta persetujuan (kartu izin di chat).
         "permission": { "edit": "ask", "bash": "ask", "webfetch": "ask", "external_directory": "ask" },
         "provider": providers::config_section(providers, with_key),
@@ -443,6 +445,7 @@ mod tests {
         assert_eq!(v["plugin"][0][0], "file:///C:/app/zandor-plugin.js");
         assert_eq!(v["plugin"][0][1]["markerFile"], r"C:\data\guard-loaded");
         assert_eq!(v["plugin"][0][1]["memoryDir"], r"C:\data\memory");
+        assert_eq!(v["plugin"][0][1]["jobsDir"], r"C:\data\jobs");
         assert_eq!(v["autoupdate"], false);
         for k in ["edit", "bash", "webfetch", "external_directory"] {
             assert_eq!(v["permission"][k], "ask", "{k} harus meminta izin");

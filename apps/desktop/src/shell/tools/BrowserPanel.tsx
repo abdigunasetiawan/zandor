@@ -26,7 +26,7 @@ import {
   useToast,
 } from "@zandor/ui";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { BROWSER_OPEN_EVENT, takePendingBrowserUrl } from "./browser-bridge";
+import { BROWSER_OPEN_EVENT, PANEL_ANIM_EVENT, takePendingBrowserUrl } from "./browser-bridge";
 import { ToolNotice } from "./ToolNotice";
 
 type Core = typeof import("@tauri-apps/api/core");
@@ -71,8 +71,16 @@ export function BrowserPanel() {
   }, []);
 
   const bounds = useCallback(() => {
-    const r = host.current?.getBoundingClientRect();
-    return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+    const el = host.current;
+    const r = el?.getBoundingClientRect();
+    if (!r) return null;
+    // Webview native tidak terpotong overflow CSS: batasi ke area panel yang benar-benar terlihat
+    // (penting saat animasi tampil/sembunyi panel, ketika isi panel lebih lebar dari panelnya).
+    const clip = el?.closest("[data-panel]")?.getBoundingClientRect();
+    if (!clip) return { x: r.left, y: r.top, w: r.width, h: r.height };
+    const left = Math.max(r.left, clip.left);
+    const right = Math.min(r.right, clip.right);
+    return { x: left, y: r.top, w: Math.max(0, right - left), h: r.height };
   }, []);
 
   // pilih mode
@@ -161,6 +169,27 @@ export function BrowserPanel() {
         void call("browser_navigate", { tab: activeRef.current, url: u }).catch((e) => alive && setError(String(e)));
     };
     window.addEventListener(BROWSER_OPEN_EVENT, onOpen);
+    // Selama animasi panel: ikuti posisi/lebar tiap frame (ResizeObserver tidak melihat perpindahan posisi).
+    let animRaf = 0;
+    let animating = false;
+    const follow = () => {
+      if (!animating || !alive) return;
+      const b = bounds();
+      if (b) {
+        tiny = b.w < 1 || b.h < 1;
+        applyVisible();
+        if (!tiny) void call("browser_set_bounds", { tab: activeRef.current, ...b }).catch(() => {});
+      }
+      animRaf = requestAnimationFrame(follow);
+    };
+    const onAnim = (e: Event) => {
+      const active = (e as CustomEvent<{ active: boolean }>).detail?.active === true;
+      cancelAnimationFrame(animRaf);
+      animating = active;
+      if (active) animRaf = requestAnimationFrame(follow);
+      else sync(); // posisi akhir yang pasti (termasuk aturan "terlalu kecil")
+    };
+    window.addEventListener(PANEL_ANIM_EVENT, onAnim);
     // overlay UI → sembunyikan webview aktif (airspace)
     const mo = new MutationObserver(() => {
       overlay = document.querySelector(OVERLAY) !== null;
@@ -188,6 +217,8 @@ export function BrowserPanel() {
       mo.disconnect();
       window.removeEventListener("resize", sync);
       window.removeEventListener(BROWSER_OPEN_EVENT, onOpen);
+      window.removeEventListener(PANEL_ANIM_EVENT, onAnim);
+      cancelAnimationFrame(animRaf);
       off?.();
       void call("browser_visible", { tab: activeRef.current, visible: false }).catch(() => {});
     };
@@ -216,7 +247,7 @@ export function BrowserPanel() {
     );
   const external = () => {
     const u = activeTab?.url || input;
-    if (!/^https:\/\//i.test(u)) return;
+    if (!/^https?:\/\//i.test(u)) return;
     void call("open_external", { url: u }).catch((e) => toast.show({ title: String(e), tone: "danger" }));
   };
   const newTab = () => setTabs(addBrowserTab(store));

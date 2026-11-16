@@ -4,6 +4,7 @@ import { useI18n } from "@zandor/i18n/react";
 import { useEffect, useRef } from "react";
 import { useAppearance, useServices } from "../services";
 import { applyEditorTheme, monaco, monacoLanguage } from "./monaco-setup";
+import { activateTextMateTheme, ensureTextMateLanguage, textMateLanguage } from "./textmate";
 import type { ViewerProps } from "./types";
 
 const codeFont = () => getComputedStyle(document.documentElement).getPropertyValue("--z-font-code").trim();
@@ -54,6 +55,45 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
     const a = appearance.state();
     return applyEditorTheme(a.editorTheme, a.editorThemes, isDark());
   };
+  const pathRef = useRef(tab.path);
+  pathRef.current = tab.path;
+  const syncSeq = useRef(0);
+  const modelPath = useRef<string | null>(null);
+
+  /**
+   * Terapkan tema + bahasa. Tema terpasang (VS Code) memakai grammar TextMate agar penempatan warna sama dengan VS Code;
+   * selama grammar dimuat (atau bila gagal) tokenizer Monarch dipakai sebagai cadangan.
+   */
+  const syncHighlighting = async () => {
+    const ed = editor.current;
+    const model = ed?.getModel();
+    if (!ed || !model) return;
+    const seq = ++syncSeq.current;
+    const a = appearance.state();
+    const lang = languageFor(pathRef.current);
+    const plain = monacoLanguage(lang);
+    const custom = a.editorThemes.find((x) => x.id === a.editorTheme);
+    const tmLang = custom ? textMateLanguage(lang, pathRef.current) : null;
+    if (!custom) {
+      monaco.editor.setTheme(currentTheme());
+      if (model.getLanguageId() !== plain) monaco.editor.setModelLanguage(model, plain);
+      return;
+    }
+    try {
+      const [themeName, langId] = await Promise.all([
+        activateTextMateTheme(custom),
+        tmLang ? ensureTextMateLanguage(tmLang) : Promise.resolve(plain),
+      ]);
+      if (seq !== syncSeq.current || ed.getModel() !== model) return;
+      monaco.editor.setTheme(themeName);
+      if (model.getLanguageId() !== langId) monaco.editor.setModelLanguage(model, langId);
+    } catch (e) {
+      console.warn("pewarnaan TextMate gagal, memakai Monarch", e);
+      if (seq !== syncSeq.current) return;
+      monaco.editor.setTheme(currentTheme());
+      if (model.getLanguageId() !== plain) monaco.editor.setModelLanguage(model, plain);
+    }
+  };
 
   // buat editor sekali per mount
   // biome-ignore lint/correctness/useExhaustiveDependencies: editor dibuat sekali; isi dan opsi diperbarui di efek lain
@@ -96,9 +136,9 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
     const el = host.current;
     el.addEventListener("wheel", onWheel, { capture: true, passive: false });
     // ikuti pergantian tema aplikasi (atribut data-theme pada <html>)
-    const mo = new MutationObserver(() => monaco.editor.setTheme(currentTheme()));
+    const mo = new MutationObserver(() => void syncHighlighting());
     // ...dan pilihan tema editor di halaman Tampilan
-    const off = appearance.subscribe(() => monaco.editor.setTheme(currentTheme()));
+    const off = appearance.subscribe(() => void syncHighlighting());
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
     return () => {
       el.removeEventListener("wheel", onWheel, { capture: true });
@@ -119,14 +159,17 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
     const lang = monacoLanguage(languageFor(tab.path));
     const old = ed.getModel();
     // Setelah menyimpan, isi editor sama dengan teks baru: jangan buat ulang model (kursor/undo tetap).
-    if (old && norm(old.getValue()) === norm(decoded.text) && old.getLanguageId() === lang) {
+    // (bahasa model bisa `tm-*` saat tema VS Code aktif, jadi bandingkan path, bukan id bahasa)
+    if (old && norm(old.getValue()) === norm(decoded.text) && modelPath.current === tab.path) {
       baseline.current = norm(decoded.text);
       return;
     }
     const model = monaco.editor.createModel(decoded.text, lang);
     baseline.current = norm(decoded.text);
+    modelPath.current = tab.path;
     ed.setModel(model);
     old?.dispose();
+    void syncHighlighting();
   }, [decoded.text, tab.path, tab.version]);
 
   useEffect(() => {

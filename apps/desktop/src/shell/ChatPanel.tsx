@@ -27,11 +27,15 @@ import { useI18n } from "@zandor/i18n/react";
 import {
   ArrowUpIcon,
   Button,
+  ChatIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CloseIcon,
   ContextMenu,
   Dialog,
+  FileTextIcon,
+  FolderIcon,
+  GitIcon,
   IconButton,
   MaximizeIcon,
   Menu,
@@ -47,6 +51,7 @@ import {
   ShieldIcon,
   Spinner,
   StopIcon,
+  UndoIcon,
   useToast,
 } from "@zandor/ui";
 import {
@@ -82,6 +87,7 @@ import {
 } from "./message-focus";
 import { useOpenState } from "./open-state";
 import { PanelTabBar } from "./PanelTabBar";
+import { isLongPaste, isPasted, lineCount, pastedAttachment, pastedText } from "./pasted-text";
 import { toolSummary } from "./process-label";
 import { QuestionCard, TodoList } from "./QuestionCard";
 import { QueueDock } from "./QueueDock";
@@ -98,6 +104,7 @@ import {
   useSettings,
 } from "./services";
 import { SessionFlagsContext } from "./session-context";
+import { useSmoothCaret } from "./smooth-caret";
 import { DiffBlock, ToolCard } from "./ToolStep";
 import { parseDiff } from "./tool-view";
 import { dayPart, useOsUser } from "./use-os-user";
@@ -184,6 +191,7 @@ export function ChatPanel() {
         {welcome ? (
           <div className="chat__welcome">
             <Greeting />
+            <SessionScope />
             <Composer session={session} />
           </div>
         ) : (
@@ -257,6 +265,7 @@ function DraftChat() {
       <SessionTabs closePanel={() => panels.actions?.close("chat")} />
       <div className="chat__welcome">
         <Greeting />
+        <SessionScope />
         <Composer session={stub} draft />
       </div>
     </div>
@@ -275,6 +284,118 @@ function Greeting() {
     <div className="chat__greeting">
       <h3 className="z-h2">{t(`chat.greet.${part}` as never, { name })}</h3>
       <p className="z-p chat__sub">{t("chat.greet.sub")}</p>
+    </div>
+  );
+}
+
+/**
+ * Lingkup sesi baru: di project mana (dan repo git + cabangnya) atau chat biasa dengan folder sendiri.
+ * Data git dari `GitStore` bersama (sama dengan panel Git); tanpa Tauri ditandai tidak tersedia, bukan ditebak.
+ */
+function SessionScope() {
+  const { t } = useI18n();
+  const { git, projects } = useServices();
+  const proj = useProjects();
+  const g = useGit();
+  const toast = useToast();
+  const project = proj.projects.find((p) => p.id === (proj.selection.key ?? CHAT_KEY)) ?? null;
+  const root = project?.path ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `git` stabil; hanya root yang relevan
+  useEffect(() => {
+    if (root) void git.setRoot(root);
+  }, [root]);
+  // ganti folder = buka draf sesi baru di sana (sesi yang sudah ada terikat ke foldernya)
+  const folderEntries: MenuEntry[] = [
+    {
+      type: "checkbox",
+      id: CHAT_KEY,
+      label: t("scope.chat"),
+      checked: !project,
+      onCheckedChange: () => projects.select(CHAT_KEY, null),
+    },
+    ...proj.projects.map((p) => ({
+      type: "checkbox" as const,
+      id: p.id,
+      label: p.name,
+      checked: p.id === project?.id,
+      onCheckedChange: () => projects.select(p.id, null),
+    })),
+  ];
+  const folderPicker = (
+    <Menu
+      trigger={
+        <Button
+          size="sm"
+          variant="ghost"
+          className="chat__scope-btn"
+          aria-label={t("scope.pickFolder")}
+          title={project?.path ?? t("scope.chatHint")}
+        >
+          {project ? <FolderIcon size="sm" /> : <ChatIcon size="sm" />}
+          <span className="chat__scope-name">{project?.name ?? t("scope.chat")}</span>
+          <ChevronDownIcon size="sm" />
+        </Button>
+      }
+      entries={folderEntries}
+    />
+  );
+  if (!project) {
+    return (
+      <div className="chat__scope z-small">
+        {folderPicker}
+        <span className="chat__scope-meta">{t("scope.chatHint")}</span>
+      </div>
+    );
+  }
+  const status = g.projectRoot === root ? g.status : null;
+  const gitText = !git.available
+    ? t("scope.gitUnavailable")
+    : g.loading && !status
+      ? t("scope.gitLoading")
+      : status?.isRepo
+        ? (status.branch ?? t("scope.detached"))
+        : t("scope.noGit");
+  const switchTo = (name: string) =>
+    void git
+      .switchBranch(name)
+      .catch((e: unknown) =>
+        toast.show({ title: t("sb.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" }),
+      );
+  const branchEntries: MenuEntry[] = g.branches.map((b) => ({
+    type: "checkbox" as const,
+    id: b.name,
+    label: b.name,
+    checked: b.current,
+    onCheckedChange: () => {
+      if (!b.current) switchTo(b.name);
+    },
+  }));
+  return (
+    <div className="chat__scope z-small">
+      {folderPicker}
+      {status?.isRepo && branchEntries.length > 0 ? (
+        <Menu
+          trigger={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="chat__scope-btn"
+              aria-label={t("scope.pickBranch")}
+              disabled={g.busy}
+            >
+              <GitIcon size="sm" />
+              <span className="chat__scope-meta">{gitText}</span>
+              <ChevronDownIcon size="sm" />
+            </Button>
+          }
+          entries={branchEntries}
+        />
+      ) : (
+        <span className="chat__scope-meta">
+          <GitIcon size="sm" />
+          {gitText}
+        </span>
+      )}
     </div>
   );
 }
@@ -787,7 +908,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
   const engine = useEngineState();
   const { model, models, modelsStatus, variant, permissionMode } = useChat();
   const toast = useToast();
-  const { sendKey } = useSettings();
+  const { sendKey, pasteLongText } = useSettings();
   const [text, setText] = useState("");
   const [files, setFiles] = useState<FileAttachment[]>([]);
   const [previewFile, setPreviewFile] = useState<FileAttachment | null>(null);
@@ -802,9 +923,20 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
   const variants =
     models.find((m) => m.providerID === model?.providerID && m.modelID === model?.modelID)?.variants ?? [];
   const canSend = !disabled && !!model && (text.trim() !== "" || files.length > 0);
-  const showSuggestions = session.loaded && session.messages.length === 0 && text === "" && !running;
-  const suggestions = useSuggestions(showSuggestions);
+  // saran dihitung selama sesi kosong; saat mengetik hanya disembunyikan (ruangnya tetap) agar composer tidak bergeser
+  const suggestions = useSuggestions(session.loaded && session.messages.length === 0 && !running);
+  const suggestionsHidden = text !== "";
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const caret = useSmoothCaret(inputRef);
+  const plainPaste = useRef(false);
+  // tinggi composer mengikuti isi sampai batas CSS (max-height), lalu menggulir di dalam
+  // biome-ignore lint/correctness/useExhaustiveDependencies: diukur ulang setiap teks berubah
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
   const { locale } = useI18n();
   const [voiceDevice, setVoiceDevice] = useState(loadVoiceDevice);
   const { devices, refresh: refreshDevices } = useAudioInputs();
@@ -863,9 +995,29 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
     ensureSession,
   });
 
+  /**
+   * Siap ketik: fokus ke textarea tanpa merebut fokus dari tempat lain yang sedang dipakai (editor dokumen, terminal,
+   * dialog/menu terbuka). Fokus tidak dipindah bila pengguna sedang di kolom ketik lain di luar panel chat.
+   */
+  const focusInput = () => {
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el || el.disabled) return;
+      const active = document.activeElement as HTMLElement | null;
+      const typing =
+        !!active && (active.matches("input, textarea, select, [contenteditable]") || active.isContentEditable);
+      const free = !typing || !!active?.closest(".chat");
+      if (free && !document.querySelector('[role="dialog"], [role="menu"]')) el.focus({ preventScroll: true });
+    });
+  };
+  // sesi baru/tab berganti, engine baru siap, atau agent selesai bekerja → composer siap ketik
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dipicu oleh perubahan sesi, kesiapan, dan status kerja
+  useEffect(focusInput, [session.sessionID, draft, disabled, running]);
+
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!canSend) return;
+    focusInput(); // tetap siap ketik setelah kirim (mis. kirim dengan klik tombol)
     const slash = parseSlash(text);
     if (slash && (await assist.runSlash(slash, files))) return;
     // "//teks" = kirim garis miring apa adanya
@@ -896,6 +1048,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
     }
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    plainPaste.current = (e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "v";
     if (assist.onKeyDown(e)) return;
     if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
     // "enter": Enter kirim, Shift+Enter baris baru. "ctrl-enter": Ctrl/Cmd+Enter kirim, Enter baris baru.
@@ -941,10 +1094,34 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
   };
   const changePreviewZoom = (delta: number) => setPreviewZoom((zoom) => Math.min(5, Math.max(0.5, zoom + delta)));
   const onPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const plain = plainPaste.current;
+    plainPaste.current = false;
     const clipboardFiles = Array.from(e.clipboardData.files);
-    if (clipboardFiles.length === 0) return;
+    if (clipboardFiles.length > 0) {
+      e.preventDefault();
+      void addBrowserFiles(clipboardFiles);
+      return;
+    }
+    // teks panjang → lampiran teks (composer tetap rapi); Ctrl+Shift+V = tempel apa adanya
+    const pasted = e.clipboardData.getData("text/plain");
+    if (plain || pasteLongText !== "attach" || !isLongPaste(pasted)) return;
     e.preventDefault();
-    void addBrowserFiles(clipboardFiles);
+    setFiles((prev) => [...prev, pastedAttachment(pasted, prev)]);
+    toast.show({ title: t("chat.pastedNotice") });
+  };
+  /** Lampiran teks ditempel → kembali jadi teks biasa di posisi kursor. */
+  const inlinePasted = (file: FileAttachment) => {
+    const content = pastedText(file);
+    if (content === null) return;
+    const el = inputRef.current;
+    const at = el ? el.selectionStart : text.length;
+    const end = el ? el.selectionEnd : text.length;
+    setText(text.slice(0, at) + content + text.slice(end));
+    setFiles((prev) => prev.filter((p) => p.url !== file.url));
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(at + content.length, at + content.length);
+    });
   };
   const onDragOver = (e: ReactDragEvent<HTMLFormElement>) => {
     if (!Array.from(e.dataTransfer.types).includes("Files")) return;
@@ -986,33 +1163,63 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
       {disabled && <p className="chat__note chat__note--warn z-small">{t("chat.engineDown")}</p>}
       {files.length > 0 && (
         <ul className="chips">
-          {files.map((f) => (
-            <li key={f.url} className="chip" data-image={isPreviewableImage(f) ? "" : undefined}>
-              {f.url.startsWith("data:") ? (
+          {files.map((f) => {
+            const pastedLines = isPasted(f) ? lineCount(pastedText(f) ?? "") : null;
+            return pastedLines !== null ? (
+              <li key={f.url} className="chip chip--pasted">
                 <button
                   type="button"
                   className="chip__preview"
-                  aria-label={t(isPreviewableImage(f) ? "chat.previewAttachment" : "chat.previewFile", {
-                    name: f.filename ?? f.url,
-                  })}
+                  aria-label={t("chat.pastedPreview", { n: pastedLines })}
                   onClick={() => setPreviewFile(f)}
                 >
-                  {isPreviewableImage(f) ? <img src={f.url} alt="" /> : <PaperclipIcon size="sm" />}
+                  <FileTextIcon size="sm" />
                 </button>
-              ) : (
-                <PaperclipIcon size="sm" />
-              )}
-              <span>{f.filename ?? f.url}</span>
-              <button
-                type="button"
-                className="chip__x"
-                aria-label={t("chat.removeAttachment", { name: f.filename ?? f.url })}
-                onClick={() => setFiles((prev) => prev.filter((p) => p.url !== f.url))}
-              >
-                <CloseIcon size="sm" />
-              </button>
-            </li>
-          ))}
+                <span>{t("chat.pastedText", { n: pastedLines })}</span>
+                <IconButton
+                  className="chip__x"
+                  size="sm"
+                  icon={<UndoIcon size="sm" />}
+                  label={t("chat.pastedToInline")}
+                  onClick={() => inlinePasted(f)}
+                />
+                <button
+                  type="button"
+                  className="chip__x"
+                  aria-label={t("chat.removeAttachment", { name: t("chat.pastedText", { n: pastedLines }) })}
+                  onClick={() => setFiles((prev) => prev.filter((p) => p.url !== f.url))}
+                >
+                  <CloseIcon size="sm" />
+                </button>
+              </li>
+            ) : (
+              <li key={f.url} className="chip" data-image={isPreviewableImage(f) ? "" : undefined}>
+                {f.url.startsWith("data:") ? (
+                  <button
+                    type="button"
+                    className="chip__preview"
+                    aria-label={t(isPreviewableImage(f) ? "chat.previewAttachment" : "chat.previewFile", {
+                      name: f.filename ?? f.url,
+                    })}
+                    onClick={() => setPreviewFile(f)}
+                  >
+                    {isPreviewableImage(f) ? <img src={f.url} alt="" /> : <PaperclipIcon size="sm" />}
+                  </button>
+                ) : (
+                  <PaperclipIcon size="sm" />
+                )}
+                <span>{f.filename ?? f.url}</span>
+                <button
+                  type="button"
+                  className="chip__x"
+                  aria-label={t("chat.removeAttachment", { name: f.filename ?? f.url })}
+                  onClick={() => setFiles((prev) => prev.filter((p) => p.url !== f.url))}
+                >
+                  <CloseIcon size="sm" />
+                </button>
+              </li>
+            );
+          })}
           <li className="chip chip--clear-all">
             <IconButton
               className="chip__x"
@@ -1121,25 +1328,34 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
       )}
       <div className="composer__card">
         {assist.popup && <ComposerSuggest {...assist.popup} />}
-        <textarea
-          ref={inputRef}
-          className="composer__input"
-          rows={2}
-          value={text}
-          placeholder={t("chat.placeholder")}
-          aria-label={t("chat.placeholder")}
-          aria-controls={assist.popup?.id}
-          aria-activedescendant={assist.activeId}
-          aria-autocomplete="list"
-          onChange={(e) => {
-            setText(e.target.value);
-            assist.trackCaret(e.target);
-          }}
-          onSelect={(e) => assist.trackCaret(e.currentTarget)}
-          onKeyDown={onKey}
-          onPaste={onPaste}
-          disabled={disabled}
-        />
+        <div className="composer__field">
+          <textarea
+            ref={inputRef}
+            className="composer__input"
+            rows={2}
+            value={text}
+            placeholder={t("chat.placeholder")}
+            aria-label={t("chat.placeholder")}
+            aria-controls={assist.popup?.id}
+            aria-activedescendant={assist.activeId}
+            aria-autocomplete="list"
+            onChange={(e) => {
+              setText(e.target.value);
+              assist.trackCaret(e.target);
+            }}
+            onSelect={(e) => assist.trackCaret(e.currentTarget)}
+            onKeyDown={onKey}
+            onPaste={onPaste}
+            disabled={disabled}
+          />
+          <span
+            aria-hidden="true"
+            className="composer__caret"
+            data-visible={caret.visible || undefined}
+            data-typing={caret.typing || undefined}
+            style={{ transform: `translate(${caret.x}px, ${caret.y}px)`, height: caret.h || undefined }}
+          />
+        </div>
         <div className="composer__actions">
           {host.native ? (
             <Menu
@@ -1258,7 +1474,13 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
         </div>
       </div>
       {suggestions.length > 0 && (
-        <ul className="chips suggest" aria-label={t("sugg.title")}>
+        <ul
+          className="chips suggest"
+          aria-label={t("sugg.title")}
+          data-hidden={suggestionsHidden ? "" : undefined}
+          aria-hidden={suggestionsHidden || undefined}
+          inert={suggestionsHidden || undefined}
+        >
           {suggestions.map((s) => (
             <li key={s.id}>
               <button

@@ -24,6 +24,7 @@
     "@dicebear/open-peeps": "9.4.2",
     "@dicebear/pixel-art": "9.4.2",
     "@dicebear/thumbs": "9.4.2",
+    "@shikijs/monaco": "^4.6.0",
     "@tanstack/react-virtual": "3.14.26",
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-dialog": "2.8.4",
@@ -50,7 +51,8 @@
     "rehype-highlight": "7.0.2",
     "rehype-katex": "7.0.1",
     "remark-gfm": "4.0.1",
-    "remark-math": "6.0.0"
+    "remark-math": "6.0.0",
+    "shiki": "^4.6.0"
   },
   "devDependencies": {
     "@playwright/test": "1.65.0",

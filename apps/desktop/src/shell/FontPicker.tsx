@@ -10,6 +10,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 export type FontPreset = { value: string; label: MessageKey };
 
+/** Font yang dibundel aplikasi (@fontsource-variable, OFL) — tersedia tanpa instalasi di komputer pengguna. */
+export const BUNDLED_FONTS: Array<{ name: string; value: string }> = [
+  { name: "Inter", value: "'Inter Variable', sans-serif" },
+  { name: "Geist", value: "'Geist Variable', sans-serif" },
+  { name: "IBM Plex Sans", value: "'IBM Plex Sans Variable', sans-serif" },
+  { name: "Plus Jakarta Sans", value: "'Plus Jakarta Sans Variable', sans-serif" },
+  { name: "JetBrains Mono", value: "'JetBrains Mono Variable', monospace" },
+  { name: "Fira Code", value: "'Fira Code Variable', monospace" },
+  { name: "Geist Mono", value: "'Geist Mono Variable', monospace" },
+  { name: "Source Code Pro", value: "'Source Code Pro Variable', monospace" },
+  { name: "Roboto Mono", value: "'Roboto Mono Variable', monospace" },
+];
+
 type LoadState = { status: "idle" | "loading" | "ready" | "unavailable" | "error"; fonts: string[]; error?: string };
 
 let cached: LoadState | null = null;
@@ -79,6 +92,10 @@ export function FontPicker({
   const presetItems = presets
     .map((p) => ({ value: p.value || null, label: t(p.label) }))
     .filter((p) => !q || p.label.toLowerCase().includes(q));
+  const bundledItems = BUNDLED_FONTS.filter((f) => !q || f.name.toLowerCase().includes(q)).map((f) => ({
+    value: f.value,
+    label: f.name,
+  }));
   // font yang namanya tidak lolos validasi (mis. berisi "&") tidak bisa disimpan — tidak ditampilkan
   const systemItems = useMemo(
     () =>
@@ -92,7 +109,7 @@ export function FontPicker({
   const currentLabel =
     presets.find((p) => (p.value || null) === value)?.label !== undefined
       ? t(presets.find((p) => (p.value || null) === value)?.label as MessageKey)
-      : (value?.match(/^"([^"]+)"/)?.[1] ?? value ?? "");
+      : (BUNDLED_FONTS.find((f) => f.value === value)?.name ?? value?.match(/^"([^"]+)"/)?.[1] ?? value ?? "");
 
   const pick = (v: string | null) => {
     onChange(v);
@@ -146,6 +163,12 @@ export function FontPicker({
       />
       <div className="fontpick__list">
         {presetItems.length > 0 && <ul className="fontpick__group">{presetItems.map((i) => row(i, true))}</ul>}
+        {bundledItems.length > 0 && (
+          <>
+            <p className="z-label fontpick__heading">{t("fontPicker.bundled")}</p>
+            <ul className="fontpick__group">{bundledItems.map((i) => row(i, true))}</ul>
+          </>
+        )}
         <p className="z-label fontpick__heading">{t("fontPicker.installed")}</p>
         {sys.status === "loading" || sys.status === "idle" ? (
           <p className="z-small fontpick__note">

@@ -1171,7 +1171,8 @@
   padding: var(--z-space-2);
   overflow-x: auto;
   border-radius: var(--z-radius-md);
-  background: var(--z-color-raised);
+  background: var(--z-code-bg);
+  color: var(--z-code-fg);
   font-family: var(--z-font-code);
   font-size: var(--z-type-code-size);
 }
@@ -2903,7 +2904,8 @@
   margin: var(--z-space-2) 0;
   border: var(--z-border-width) solid var(--z-color-border);
   border-radius: var(--z-radius-md);
-  background: var(--z-color-raised);
+  background: var(--z-code-bg);
+  color: var(--z-code-fg);
   overflow: hidden;
 }
 .cblock__head {
@@ -2912,7 +2914,7 @@
   gap: var(--z-space-2);
   padding: 0 var(--z-space-1) 0 var(--z-space-3);
   border-bottom: var(--z-border-width) solid var(--z-color-border);
-  color: var(--z-color-fg-muted);
+  color: color-mix(in srgb, var(--z-code-fg) 70%, transparent);
 }
 .cblock__lang {
   font-family: var(--z-font-code);
@@ -2939,6 +2941,48 @@
 }
 .cblock__more:hover {
   background: var(--z-color-hover);
+}
+/* Bilah aksi blok render kaya: mengambang di pojok kanan atas, tampil saat hover/fokus */
+.rblock {
+  position: relative;
+  display: block;
+}
+.rblock--image {
+  display: inline-block;
+  max-width: 100%;
+}
+.rbar {
+  position: absolute;
+  top: var(--z-space-1);
+  right: var(--z-space-1);
+  z-index: 1;
+  display: flex;
+  gap: var(--z-space-1);
+  padding: var(--z-space-1);
+  border: var(--z-border-width) solid var(--z-color-border-soft);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-composer);
+  box-shadow: var(--z-shadow-1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--z-duration-fast) var(--z-ease);
+}
+.rblock:hover > .rbar,
+.rblock:focus-within > .rbar,
+.rbar:has([aria-expanded="true"]) {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cblock__actions {
+  display: flex;
+  gap: var(--z-space-1);
+}
+.cblock__actions .z-icon-button {
+  color: inherit;
+}
+.cblock__pre[data-wrap] code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .md__table {
   max-width: 100%;
@@ -3296,17 +3340,55 @@
   flex: 1;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* safe: bila isi lebih tinggi dari panel, rata atas (tidak terpotong / melompat) */
+  justify-content: safe center;
   gap: var(--z-space-4);
   min-height: 0;
   padding: var(--z-space-4);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .chat__greeting {
   text-align: center;
 }
 .chat__greeting h3 {
   margin: 0;
+}
+/* lingkup sesi baru: pil ringan [ikon · nama · meta redup] */
+.chat__scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  max-width: 100%;
+  margin: 0;
+  padding: var(--z-space-1);
+  border: var(--z-border-width) solid var(--z-color-border-soft);
+  border-radius: var(--z-radius-full);
+  color: var(--z-color-fg-muted);
+  white-space: nowrap;
+}
+.chat__scope > .chat__scope-meta {
+  padding-inline-end: var(--z-space-2);
+}
+.chat__scope-btn {
+  gap: var(--z-space-1);
+  min-width: 0;
+  border-radius: var(--z-radius-full);
+}
+.chat__scope-name {
+  overflow: hidden;
+  color: var(--z-color-fg);
+  text-overflow: ellipsis;
+}
+.chat__scope-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-1);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--z-color-fg-subtle);
+  font-family: var(--z-font-mono);
+  text-overflow: ellipsis;
 }
 .chat__welcome .composer {
   width: 100%;
@@ -3316,6 +3398,11 @@
 .chat__welcome .suggest {
   order: 10;
   justify-content: center;
+}
+/* disembunyikan saat mengetik tanpa melepas ruangnya → composer tidak bergeser */
+.suggest[data-hidden] {
+  visibility: hidden;
+  opacity: 0;
 }
 .sidebar__action .z-kbd-group {
   flex: none;
@@ -3374,6 +3461,56 @@
 .composer__input:focus-visible {
   outline: none;
   box-shadow: none;
+}
+.composer__field {
+  position: relative;
+  overflow: hidden; /* kursor halus tidak pernah tergambar di luar area tulis */
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+/* Kursor halus ala Monkeytype: kursor asli disembunyikan, batang ini meluncur. */
+.composer__input {
+  max-height: 40vh;
+  overflow-y: auto;
+  /* guliran di dalam composer tidak merambat ke halaman/transkrip di belakangnya */
+  overscroll-behavior: contain;
+  caret-color: transparent;
+}
+.composer__caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: calc(var(--z-border-width) * 2);
+  border-radius: var(--z-radius-sm);
+  background: var(--z-color-fg);
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    transform calc(var(--z-duration-fast) * 1.1) var(--z-ease),
+    opacity var(--z-duration-fast) linear;
+}
+.composer__caret[data-visible] {
+  opacity: 1;
+  animation: composer-caret-blink 1s var(--z-ease) infinite;
+}
+.composer__caret[data-typing] {
+  animation: none;
+}
+@keyframes composer-caret-blink {
+  0%,
+  40% {
+    opacity: 1;
+  }
+  60%,
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer__caret[data-visible] {
+    animation: none;
+  }
 }
 .composer__input::placeholder {
   color: var(--z-color-fg-subtle);
@@ -3478,6 +3615,10 @@
 .chat__welcome .composer {
   padding-inline: 0;
 }
+/* halaman sapaan: sapaan + composer + saran harus muat di layar laptop */
+.chat__welcome .composer__input {
+  max-height: 30vh;
+}
 
 /* ---------- Composer: sambungan pil model, tombol kirim, input suara ---------- */
 .composer__model .chat__model:not(:last-child) {
@@ -3575,14 +3716,38 @@
 
 /* ---------- Pemilih model: tab, bagian yang bisa dilipat, tab ping, tab provider ---------- */
 .z-popover.mpicker-pop {
-  min-width: min(32rem, calc(100vw - var(--z-space-6)));
-  max-width: min(32rem, calc(100vw - var(--z-space-6)));
+  min-width: min(42rem, calc(100vw - var(--z-space-6)));
+  max-width: min(42rem, calc(100vw - var(--z-space-6)));
 }
 .mpicker .z-tabs {
   gap: var(--z-space-2);
 }
+/* kolom kiri bergaya navigasi sidebar, bukan segmen tab */
 .mpicker .z-tabs__list {
-  max-width: 100%;
+  width: 10rem;
+  gap: 2px;
+  padding: 0 var(--z-space-2) 0 0;
+  border-radius: 0;
+  background: transparent;
+  border-right: var(--z-border-width) solid var(--z-color-border);
+}
+.mpicker .z-tabs__tab {
+  height: var(--z-control-sm);
+  padding: 0 var(--z-space-2);
+  border-radius: var(--z-radius-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: transparent;
+  box-shadow: none;
+}
+.mpicker .z-tabs__tab:hover:not([data-disabled]) {
+  background: var(--z-color-hover);
+}
+.mpicker .z-tabs__tab[data-active] {
+  background: var(--z-color-active);
+  box-shadow: none;
+  color: var(--z-color-fg);
+  font-weight: 500;
 }
 .mpicker__page {
   display: flex;
@@ -4604,6 +4769,125 @@
   display: flex;
   gap: var(--z-space-1);
 }
+/* ---------- Panel 4: Background job (ADR-072) ---------- */
+.jobs {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.jobs__count {
+  margin-right: auto;
+  color: var(--z-color-fg-muted);
+}
+.jobs__list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0 var(--z-space-2) var(--z-space-2);
+  overflow: auto;
+  list-style: none;
+}
+.jobs__row {
+  border-radius: var(--z-radius-md);
+}
+.jobs__head {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-1);
+  border-radius: var(--z-radius-md);
+}
+.jobs__head:hover {
+  background: var(--z-color-hover);
+}
+.jobs__toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--z-space-2);
+  min-width: 0;
+  padding: var(--z-space-1) var(--z-space-2);
+  border: 0;
+  border-radius: var(--z-radius-md);
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.jobs__state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--z-icon-md);
+}
+.jobs__dot {
+  width: var(--z-space-2);
+  height: var(--z-space-2);
+  border-radius: var(--z-radius-full);
+  background: var(--z-color-fg-subtle);
+}
+.jobs__row[data-status="failed"] .jobs__dot {
+  background: var(--z-color-danger);
+}
+.jobs__main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.jobs__name {
+  overflow: hidden;
+  color: var(--z-color-fg);
+  font-weight: var(--z-type-h4-weight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs__meta {
+  display: flex;
+  gap: var(--z-space-2);
+  min-width: 0;
+  color: var(--z-color-fg-subtle);
+  white-space: nowrap;
+}
+.jobs__status {
+  flex: none;
+  color: var(--z-color-fg-muted);
+}
+.jobs__row[data-status="failed"] .jobs__status {
+  color: var(--z-color-danger);
+}
+.jobs__cmd {
+  flex: 1 1 0;
+  overflow: hidden;
+  font-family: var(--z-font-code);
+  text-overflow: ellipsis;
+}
+.jobs__actions {
+  display: flex;
+  flex: none;
+  gap: var(--z-space-1);
+  padding-right: var(--z-space-1);
+}
+.jobs__detail {
+  padding: var(--z-space-1) var(--z-space-2) var(--z-space-2);
+}
+.jobs__cwd {
+  margin: 0 0 var(--z-space-1);
+  overflow: hidden;
+  color: var(--z-color-fg-subtle);
+  font-family: var(--z-font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs__log {
+  max-height: calc(var(--z-space-7) * 8);
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .gitp__repos {
   display: flex;
   align-items: center;
@@ -4751,6 +5035,11 @@
 .tree__row[data-bg] > * {
   position: relative;
 }
+/* warna teks + ikon (folder, +, ⋯) kustom per project */
+.tree__row[data-fg] :is(button, span, svg),
+.pstyle__preview[data-fg] :is(span, svg) {
+  color: var(--pstyle-fg);
+}
 .tree__logoimg,
 .pstyle__logoimg {
   width: var(--z-icon-md);
@@ -4796,6 +5085,15 @@
 }
 .pstyle__preview > * {
   position: relative;
+}
+.pstyle__preview .tree__label {
+  flex: 1;
+  min-width: 0;
+}
+.pstyle__previcons {
+  display: flex;
+  gap: var(--z-space-2);
+  color: var(--z-color-fg-muted);
 }
 .pstyle__gradient,
 .pstyle__stops {
@@ -5376,4 +5674,289 @@ fieldset.pstyle__templates {
   margin: 0;
   padding: var(--z-space-2);
   color: var(--z-color-fg-muted);
+}
+
+/* Transisi tampil/sembunyi panel (ShellLayout `startAnim`, ADR-066).
+   Hanya aktif sesaat lewat [data-animating] sehingga seret separator tetap responsif.
+   Isi panel dikeluarkan dari alur (absolute) dengan lebar px AKHIR-nya: ditata sekali di awal,
+   lalu panel hanya membuka/menutup seperti tirai — tidak terhimpit, tidak "lompat" di akhir,
+   dan tidak memengaruhi pengukuran pustaka panel. Panel yang ditutup memudar.
+   Durasi token = 0 pada prefers-reduced-motion. */
+.shell-group[data-animating] > [data-panel] {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  transition: flex-grow calc(var(--z-duration-base) * 1.6) var(--z-ease);
+}
+.shell-group[data-animating] .shell-panel__inner[style*="width"] {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  height: auto;
+  transition: opacity var(--z-duration-fast) var(--z-ease);
+}
+.shell-group[data-animating] .shell-panel__inner[data-closing] {
+  opacity: 0;
+}
+
+/* ── Panel Trajectory (ADR-073) ── */
+.traj {
+  --traj-c: var(--z-color-fg-muted);
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.traj [data-kind="user"] {
+  --traj-c: var(--z-color-accent);
+}
+.traj [data-kind="context"] {
+  --traj-c: var(--z-code-string);
+}
+.traj [data-kind="model"] {
+  --traj-c: var(--z-code-keyword);
+}
+.traj [data-kind="thinking"] {
+  --traj-c: var(--z-color-fg-subtle);
+}
+.traj [data-kind="assistant"] {
+  --traj-c: var(--z-code-function);
+}
+.traj [data-kind="tool"] {
+  --traj-c: var(--z-color-warning);
+}
+.traj [data-kind="step"],
+.traj [data-kind="other"] {
+  --traj-c: var(--z-color-fg-muted);
+}
+.traj [data-kind="error"] {
+  --traj-c: var(--z-color-danger);
+}
+.traj__bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-1);
+  padding: var(--z-space-1) var(--z-space-2);
+  border-bottom: var(--z-border-width) solid var(--z-color-border-soft);
+}
+.traj__chip[aria-pressed="false"] {
+  color: var(--z-color-fg-subtle);
+  text-decoration: line-through;
+}
+.traj__search {
+  flex: 1 1 10rem;
+  min-width: 8rem;
+}
+.traj__stats {
+  flex: none;
+  margin: 0;
+  padding: var(--z-space-1) var(--z-space-3);
+  color: var(--z-color-fg-muted);
+}
+.traj__err {
+  color: var(--z-color-danger);
+}
+.traj-ov {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: calc(var(--z-space-1) / 2);
+  padding: var(--z-space-1) var(--z-space-3) var(--z-space-2);
+  border-bottom: var(--z-border-width) solid var(--z-color-border-soft);
+}
+.traj-ov__lane {
+  display: grid;
+  grid-template-columns: 4rem 1fr;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+.traj-ov__label {
+  color: var(--z-color-fg-subtle);
+  text-align: right;
+}
+.traj-ov__track {
+  position: relative;
+  height: var(--z-space-3);
+  border-radius: var(--z-radius-sm);
+  background: var(--z-color-surface);
+}
+.traj-ov__turn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--z-border-width);
+  background: var(--z-color-border-strong);
+}
+.traj-ov__span {
+  position: absolute;
+  top: 15%;
+  bottom: 15%;
+  min-width: calc(var(--z-space-1) / 2);
+  padding: 0;
+  border: 0;
+  border-radius: var(--z-radius-sm);
+  background: var(--traj-c);
+  opacity: 0.85;
+  cursor: pointer;
+}
+.traj-ov__span:hover,
+.traj-ov__span[data-active] {
+  opacity: 1;
+  outline: var(--z-border-width) solid var(--z-color-fg);
+}
+.traj-ov__span[data-error] {
+  background: var(--z-color-danger);
+}
+.traj-ov__span[data-dim] {
+  opacity: 0.2;
+}
+.traj__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--z-space-2);
+}
+.traj-turn__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  width: 100%;
+  padding: var(--z-space-1) var(--z-space-2);
+  border: 0;
+  border-bottom: var(--z-border-width) solid var(--z-color-border-soft);
+  background: var(--z-color-raised);
+  color: var(--z-color-fg);
+  text-align: left;
+  cursor: pointer;
+}
+.traj-turn__meta {
+  overflow: hidden;
+  color: var(--z-color-fg-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.traj-turn__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.traj-row {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--z-space-2);
+  width: 100%;
+  padding: calc(var(--z-space-1) * 0.75) var(--z-space-2);
+  border: 0;
+  border-bottom: var(--z-border-width) solid var(--z-color-border-soft);
+  background: transparent;
+  color: var(--z-color-fg);
+  font-size: var(--z-type-small-size);
+  text-align: left;
+  cursor: pointer;
+}
+.traj-row:hover {
+  background: var(--z-color-hover);
+}
+.traj-row[aria-pressed="true"] {
+  background: var(--z-color-active);
+}
+.traj-row[data-kind="thinking"],
+.traj-row[data-kind="context"],
+.traj-row[data-kind="step"],
+.traj-row[data-kind="other"] {
+  padding-left: var(--z-space-4);
+}
+.traj-row__kind {
+  justify-self: start;
+  padding: 0 var(--z-space-1);
+  border-radius: var(--z-radius-sm);
+  background: color-mix(in srgb, var(--traj-c) 18%, transparent);
+  color: var(--traj-c);
+  font-size: var(--z-type-label-size);
+  font-weight: var(--z-type-label-weight);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.traj-row__text {
+  display: flex;
+  gap: var(--z-space-1);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.traj-row__name {
+  flex: none;
+  font-family: var(--z-font-code);
+  font-size: var(--z-type-code-size);
+  color: var(--z-color-fg);
+  font-weight: var(--z-type-label-weight);
+}
+.traj-row__sum {
+  overflow: hidden;
+  color: var(--z-color-fg-muted);
+  text-overflow: ellipsis;
+}
+.traj-row__out {
+  grid-column: 2 / 3;
+  overflow: hidden;
+  color: var(--z-color-fg-subtle);
+  font-family: var(--z-font-code);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.traj-row__dur {
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--z-color-fg-subtle);
+  white-space: nowrap;
+}
+.traj-row[data-status="error"] .traj-row__dur,
+.traj-row[data-status="error"] .traj-row__out {
+  color: var(--z-color-danger);
+}
+.traj-insp {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  max-height: 45%;
+  min-height: 10rem;
+  border-top: var(--z-border-width) solid var(--z-color-border-strong);
+  background: var(--z-color-surface);
+}
+.traj-insp__head {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  padding: var(--z-space-1) var(--z-space-2);
+}
+.traj-insp__grow {
+  flex: 1;
+}
+.traj-insp__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--z-space-2) var(--z-space-2);
+}
+.traj-insp__pre {
+  max-height: none;
+}
+.traj-insp__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--z-space-1) var(--z-space-3);
+  margin: var(--z-space-2) 0 0;
+}
+.traj-insp__facts dt {
+  color: var(--z-color-fg-subtle);
+}
+.traj-insp__facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }

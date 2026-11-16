@@ -59,7 +59,18 @@ import type { EngineHost } from "./engine-host";
 import type { NotifyHost } from "./notify-host";
 import { loadWindowApi, type WindowApi } from "./window-api";
 
-export const TOOL_IDS = ["terminal", "git", "changes", "files", "browser", "info", "session", "log"] as const;
+export const TOOL_IDS = [
+  "terminal",
+  "jobs",
+  "git",
+  "changes",
+  "files",
+  "browser",
+  "info",
+  "session",
+  "trajectory",
+  "log",
+] as const;
 export type ToolId = (typeof TOOL_IDS)[number];
 export const PANEL_IDS = ["sidebar", "chat", "docs", "tools", "rail"] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
@@ -286,6 +297,11 @@ export function ServicesProvider({ services, children }: { services: Services; c
       <ModelLogoBridge>{children}</ModelLogoBridge>
     </ServicesContext.Provider>
   );
+}
+
+/** Seperti `useServices`, tetapi null di luar provider (komponen render yang juga dipakai di tes/halaman mandiri). */
+export function useOptionalServices(): Services | null {
+  return useContext(ServicesContext);
 }
 
 export function useServices(): Services {

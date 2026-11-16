@@ -52,11 +52,22 @@ pesan (tidak langsung terkirim); chip hilang saat mulai mengetik. Tes: `suggesti
 
 - **Render respons:** Markdown GFM, KaTeX, blok kode berwarna (label bahasa, Salin, ciut > 30 baris), Mermaid (setelah jawaban
   selesai), tabel yang bisa digulir. HTML mentah/skrip/gambar luar tidak aktif.
+- **Aksi blok render kaya** (`rich/RichActions.tsx`, `rich/rich-export.ts`): bilah mengambang saat hover/fokus per jenis blok.
+  Kode: bungkus baris, salin, salin sebagai blok Markdown, simpan berkas (ekstensi dari bahasa), salin/simpan gambar. Tabel:
+  salin (HTML + TSV, tempel ke Word/Excel tetap tabel), Markdown, TSV, CSV, HTML, simpan CSV/Markdown, gambar PNG/SVG. Rumus
+  blok KaTeX: salin LaTeX, LaTeX dengan `$$`, MathML, gambar PNG/SVG, simpan `.tex`. Mermaid: salin sumber, salin SVG, simpan
+  PNG/SVG/`.mmd`. Gambar `data:`: salin dan simpan. Rumus sebaris belum punya aksi. Tes: `rich-export.test.ts`.
+- **Warna blok kode = tema editor aktif** (`core/theme/code-colors.ts`): `computeVars` menimpa `--z-code-*` (+ `--z-code-bg`,
+  `--z-code-fg`) dari tema editor terpilih — tema VS Code terpasang lewat scope TextMate (`keyword`, `string`,
+  `constant.numeric`, `comment`, `entity.name.function`, `entity.name.type`, `entity.other.attribute-name`, `markup.*`) dan
+  `editor.background/foreground`; tema bawaan Monaco memakai palet bawaannya; "Otomatis" memakai token Zandor, dan Monaco
+  "Otomatis" kini juga memakai `--z-code-*` sehingga editor dan chat identik. Jenis yang tak didefinisikan tema jatuh ke token
+  bawaan. Tes: `code-colors.test.ts`.
 - **Tautan di respons** (16-11-2026): klik/Enter pada tautan http(s) tidak langsung membuka halaman, tetapi menu kecil yang
   menempel pada tautan (`ChatLink`, `Menu nativeButton={false}`): **Buka di browser Zandor** (Panel 4 → alat Browser, tab aktif),
-  **Buka di browser eksternal** (perintah Rust `open_external`, browser bawaan sistem), **Salin tautan**. Batas jujur: di aplikasi
-  desktop browser eksternal hanya untuk `https` (aturan `open_external`); di versi web browser Zandor dinonaktifkan dengan label
-  "hanya di aplikasi desktop". `mailto:` dan jangkar `#` tetap tautan biasa. Tes: `bun x vitest run apps/desktop/src/shell/rich`.
+  **Buka di browser eksternal** (perintah Rust `open_external`, browser bawaan sistem), **Salin tautan**. Keduanya menerima `http` dan
+  `https` (mis. `http://localhost:3000`); `open_external` mewajibkan skema eksplisit (`browser::external_url`). Di versi web
+  browser Zandor dinonaktifkan dengan label "hanya di aplikasi desktop". `mailto:` dan jangkar `#` tetap tautan biasa. Tes: `bun x vitest run apps/desktop/src/shell/rich`.
 - **Form pertanyaan agent** (tool `question`): kartu dengan pilihan tunggal/jamak dan jawaban sendiri; Kirim/Lewati. **Rencana
   agent** (todo) tampil di atas composer.
 - **Info pemakaian** di composer: model, konteks terpakai vs batas (peringatan hampir penuh), token, biaya, rincian.

@@ -253,15 +253,10 @@ function DemoRows() {
 function SidebarActions() {
   const { t } = useI18n();
   const { nav, projects } = useServices();
-  const state = useProjects();
-  const fail = useErrorToast();
   return (
     <div className="sidebar__actions">
-      <Button
-        className="sidebar__action"
-        disabled={!state.engineReady}
-        onClick={() => void projects.createSession(state.selection.key ?? CHAT_KEY).catch(fail)}
-      >
+      {/* draf sesi baru tanpa project; folder bisa diganti dari pil lingkup sebelum pesan pertama */}
+      <Button className="sidebar__action" onClick={() => projects.select(CHAT_KEY, null)}>
         <PlusIcon size="sm" />
         <span className="sidebar__action-label">{t("sb.newChat")}</span>
         <Kbd keys="Ctrl+N" />
@@ -348,9 +343,10 @@ function AddProject() {
 /** Gaya inline baris project dari gaya kustom (latar warna/gradien/gambar dan border). */
 function rowStyle(s: ProjectStyle | undefined): React.CSSProperties | undefined {
   const bg = projectBackground(s);
-  if (!bg && !s?.border) return undefined;
+  if (!bg && !s?.border && !s?.fg) return undefined;
   return {
     ...(bg ? { background: bg } : {}),
+    ...(s?.fg ? ({ "--pstyle-fg": s.fg } as React.CSSProperties) : {}),
     ...(s?.border ? { boxShadow: `inset 0 0 0 var(--z-border-width) ${s.border}` } : {}),
   };
 }
@@ -520,7 +516,11 @@ function SessionsList({
                 <ContextMenu
                   entries={entries}
                   className="tree__row"
-                  triggerProps={{ style: rowStyle(pstyle), "data-bg": projectBackground(pstyle) ? "" : undefined }}
+                  triggerProps={{
+                    style: rowStyle(pstyle),
+                    "data-bg": projectBackground(pstyle) ? "" : undefined,
+                    "data-fg": pstyle?.fg ? "" : undefined,
+                  }}
                 >
                   <button
                     type="button"

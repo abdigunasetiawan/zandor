@@ -106,6 +106,38 @@ describe("themesFromVsix", () => {
     expect(r.skipped.join("|")).toMatch(/Rusak/);
   });
 
+  test("include tema induk digabung (induk dulu, lalu tema anak) dan tokenColors asli disimpan utuh", () => {
+    const pkg = { contributes: { themes: [{ label: "Anak", uiTheme: "vs-dark", path: "./themes/child.json" }] } };
+    const r = themesFromVsix(
+      vsix({
+        "extension/package.json": JSON.stringify(pkg),
+        "extension/themes/child.json": JSON.stringify({
+          include: "./base/parent.json",
+          colors: { "editor.background": "#000000" },
+          tokenColors: [{ scope: "keyword.control", settings: { foreground: "#ff0000" } }],
+        }),
+        "extension/themes/base/parent.json": JSON.stringify({
+          include: "../../../../luar.json",
+          colors: { "editor.background": "#111111", "editor.foreground": "#eeeeee" },
+          tokenColors: [
+            { settings: { foreground: "#eeeeee" } },
+            { scope: "meta.function entity.name.function, support.function", settings: { foreground: "#00ff00" } },
+          ],
+        }),
+      }),
+      "x",
+    );
+    const t = r.themes[0];
+    expect(t?.colors).toEqual({ "editor.background": "#000000", "editor.foreground": "#eeeeee" });
+    expect(t?.tokenColors).toEqual([
+      { settings: { foreground: "#eeeeee" } },
+      { scope: ["meta.function entity.name.function", "support.function"], settings: { foreground: "#00ff00" } },
+      { scope: ["keyword.control"], settings: { foreground: "#ff0000" } },
+    ]);
+    // include yang mencoba keluar dari folder extension/ ditolak dan dilaporkan
+    expect(r.errors.join("|")).toMatch(/Anak: include .*tidak bisa dibaca/);
+  });
+
   test("bukan zip, tanpa package.json, tanpa tema", () => {
     expect(themesFromVsix(new Uint8Array([1, 2, 3]), "x").errors[0]).toMatch(/tidak bisa dibuka/);
     expect(themesFromVsix(vsix({ "extension/lain.json": "{}" }), "x").errors[0]).toMatch(
@@ -115,6 +147,38 @@ describe("themesFromVsix", () => {
       /tidak memuat tema/,
     );
     expect(themesFromVsix(vsix({ "extension/package.json": "{rusak" }), "x").errors[0]).toMatch(/rusak/);
+  });
+});
+
+describe("sanitizeEditorTheme tokenColors", () => {
+  test("tema lama tanpa tokenColors diturunkan dari rules; selektor berbahaya dibuang", () => {
+    const old = sanitizeEditorTheme({
+      id: "lama",
+      name: "Lama",
+      base: "vs-dark",
+      colors: {},
+      rules: [
+        { token: "comment", foreground: "6a9955" },
+        { token: "", foreground: "ffffff" },
+      ],
+    });
+    expect(old?.tokenColors).toEqual([
+      { scope: ["comment"], settings: { foreground: "#6a9955" } },
+      { settings: { foreground: "#ffffff" } },
+    ]);
+    const baru = sanitizeEditorTheme({
+      id: "baru",
+      name: "Baru",
+      base: "vs",
+      colors: {},
+      rules: [],
+      tokenColors: [
+        { scope: ["string"], settings: { foreground: "#a31515" } },
+        { scope: ["bad"], settings: { foreground: "#000000" } },
+        { scope: ["x"], settings: { foreground: "red" } },
+      ],
+    });
+    expect(baru?.tokenColors).toEqual([{ scope: ["string"], settings: { foreground: "#a31515" } }]);
   });
 });
 

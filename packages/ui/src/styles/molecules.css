@@ -224,6 +224,23 @@
 .z-tabs__panel {
   outline: none;
 }
+/* vertikal: daftar tab di kiri, panel di kanan */
+.z-tabs[data-orientation="vertical"] {
+  flex-direction: row;
+}
+.z-tabs[data-orientation="vertical"] > .z-tabs__list {
+  flex-direction: column;
+  flex: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.z-tabs[data-orientation="vertical"] > .z-tabs__list > .z-tabs__tab {
+  justify-content: flex-start;
+}
+.z-tabs[data-orientation="vertical"] > .z-tabs__panel {
+  flex: 1;
+  min-width: 0;
+}
 
 /* ---------- Combobox, SearchField, Field ---------- */
 .z-combobox {

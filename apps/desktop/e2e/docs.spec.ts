@@ -316,3 +316,72 @@ test("kustomisasi Panel 3: opsi sesuai jenis dokumen, tema baca, dan Ctrl+roda m
   await expect(page.getByRole("region", { name: "Gambar" })).toBeVisible();
   await expect(page.getByRole("region", { name: /^Tabel dan data/ })).toBeVisible();
 });
+
+test("tema VS Code terpasang: warna kode memakai grammar TextMate (penempatan sama dengan VS Code)", async ({
+  page,
+}) => {
+  // tema dengan warna khas per scope TextMate yang tidak bisa dibedakan tokenizer Monarch
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "zandor.appearance",
+      JSON.stringify({
+        editorTheme: "uji-tm",
+        editorThemes: [
+          {
+            id: "uji-tm",
+            name: "Uji TM",
+            base: "vs-dark",
+            colors: { "editor.background": "#101010", "editor.foreground": "#cccccc" },
+            rules: [],
+            tokenColors: [
+              { settings: { foreground: "#cccccc" } },
+              { scope: ["entity.name.function"], settings: { foreground: "#ff00aa" } },
+              { scope: ["storage.type", "keyword"], settings: { foreground: "#3399ff" } },
+              { scope: ["variable.parameter"], settings: { foreground: "#ffaa00", fontStyle: "italic" } },
+              { scope: ["comment"], settings: { foreground: "#55aa55", fontStyle: "italic" } },
+            ],
+            source: "berkas",
+          },
+        ],
+      }),
+    );
+  });
+  await openFiles(page, { "fn.ts": "function halo(nama: string) {}\n// catatan" });
+  await openDoc(page, "fn.ts");
+  const lines = docs(page).getByTestId("monaco").locator(".view-lines");
+  await expect(lines).toContainText("halo", { timeout: 15_000 });
+  const colorOf = (text: string) =>
+    expect.poll(
+      () =>
+        lines.evaluate((el, t) => {
+          const span = [...el.querySelectorAll("span span")].find(
+            (s) => s.textContent?.replace(/ /g, " ").trim() === t,
+          );
+          return span ? getComputedStyle(span).color : null;
+        }, text),
+      { timeout: 15_000 },
+    );
+  await colorOf("halo").toBe("rgb(255, 0, 170)");
+  await colorOf("function").toBe("rgb(51, 153, 255)");
+  await colorOf("nama").toBe("rgb(255, 170, 0)");
+  await colorOf("// catatan").toBe("rgb(85, 170, 85)");
+  const bg = await docs(page)
+    .locator(".monaco-editor")
+    .first()
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).toBe("rgb(16, 16, 16)");
+});
+
+test("Panel 3 tertutup otomatis saat tab dokumen terakhir ditutup", async ({ page }) => {
+  await openFiles(page, { "a.ts": "const a = 1;", "b.md": "# B" });
+  await openDoc(page, "a.ts");
+  await openDoc(page, "b.md");
+  await page.getByRole("button", { name: "Tutup tab a.ts" }).click();
+  const width = () => page.evaluate(() => document.getElementById("docs")?.getBoundingClientRect().width ?? -1);
+  expect(await width()).toBeGreaterThan(100); // masih ada dokumen → panel tetap
+  await page.getByRole("button", { name: "Tutup tab b.md" }).click();
+  await expect.poll(width).toBeLessThan(2); // panel terlipat
+  // dibuka lagi dengan berkas → panel muncul kembali
+  await openDoc(page, "a.ts");
+  await expect(docs(page).getByTestId("doc-path")).toHaveText("a.ts");
+});

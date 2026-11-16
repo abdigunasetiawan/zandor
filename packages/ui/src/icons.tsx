@@ -60,18 +60,22 @@ import {
   RotateCw,
   Save,
   Search,
+  Server,
   Settings,
   Shield,
   Shuffle,
+  Sigma,
   SlidersHorizontal,
   Sparkles,
   Square,
+  Table2,
   Terminal,
   Trash2,
   TriangleAlert,
   Undo2,
   Upload,
   User,
+  Waypoints,
   WrapText,
   Wrench,
   X,
@@ -164,14 +168,18 @@ export const LayoutIcon = icon(LayoutPanelLeft, "LayoutIcon");
 export const SmartLayoutIcon = icon(Columns3Cog, "SmartLayoutIcon");
 export const WrenchIcon = icon(Wrench, "WrenchIcon");
 export const StopIcon = icon(Square, "StopIcon");
+export const ServerIcon = icon(Server, "ServerIcon");
 export const MicIcon = icon(Mic, "MicIcon");
 export const LinkIcon = icon(Link2, "LinkIcon");
 export const BookmarkIcon = icon(Bookmark, "BookmarkIcon");
 export const ImageDownIcon = icon(ImageDown, "ImageDownIcon");
 export const FileTextIcon = icon(FileText, "FileTextIcon");
 export const ImageIcon = icon(Image, "ImageIcon");
+export const SigmaIcon = icon(Sigma, "SigmaIcon");
+export const TableIcon = icon(Table2, "TableIcon");
 export const EyeOffIcon = icon(EyeOff, "EyeOffIcon");
 export const UploadIcon = icon(Upload, "UploadIcon");
 export const BotIcon = icon(Bot, "BotIcon");
 export const SparklesIcon = icon(Sparkles, "SparklesIcon");
 export const CustomizeIcon = icon(SlidersHorizontal, "CustomizeIcon");
+export const TrajectoryIcon = icon(Waypoints, "TrajectoryIcon");

@@ -54,13 +54,27 @@ function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+const ZANDOR_RULES: Array<[string, string[]]> = [
+  ["--z-code-keyword", ["keyword", "storage"]],
+  ["--z-code-string", ["string", "regexp"]],
+  ["--z-code-number", ["number", "constant"]],
+  ["--z-code-comment", ["comment"]],
+  ["--z-code-function", ["function", "predefined"]],
+  ["--z-code-type", ["type", "type.identifier"]],
+  ["--z-code-attr", ["attribute.name", "tag", "key", "variable"]],
+];
+
 /** Tema editor yang mengikuti token desain (bukan warna tetap). Dipanggil ulang saat tema aplikasi berganti. */
 export function applyZandorTheme(dark: boolean): string {
   const name = dark ? "zandor-dark" : "zandor-light";
   monaco.editor.defineTheme(name, {
     base: dark ? "vs-dark" : "vs",
     inherit: true,
-    rules: [],
+    // warna token = token sintaks Zandor (--z-code-*), sama dengan blok kode di chat
+    rules: ZANDOR_RULES.flatMap(([v, tokens]) => {
+      const hex = cssVar(v).replace(/^#/, "");
+      return /^[0-9a-f]{3,8}$/i.test(hex) ? tokens.map((token) => ({ token, foreground: hex })) : [];
+    }),
     colors: {
       "editor.background": cssVar("--z-color-bg"),
       "editor.foreground": cssVar("--z-color-fg"),

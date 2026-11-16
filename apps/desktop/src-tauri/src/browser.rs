@@ -90,6 +90,17 @@ pub fn parse_url(input: &str) -> Result<Url, String> {
     Ok(url)
 }
 
+/// URL untuk dibuka di browser sistem (`open_external`): skema http/https WAJIB eksplisit (tanpa menebak skema), lalu
+/// aturan `parse_url` (host wajib, panjang dibatasi). `http` diizinkan agar server lokal (mis. http://localhost:3000) bisa dibuka.
+pub fn external_url(input: &str) -> Result<Url, String> {
+    let t = input.trim();
+    let lower = t.get(..8).unwrap_or(t).to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err("hanya URL http/https yang boleh dibuka".into());
+    }
+    parse_url(t)
+}
+
 fn existing(app: &AppHandle, label: &str) -> Option<tauri::Webview> {
     app.get_webview(label)
 }
@@ -305,5 +316,24 @@ mod tests {
             assert!(parse_url(bad).is_err(), "{bad:?}");
         }
         assert!(parse_url(&"a".repeat(5000)).is_err());
+    }
+
+    #[test]
+    fn external_url_requires_explicit_http_scheme() {
+        assert_eq!(
+            external_url("http://localhost:3000/x").unwrap().as_str(),
+            "http://localhost:3000/x"
+        );
+        assert_eq!(external_url("HTTPS://a.b").unwrap().scheme(), "https");
+        for bad in [
+            "localhost:3000",
+            "example.com",
+            "file:///C:/Windows/win.ini",
+            "javascript:alert(1)",
+            "http://",
+            "ms-settings:",
+        ] {
+            assert!(external_url(bad).is_err(), "{bad:?}");
+        }
     }
 }

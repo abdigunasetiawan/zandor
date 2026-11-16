@@ -1,6 +1,7 @@
 // Penampilan yang bisa dikustomisasi (Fase 10): preset/tema kustom, tipografi per variabel, font, panel chat, dan gaya
 // section project. Murni data + store; penerapan ke DOM ada di aplikasi. Semua masukan divalidasi (tokens.ts).
 import { parseCombo } from "../shortcuts";
+import { codeVarsFor } from "./code-colors";
 import { validateGradientCss } from "./gradient";
 import { DEFAULT_PRESET, PRESETS, presetById } from "./presets";
 import {
@@ -153,7 +154,27 @@ export type ProjectStyle = {
   image?: string;
   /** Logo berupa gambar (data URL kecil); menggantikan logo teks bila ada. */
   logoImage?: string;
+  /** Posisi vertikal gambar latar dalam persen (0 = atas, 100 = bawah); bawaan 50. */
+  imageY?: string;
+  /** Skala gambar latar dalam persen terhadap `cover` (100–300); bawaan 100. */
+  imageZoom?: string;
+  /** Lapisan di atas latar agar teks terbaca: penuh atau gradasi (kiri pekat → kanan transparan). */
+  overlay?: string;
+  /** Warna lapisan overlay; bawaan hitam. */
+  overlayColor?: string;
+  /** Kepekatan overlay dalam persen (0–100); bawaan 50. */
+  overlayOpacity?: string;
+  /** Warna teks dan ikon baris project (folder, +, ⋯). */
+  fg?: string;
 };
+
+export const PROJECT_OVERLAYS = ["full", "gradient", "gradient-rtl", "gradient-ttb", "gradient-btt"] as const;
+export const DEFAULT_OVERLAY_COLOR = "#000000";
+
+function intIn(v: unknown, min: number, max: number): string | null {
+  const n = typeof v === "string" && /^\d{1,3}$/.test(v) ? Number(v) : Number.NaN;
+  return n >= min && n <= max ? null : `angka harus ${min}–${max}`;
+}
 
 /** Batas panjang data URL gambar gaya project (~0,7 MB). */
 export const MAX_STYLE_IMAGE_CHARS = 700_000;
@@ -273,6 +294,10 @@ export function validateProjectStyle(key: keyof ProjectStyle, v: unknown): strin
   if (key === "gradient") return validateGradientCss(v);
   if (key === "image") return validateImageDataUrl(v);
   if (key === "logoImage") return validateImageDataUrl(v, 120_000);
+  if (key === "imageY") return intIn(v, 0, 100);
+  if (key === "imageZoom") return intIn(v, 100, 300);
+  if (key === "overlayOpacity") return intIn(v, 0, 100);
+  if (key === "overlay") return (PROJECT_OVERLAYS as readonly unknown[]).includes(v) ? null : "overlay tidak dikenal";
   return isColor(v) ? null : "warna tidak valid";
 }
 
@@ -320,6 +345,8 @@ export function computeVars(a: Appearance, mode: Mode): Record<string, string> {
     ["tableSize", "--z-doc-table-size"],
   ];
   for (const [k, name] of docVars) if (d[k] !== undefined && validateDoc(k, d[k]) === null) vars[name] = String(d[k]);
+  // warna sintaks blok kode chat mengikuti tema editor aktif (sama dengan penampil kode)
+  Object.assign(vars, codeVarsFor(a.editorTheme, a.editorThemes));
   return vars;
 }
 
@@ -367,7 +394,20 @@ export function sanitizeAppearance(raw: unknown): Appearance {
     for (const [id, st] of Object.entries(projects)) {
       if (!st || typeof st !== "object") continue;
       const clean: ProjectStyle = {};
-      for (const k of ["border", "background", "logo", "gradient", "image", "logoImage"] as const)
+      for (const k of [
+        "border",
+        "background",
+        "logo",
+        "gradient",
+        "image",
+        "logoImage",
+        "imageY",
+        "imageZoom",
+        "overlay",
+        "overlayColor",
+        "overlayOpacity",
+        "fg",
+      ] as const)
         if (st[k] !== undefined && validateProjectStyle(k, st[k]) === null) clean[k] = st[k] as string;
       if (Object.keys(clean).length) out.projects[id] = clean;
     }

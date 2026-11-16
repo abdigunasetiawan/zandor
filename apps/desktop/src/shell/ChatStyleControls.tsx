@@ -32,7 +32,7 @@ const SPECS: Spec[] = [
 ];
 
 const WEIGHTS = [300, 400, 500, 600, 700];
-const FONTS: Array<{ value: string; label: MessageKey }> = [
+export const FONTS: Array<{ value: string; label: MessageKey }> = [
   { value: "", label: "chatStyle.font.default" },
   { value: "system-ui, 'Segoe UI', sans-serif", label: "chatStyle.font.system" },
   { value: "Georgia, 'Times New Roman', serif", label: "chatStyle.font.serif" },

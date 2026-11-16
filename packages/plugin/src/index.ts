@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
 import { scrubEnv } from "./env-guard";
+import { createJobHooks } from "./jobs-tools";
 import { projectKey } from "./keys";
 import { createMemoryStore, type Indexer, memoryFacts, scanIndexer } from "./memory";
 import {
@@ -94,8 +95,19 @@ export const ZandorPlugin: Plugin = async (input, options) => {
     },
   };
 
+  // Background job (ADR-072): aktif bila opsi `jobsDir` diberikan.
+  const jobsDir = typeof options?.jobsDir === "string" ? options.jobsDir : "";
+  const jobHooks = jobsDir ? createJobHooks(jobsDir) : null;
+
   const dir = typeof options?.memoryDir === "string" ? options.memoryDir : "";
-  if (!dir) return guard;
+  if (!dir) {
+    if (!jobHooks) return guard;
+    return {
+      ...guard,
+      "experimental.chat.system.transform": async (i, output) => jobHooks.system(i.sessionID, output.system),
+      tool: jobHooks.tool,
+    };
+  }
 
   mkdirSync(dir, { recursive: true });
   const worktree = input.directory || input.worktree;
@@ -110,6 +122,7 @@ export const ZandorPlugin: Plugin = async (input, options) => {
 
     // Blok memori + sematan + petunjuk skill disuntik tiap giliran (dibaca ulang → edit UI langsung berlaku).
     "experimental.chat.system.transform": async (i, output) => {
+      jobHooks?.system(i.sessionID, output.system);
       if (store.enabled(i.sessionID)) {
         const b = store.block();
         if (b) output.system.push(b);
@@ -160,6 +173,7 @@ export const ZandorPlugin: Plugin = async (input, options) => {
     },
 
     tool: {
+      ...(jobHooks?.tool ?? {}),
       memory_write: tool({
         description:
           "Simpan fakta penting ke memori Zandor agar diingat di sesi berikutnya. Gunakan untuk preferensi user, keputusan project, dan fakta yang stabil. Jangan menyimpan secret.",

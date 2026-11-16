@@ -97,6 +97,9 @@
   --z-code-attr: #85e89d;
   --z-code-add: #9ecb7a;
   --z-code-del: #ff7b72;
+  /* latar & teks blok kode; ditimpa dari tema editor aktif (codeVarsFor) */
+  --z-code-bg: var(--z-color-raised);
+  --z-code-fg: var(--z-color-fg);
 
   /* Panel chat (Fase 10): bisa diubah dari halaman Tampilan. */
   --z-chat-opacity: 1;

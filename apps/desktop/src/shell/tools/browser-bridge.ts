@@ -4,6 +4,11 @@
 import type { PanelBridge } from "../services";
 
 export const BROWSER_OPEN_EVENT = "zandor:browser-open";
+/**
+ * Animasi tampil/sembunyi panel (ShellLayout). `detail.active` true saat mulai, false saat selesai.
+ * Webview native tidak ikut transisi CSS, jadi BrowserPanel menyinkronkan bounds tiap frame selama aktif.
+ */
+export const PANEL_ANIM_EVENT = "zandor:panel-anim";
 let pending: string | null = null;
 
 export function requestBrowserOpen(url: string): void {

@@ -103,6 +103,15 @@ describe("MemoryStore", () => {
     expect(s.queue).toEqual([]);
   });
 
+  test("patch paralel (memori + skill saat sesi baru dibuat) tidak saling menimpa", async () => {
+    const { store } = make();
+    await store.refresh([]);
+    await Promise.all([store.setScoped("memory", true, "new1", null), store.setScoped("skill", true, "new1", null)]);
+    const s = store.state().settings;
+    expect(s.sessions.new1).toBe(true);
+    expect(s.skillCreatorSessions.new1).toBe(true);
+  });
+
   test("toggle composer: sesi project berbagi pengaturan project; sesi Chat per sesi; resolusi sama dengan plugin", async () => {
     const { store } = make();
     await store.refresh([]);
