@@ -69,6 +69,9 @@ mod tests {
     #[test]
     fn parse_urut_unik_dan_pecah_alias() {
         let got = parse_fonts("Segoe UI\r\nArial\narial\n\nDejaVu Sans,DejaVu Sans Condensed\n");
-        assert_eq!(got, vec!["Arial", "DejaVu Sans", "DejaVu Sans Condensed", "Segoe UI"]);
+        assert_eq!(
+            got,
+            vec!["Arial", "DejaVu Sans", "DejaVu Sans Condensed", "Segoe UI"]
+        );
     }
 }

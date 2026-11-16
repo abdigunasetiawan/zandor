@@ -61,3 +61,17 @@ Semua kelompok juga tersedia di **Pengaturan → Dokumen** (`#/settings/document
 
 **Zoom teks mentah:** Ctrl + roda mouse di atas editor kode/mentah mengubah ukuran huruf editor (8–40px) dan menyimpannya;
 skala UI tidak berubah. Tes: `e2e/docs.spec.ts` ("kustomisasi Panel 3"), `packages/core/src/theme/theme.test.ts`.
+
+## Edit dokumen oleh agent (ADR-070)
+
+Agent memakai **skill bawaan** `zandor-docx`, `zandor-xlsx`, `zandor-pptx`, `zandor-pdf` (sumber:
+`apps/desktop/src-tauri/bundled-skills/`, dipasang oleh `bundled_skills.rs` ke folder skill global engine setiap engine
+dimulai). Alurnya: baca struktur → buat cadangan → ubah dengan python-docx/openpyxl/python-pptx/pypdf → verifikasi dengan
+`office_check.py` (`--expect "teks"`) → laporkan hasil beserta batasannya.
+
+- **Syarat:** Python 3 terpasang. Pustaka dipasang `pip --user` setelah user memberi izin.
+- **Batasan:** tampilan visual dan hitung ulang rumus hanya diperiksa bila LibreOffice tersedia. PDF tidak diedit teksnya
+  di tempat. Panel 3 belum memuat ulang otomatis setelah berkas Office diubah.
+- **Tes:** `cargo test -p zandor-desktop bundled_skills` (nama/frontmatter, instalasi idempoten, pemulihan berkas rusak),
+  `python -m unittest discover -s apps/desktop/src-tauri/bundled-skills` (alur edit DOCX, rumus XLSX, slide/catatan PPTX,
+  PDF utuh/terpotong, ZIP rusak, relasi rusak). Belum diuji: model nyata memilih dan mengikuti skill di aplikasi native.

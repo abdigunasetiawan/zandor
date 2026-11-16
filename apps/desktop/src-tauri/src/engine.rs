@@ -236,6 +236,12 @@ impl EngineManager {
         for dir in [&paths.chats, &paths.engine_root] {
             let _ = std::fs::create_dir_all(dir);
         }
+        // Skill bawaan dokumen (ADR-070) harus ada sebelum engine memindai folder skill.
+        if let Ok(root) = crate::memory::skills_root("global", None, &paths.engine_root) {
+            if let Err(e) = crate::bundled_skills::install(&root) {
+                eprintln!("[zandor] gagal memasang skill bawaan: {e}");
+            }
+        }
         let spawned = std::thread::Builder::new().name("engine-supervisor".into()).spawn(move || {
             let app = app_thread;
             let manager = app.state::<EngineManager>();

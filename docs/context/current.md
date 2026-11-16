@@ -4,6 +4,8 @@
 
 ## Terbaru (16-11-2026)
 
+- **Skill bawaan dokumen (ADR-070):** `zandor-docx/xlsx/pptx/pdf` + pemeriksa `office_check.py` dipasang ke folder skill global engine saat start. Tes Rust (2) + Python (5) lulus. Belum diuji dengan model nyata di build native; Python tidak dibundel.
+
 - Composer: perintah slash (`/btw`, `/new`, `/compact`, `/undo`, `/redo`, `/fork`, `/copy`, `/mode`, `/stop` + perintah engine) dan mention `@berkas` (ADR-069). Unit + e2e `composer-slash` lulus.
 - Bilah aksi composer kembali membungkus saat panel sempit (aturan `flex-wrap: nowrap` membuat tombol suara menimpa pil model); suara + kirim tetap di kanan. E2E `chat`, `chat2`, `composer-*`, `draft` lulus (39/39).
 

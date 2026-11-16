@@ -1,6 +1,7 @@
 //! Zandor desktop — titik masuk Tauri: engine opencode (sidecar), registry project, pemilih folder.
 
 mod browser;
+mod bundled_skills;
 mod engine;
 mod files;
 mod fonts;
