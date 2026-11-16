@@ -15,6 +15,7 @@ async function setup(page: Page, opts: Parameters<typeof mockEngine>[1] = {}): P
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await expect(page.getByRole("button", { name: "alpha", exact: true })).toBeVisible();
   return engine;
 }
@@ -101,6 +102,7 @@ test("terminal mengikuti project: terminal project lain tidak tampil", async ({ 
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/beta");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await expect(tools(page).getByText(/Belum ada terminal/)).toBeVisible();
   await expect(tools(page).getByRole("button", { name: "powershell 1", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "alpha", exact: true }).first().click();

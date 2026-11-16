@@ -114,6 +114,7 @@ test("tombol tutup Panel Chat, Dokumen, dan Tools ada di baris tab paling atas, 
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:\\Work\\close-panels");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await page.getByRole("button", { name: "Sesi baru di close-panels" }).click();
   await settled(page);
 

@@ -2,8 +2,8 @@
 // adanya (label pilihan atau teks bebas); "Lewati" menolak permintaan sehingga agent melanjutkan tanpa jawaban.
 import type { QuestionRequest, Todo } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
-import { Button, CheckIcon, Textarea, useToast } from "@zandor/ui";
-import { type FormEvent, useId, useState } from "react";
+import { Button, CheckIcon, ChevronDownIcon, CloseIcon, ListChecksIcon, Textarea, useToast, Working } from "@zandor/ui";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useDemo } from "./demo-context";
 import { useServices } from "./services";
 
@@ -152,41 +152,66 @@ export function QuestionCard({ request, sessionId }: { request: QuestionRequest;
   );
 }
 
-const MARK: Record<Todo["status"], string> = { pending: "○", in_progress: "◒", completed: "✓", cancelled: "–" };
-
+/**
+ * Rencana agent di dok atas composer. Baris kepala ringkas: ikon · judul · n/N · langkah yang sedang dikerjakan · chevron,
+ * dengan bilah progres tipis di bawahnya. Daftar terbuka bawaan; item yang sedang dikerjakan digulir ke tampilan setiap kali
+ * rencana berubah sehingga progres terlihat mengikuti agent.
+ */
 export function TodoList({ todos }: { todos: Todo[] }) {
   const { t } = useI18n();
-  if (todos.length === 0) return null;
-  const done = todos.filter((x) => x.status === "completed").length;
+  const [open, setOpen] = useState(true);
+  const currentRef = useRef<HTMLLIElement>(null);
+  const done = todos.filter((x) => x.status === "completed" || x.status === "cancelled").length;
   const active = todos.findIndex((x) => x.status === "in_progress");
+  const current = active >= 0 ? todos[active] : undefined;
+  const signature = todos.map((x) => x.status).join();
+  // biome-ignore lint/correctness/useExhaustiveDependencies: gulir ulang hanya saat status rencana berubah
+  useEffect(() => {
+    if (open) currentRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [signature, open]);
+  if (todos.length === 0) return null;
+  const title = t("todo.title", { done, total: todos.length });
+  const allDone = done === todos.length;
   return (
-    <details className="todos" open data-testid="todo-list">
-      <summary className="todos__head">
-        <span className="todos__heading">
-          <span className="todos__eyebrow z-small">{t("todo.eyebrow")}</span>
-          <span className="todos__title z-label">{t("todo.title", { done, total: todos.length })}</span>
+    <section className="todos" data-testid="todo-list" data-open={open ? "" : undefined}>
+      <button type="button" className="todos__head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <ListChecksIcon size="sm" className="todos__icon" />
+        <span className="todos__title">{t("todo.heading")}</span>
+        <span className="todos__count">
+          {done}/{todos.length}
         </span>
-        <span className="todos__progress" aria-hidden="true">
-          <span className="todos__progress-fill" style={{ width: `${(done / todos.length) * 100}%` }} />
-        </span>
-        <span className="todos__toggle z-small">{t("todo.toggle")}</span>
-      </summary>
-      <ol className="todos__list" aria-label={t("todo.title", { done, total: todos.length })}>
-        {todos.map((x, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: urutan daftar tugas adalah identitasnya
-          <li key={i} className="todos__item" data-status={x.status}>
-            <span
-              role="img"
-              aria-label={t(`todo.status.${x.status}` as never)}
-              className="todos__mark"
-              data-current={i === active ? "" : undefined}
-            >
-              {MARK[x.status]}
-            </span>
-            <span className="todos__text">{x.content}</span>
-          </li>
-        ))}
-      </ol>
-    </details>
+        <span className="todos__current z-small">{current ? current.content : allDone ? t("todo.allDone") : ""}</span>
+        <ChevronDownIcon size="sm" className="todos__chevron" />
+      </button>
+      <div
+        className="todos__progress"
+        role="progressbar"
+        aria-label={title}
+        aria-valuemin={0}
+        aria-valuemax={todos.length}
+        aria-valuenow={done}
+      >
+        <span className="todos__progress-fill" style={{ width: `${(done / todos.length) * 100}%` }} />
+      </div>
+      {open && (
+        <ol className="todos__list" aria-label={title}>
+          {todos.map((x, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: urutan daftar tugas adalah identitasnya
+            <li key={i} ref={i === active ? currentRef : undefined} className="todos__item" data-status={x.status}>
+              <span role="img" aria-label={t(`todo.status.${x.status}` as never)} className="todos__mark">
+                {x.status === "completed" ? (
+                  <CheckIcon size="sm" />
+                ) : x.status === "cancelled" ? (
+                  <CloseIcon size="sm" />
+                ) : x.status === "in_progress" ? (
+                  <Working variant="ripple" size="dot" />
+                ) : null}
+              </span>
+              <span className="todos__text">{x.content}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }

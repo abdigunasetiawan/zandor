@@ -42,4 +42,22 @@ notebook: output HTML/JS tidak ditampilkan; edit hanya UTF-8; fidelitas visual t
 
 ## Tab, "Buka dengan", HTML sumber luar (ADR-048)
 
-Tab dokumen berikon jenis berkas, tanpa scrollbar, dengan menu klik kanan (tutup / lainnya / kanan / kiri / semua; perubahan belum tersimpan dikonfirmasi sekali). Tombol **Buka di aplikasi lain** membuka popover: aplikasi terdaftar untuk ekstensi (ikon asli, lencana Bawaan), Aplikasi bawaan sistem, Tampilkan di File Explorer; berkas teks juga menawarkan VS Code/Notepad bila terpasang. Pratinjau HTML default memblokir skrip dan sumber luar; saklar **Izinkan skrip dan sumber luar** (hanya desktop) memuatnya lewat skema `zpreview://` di iframe sandbox tanpa same-origin. Tes: `e2e/doc-tabs.spec.ts`, `docs/OpenWithMenu.test.tsx`, `openwith::tests`. Belum diuji di Tauri sungguhan: daftar aplikasi, peluncuran, `zpreview`.
+Tab dokumen berikon jenis berkas, tanpa scrollbar, dengan menu klik kanan (tutup / lainnya / kanan / kiri / semua; perubahan belum tersimpan dikonfirmasi sekali). Tombol **Buka di aplikasi lain** membuka popover: aplikasi terdaftar untuk ekstensi (ikon asli, lencana Bawaan), Aplikasi bawaan sistem, Tampilkan di File Explorer; berkas teks juga menawarkan VS Code/Notepad bila terpasang. Pratinjau HTML di Panel 3 selalu sandbox penuh (tanpa skrip, formulir, sumber luar) tanpa bilah opsi. Tombol **Buka di browser** (ikon globe di toolbar, hanya desktop) menjalankan **live server** lokal (`liveserver.rs`: 127.0.0.1 port acak, satu per folder project, akses bertoken + cookie `SameSite=Strict`, path dikunci di dalam folder) dan membuka berkas di Browser Panel 4: aset relatif/absolut-root dan skrip berfungsi, halaman dimuat ulang otomatis saat berkas di folder berubah (polling ~0,8 dtk; mengabaikan `.git`, `node_modules`, `target`, `dist`, `.next`). Server hidup sampai aplikasi ditutup. Tes: `e2e/doc-tabs.spec.ts`, `docs/OpenWithMenu.test.tsx`, `openwith::tests`. Live server: `liveserver::tests` (path traversal, token/403, injeksi skrip). Belum diuji di Tauri sungguhan: daftar aplikasi, peluncuran, live server di Browser Panel 4.
+
+## Kustomisasi tampilan Panel 3
+
+Tombol **Kustomisasi** (ikon slider) di bilah atas Panel 3, di kiri tombol tutup, membuka popover `DocStyleControls`
+yang hanya menampilkan opsi untuk jenis dokumen aktif (`groupsForViewer`):
+
+| Kelompok             | Penampil                             | Opsi                                                                                              |
+| -------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Kode dan teks mentah | kode, mode mentah, notebook          | tema editor, font kode, ukuran (px), tinggi baris, nomor baris, minimap, ligatur, tampilkan spasi |
+| Dokumen              | Markdown, Word, PowerPoint, notebook | tema baca (Ikut aplikasi/Kertas/Sepia/Malam), font, ukuran, tinggi baris, lebar kolom baca        |
+| Tabel dan data       | CSV/TSV, Excel, JSON                 | ukuran huruf tabel                                                                                |
+| Gambar               | gambar, SVG                          | latar (kotak-kotak/terang/gelap)                                                                  |
+
+Semua kelompok juga tersedia di **Pengaturan → Dokumen** (`#/settings/documents`). Nilai tersimpan di `appearance.docs`
+(AppearanceStore, divalidasi) dan diterapkan lewat token `--z-doc-*` serta opsi Monaco.
+
+**Zoom teks mentah:** Ctrl + roda mouse di atas editor kode/mentah mengubah ukuran huruf editor (8–40px) dan menyimpannya;
+skala UI tidak berubah. Tes: `e2e/docs.spec.ts` ("kustomisasi Panel 3"), `packages/core/src/theme/theme.test.ts`.

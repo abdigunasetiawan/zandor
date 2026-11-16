@@ -42,6 +42,8 @@ export function parseRoute(path: string): Route {
   if (/^\/appearance\/?$/.test(path)) return { page: "settings", section: "appearance" };
   if (/^\/automation\/?$/.test(path)) return { page: "settings", section: "automation" };
   if (/^\/(settings\/profile|profile)\/?$/.test(path)) return { page: "settings", section: "profile" };
+  if (/^\/settings\/chat\/?$/.test(path)) return { page: "settings", section: "chat" };
+  if (/^\/settings\/documents\/?$/.test(path)) return { page: "settings", section: "documents" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -60,14 +62,17 @@ function Effects() {
   useEffect(() => applyTheme(settings.theme), [settings.theme]);
   useEffect(() => applyScale(settings.uiScale), [settings.uiScale]);
   // lebar isi chat (token --z-chat-width); "normal" memakai nilai token bawaan
+  // Lebar dari slider Kustomisasi (appearance.chat.width) lebih diutamakan dan diterapkan bersama variabel tampilan.
+  const appearance = useAppearance();
+  const customWidth = appearance.chat.width;
   useEffect(() => {
+    if (customWidth) return;
     const root = document.documentElement;
     const rem = { narrow: "38rem", wide: "56rem" }[settings.chatWidth as "narrow" | "wide"];
     if (rem) root.style.setProperty("--z-chat-width", rem);
     else root.style.removeProperty("--z-chat-width");
-  }, [settings.chatWidth]);
+  }, [settings.chatWidth, customWidth]);
   // Tema kustom/tipografi/panel chat (Fase 10): dihitung untuk mode efektif; mode "system" mengikuti OS.
-  const appearance = useAppearance();
   useEffect(() => {
     const mq = window.matchMedia?.("(prefers-color-scheme: light)");
     let applied: string[] = [];

@@ -14,6 +14,7 @@ import type {
   AuthMethod,
   CatalogProvider,
   EngineApi,
+  EngineCommand,
   FileAttachment,
   FileNode,
   ModelOption,
@@ -48,7 +49,12 @@ export type FakeEngine = EngineApi & {
   reverts: Map<string, string | null>;
   /** Perubahan berkas per sesi untuk `sessionDiff`. */
   diffs: Map<string, SessionFileDiff[]>;
-  forks: Array<{ sessionId: string; messageId: string }>;
+  forks: Array<{ sessionId: string; messageId?: string }>;
+  /** Jalur relatif per direktori untuk `findFiles`. */
+  findable: Map<string, string[]>;
+  commands: EngineCommand[];
+  commandRuns: Array<{ sessionId: string; command: string; arguments: string; files?: FileAttachment[] }>;
+  summaries: string[];
   replies: Array<{ requestId: string; reply: PermissionReply }>;
   disposed: string[];
   aborted: string[];
@@ -88,6 +94,10 @@ export function createFakeEngine(): FakeEngine {
     reverts: new Map(),
     diffs: new Map(),
     forks: [],
+    findable: new Map(),
+    commands: [],
+    commandRuns: [],
+    summaries: [],
     replies: [],
     disposed: [],
     aborted: [],
@@ -193,7 +203,7 @@ export function createFakeEngine(): FakeEngine {
     },
     async fork(dir, sessionId, messageId) {
       if (e.failWith) throw new Error(e.failWith);
-      e.forks.push({ sessionId, messageId });
+      e.forks.push({ sessionId, ...(messageId ? { messageId } : {}) });
       return e.createSession(dir, `Cabang dari ${sessionId}`);
     },
     async disposeInstance(directory) {
@@ -258,6 +268,28 @@ export function createFakeEngine(): FakeEngine {
         dir,
         (e.sessions.get(dir) ?? []).filter((s) => s.id !== id),
       );
+    },
+    async findFiles(dir, query, limit = 20) {
+      if (e.failWith) throw new Error(e.failWith);
+      const q = query.toLowerCase();
+      return (e.findable.get(dir) ?? []).filter((f) => f.toLowerCase().includes(q)).slice(0, limit);
+    },
+    async listCommands() {
+      if (e.failWith) throw new Error(e.failWith);
+      return e.commands;
+    },
+    async runCommand(_dir, sessionId, input) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.commandRuns.push({
+        sessionId,
+        command: input.command,
+        arguments: input.arguments,
+        ...(input.files ? { files: input.files } : {}),
+      });
+    },
+    async summarize(_dir, sessionId) {
+      if (e.failWith) throw new Error(e.failWith);
+      e.summaries.push(sessionId);
     },
     async listFiles(dir, path) {
       e.calls.push(`files:${dir}:${path}`);

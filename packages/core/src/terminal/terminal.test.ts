@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { createFakePty } from "./fake-pty";
-import { createPtyClient, pickShell, type ShellOption, toPtyInfo, toShell } from "./pty";
+import { createPtyClient, mergeShells, pickShell, type ShellOption, shellId, toPtyInfo, toShell } from "./pty";
 import { TerminalStore } from "./store";
 
 describe("normalisasi dan pemilihan shell", () => {
@@ -19,6 +19,35 @@ describe("normalisasi dan pemilihan shell", () => {
     expect(pickShell([sh("fish", false), sh("cmd")])?.name).toBe("cmd");
     expect(pickShell([sh("cmd", false)])).toBeNull();
     expect(pickShell([])).toBeNull();
+  });
+  test("deteksi lokal + engine digabung: urutan deteksi, exe sama tidak dobel, distro WSL terpisah, penolakan engine dihormati", () => {
+    const engine: ShellOption[] = [
+      { path: "C:\\Windows\\System32\\cmd.exe", name: "cmd", acceptable: true },
+      { path: "C:\\Windows\\System32\\wsl.exe", name: "wsl", acceptable: true },
+      { path: "C:\\tools\\nu.exe", name: "nu", acceptable: true },
+      { path: "C:\\bad\\fish.exe", name: "fish", acceptable: false },
+    ];
+    const merged = mergeShells(engine, [
+      { id: "powershell", name: "Windows PowerShell", path: "C:\\PS\\powershell.exe", args: ["-NoLogo"], icon: "AAA" },
+      { id: "cmd", name: "Command Prompt", path: "c:\\windows\\system32\\CMD.EXE" },
+      { id: "wsl", name: "WSL: Ubuntu", path: "C:\\Windows\\System32\\wsl.exe", args: ["-d", "Ubuntu"] },
+      { id: "wsl", name: "WSL: Debian", path: "C:\\Windows\\System32\\wsl.exe", args: ["-d", "Debian"] },
+      { id: "fish", name: "fish", path: "C:\\bad\\fish.exe" },
+    ]);
+    expect(merged.map((s) => s.name)).toEqual([
+      "Windows PowerShell",
+      "Command Prompt",
+      "WSL: Ubuntu",
+      "WSL: Debian",
+      "fish",
+      "nu", // hanya dikenal engine → di akhir
+    ]);
+    expect(merged[0]).toMatchObject({ kind: "powershell", icon: "AAA", args: ["-NoLogo"], acceptable: true });
+    expect(merged.find((s) => s.name === "fish")?.acceptable).toBe(false);
+    const ids = merged.map(shellId);
+    expect(new Set(ids).size).toBe(ids.length); // distro WSL berbagi exe tetapi kuncinya berbeda
+    expect(pickShell(merged)?.name).toBe("Windows PowerShell");
+    expect(mergeShells(engine, [])).toEqual(engine); // tanpa deteksi (web/engine remote) → daftar engine apa adanya
   });
 });
 
@@ -143,6 +172,21 @@ describe("TerminalStore", () => {
     expect(store.state().activeByKey.p1).toBe(t2.id);
     expect(store.tabsOf("p1")).toHaveLength(2);
     expect(store.tabsOf("lain")).toHaveLength(0);
+  });
+
+  test("shell hasil deteksi: argumen sendiri dipakai, exe dicatat di tab untuk ikon", async () => {
+    const { pty, store } = await setup();
+    const wsl = "C:\\Windows\\System32\\wsl.exe";
+    store.setDetectedShells([
+      { id: "wsl", name: "WSL: Ubuntu", path: wsl, args: ["-d", "Ubuntu"] },
+      { id: "wsl", name: "WSL: Debian", path: wsl, args: ["-d", "Debian"] },
+    ]);
+    expect(store.state().shells.map((s) => s.name)).toEqual(["WSL: Ubuntu", "WSL: Debian", "powershell", "cmd"]);
+    const debian = store.state().shells[1];
+    if (!debian) throw new Error("tidak ada");
+    const t = await store.create("p1", "C:\\w", shellId(debian));
+    expect(pty.created[0]).toMatchObject({ command: wsl, args: ["-d", "Debian"], title: "WSL: Debian 1" });
+    expect(t.command).toBe(wsl);
   });
 
   test("galat pembuatan dicatat dan dilempar; tanpa engine ditolak", async () => {

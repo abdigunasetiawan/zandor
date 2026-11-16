@@ -1,6 +1,7 @@
 // Store chat: memuat riwayat, berlangganan SSE per direktori, mengirim prompt, abort, membalas izin, dan memilih
 // model. Semua logika di sini murni terhadap `EngineApi` (diuji dengan engine palsu).
-import type { EngineApi, FileAttachment, ModelOption, ModelRef, SessionInfo } from "../engine/api";
+import type { EngineApi, EngineCommand, FileAttachment, ModelOption, ModelRef, SessionInfo } from "../engine/api";
+import { permissionRisk } from "./permission-risk";
 import { applyEvent, type ChatState, clearError, initialChatState, loadMessages } from "./reducer";
 import type { EngineEvent, PermissionReply, PermissionRequest, QuestionRequest, Todo } from "./types";
 
@@ -25,7 +26,10 @@ export type ChatStoreState = {
   model: ModelRef | null;
   /** Varian reasoning terpilih (null = bawaan model). */
   variant: string | null;
-  /** Cara menjawab permintaan izin: tanya pengguna, setujui otomatis edit file, atau setujui semuanya. */
+  /**
+   * Cara menjawab permintaan izin: tanya pengguna, setujui otomatis edit file, setujui otomatis kecuali yang berisiko
+   * (bawaan, lihat `permissionRisk`), atau setujui semuanya.
+   */
   permissionMode: PermissionMode;
   /** Model yang disematkan pengguna, sebagai kunci `providerID/modelID` (urutan disematkan). */
   pinned: string[];
@@ -40,8 +44,10 @@ export type ChatStoreState = {
   sessions: Record<string, SessionChat>;
 };
 
-export type PermissionMode = "ask" | "auto-edit" | "auto-all";
-export const PERMISSION_MODES: readonly PermissionMode[] = ["ask", "auto-edit", "auto-all"];
+export type PermissionMode = "ask" | "auto-edit" | "auto-safe" | "auto-all";
+/** Urut dari paling ketat ke paling longgar. */
+export const PERMISSION_MODES: readonly PermissionMode[] = ["ask", "auto-edit", "auto-safe", "auto-all"];
+export const DEFAULT_PERMISSION_MODE: PermissionMode = "auto-safe";
 
 export type ChatPrefs = { get(key: string): string | null; set(key: string, value: string): void };
 export type ChatStoreOptions = {
@@ -83,7 +89,7 @@ export class ChatStore {
     modelsError: null,
     model: null,
     variant: null,
-    permissionMode: "ask",
+    permissionMode: DEFAULT_PERMISSION_MODE,
     pinned: [],
     recent: [],
     pinnedMessages: {},
@@ -254,7 +260,10 @@ export class ChatStore {
 
   private autoAllowed(req: PermissionRequest): boolean {
     const mode = this.snap.permissionMode;
-    return mode === "auto-all" || (mode === "auto-edit" && req.permission === "edit");
+    if (mode === "auto-all") return true;
+    if (mode === "auto-edit") return req.permission === "edit";
+    if (mode === "auto-safe") return permissionRisk(req) === null;
+    return false;
   }
 
   /**
@@ -491,6 +500,77 @@ export class ChatStore {
     }
   }
 
+  /** Perintah slash milik engine untuk direktori sesi (kosong bila engine belum siap). */
+  async listCommands(directory: string): Promise<EngineCommand[]> {
+    if (!this.api) return [];
+    return this.api.listCommands(directory);
+  }
+
+  /** Cari berkas project (untuk mention `@`). */
+  async findFiles(directory: string, query: string, limit = 20): Promise<string[]> {
+    if (!this.api) return [];
+    return this.api.findFiles(directory, query, limit);
+  }
+
+  /** Jalankan perintah slash engine (mis. `/init`, perintah kustom `.opencode/command`). */
+  async runCommand(sessionId: string, command: string, args: string, files: FileAttachment[] = []): Promise<void> {
+    const api = this.api;
+    const s = this.snap.sessions[sessionId];
+    if (!api || !s) throw new Error("engine belum siap");
+    if (!this.snap.model) throw new Error("belum ada model; tambahkan provider terlebih dahulu");
+    if (s.sending || s.status.type !== "idle") throw new Error("sesi sedang berjalan");
+    this.touchRecent(this.snap.model);
+    this.patchSession(sessionId, (x) => ({ ...clearError(x), sending: true }) as SessionChat);
+    try {
+      await api.runCommand(s.directory, sessionId, {
+        command,
+        arguments: args,
+        model: this.snap.model,
+        ...(this.snap.variant ? { variant: this.snap.variant } : {}),
+        ...(files.length ? { files } : {}),
+      });
+    } catch (e) {
+      this.patchSession(sessionId, (x) => ({ ...x, error: `gagal menjalankan /${command}: ${errMsg(e)}` }));
+      throw e;
+    } finally {
+      this.patchSession(sessionId, (x) => ({ ...x, sending: false }));
+    }
+  }
+
+  /** Ringkas riwayat sesi (compact) dengan model terpilih. */
+  async compact(sessionId: string): Promise<void> {
+    const api = this.api;
+    const s = this.snap.sessions[sessionId];
+    if (!api || !s) throw new Error("engine belum siap");
+    if (!this.snap.model) throw new Error("belum ada model; tambahkan provider terlebih dahulu");
+    if (s.sending || s.status.type !== "idle") throw new Error("sesi sedang berjalan");
+    this.patchSession(sessionId, (x) => ({ ...clearError(x), sending: true }) as SessionChat);
+    try {
+      await api.summarize(s.directory, sessionId, this.snap.model);
+    } catch (e) {
+      this.patchSession(sessionId, (x) => ({ ...x, error: `gagal meringkas: ${errMsg(e)}` }));
+      throw e;
+    } finally {
+      this.patchSession(sessionId, (x) => ({ ...x, sending: false }));
+    }
+  }
+
+  /**
+   * Pertanyaan sampingan (`/btw`): cabangkan seluruh riwayat sesi menjadi sesi baru lalu kirim pertanyaan di sana,
+   * sehingga sesi utama tidak terganggu (boleh sedang bekerja). Mengembalikan sesi cabang.
+   */
+  async aside(sessionId: string, text: string, files: FileAttachment[] = []): Promise<SessionInfo> {
+    const api = this.api;
+    const s = this.snap.sessions[sessionId];
+    if (!api || !s) throw new Error("engine belum siap");
+    if (!text.trim()) throw new Error("pesan kosong");
+    if (!this.snap.model) throw new Error("belum ada model; tambahkan provider terlebih dahulu");
+    const branch = await api.fork(s.directory, sessionId);
+    this.open(branch.directory || s.directory, branch.id);
+    await this.send(branch.id, text, files);
+    return branch;
+  }
+
   // ---------- antrean pesan ----------
 
   queueOf(sessionId: string): QueuedMessage[] {
@@ -641,7 +721,7 @@ export class ChatStore {
   }
 
   /** Cabangkan sesi sampai pesan ini menjadi sesi baru (pemanggil memilihnya di daftar project). */
-  async fork(sessionId: string, messageId: string): Promise<SessionInfo> {
+  async fork(sessionId: string, messageId?: string): Promise<SessionInfo> {
     const s = this.snap.sessions[sessionId];
     if (!this.api || !s) throw new Error("engine belum siap");
     return this.api.fork(s.directory, sessionId, messageId);

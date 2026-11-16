@@ -8,6 +8,7 @@ async function openThreeTabs(page: Page) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:\\Work\\alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   for (let i = 0; i < 3; i++) await page.getByRole("button", { name: /^Sesi baru di .*alpha/ }).click();
   await expect(tabs(page)).toHaveCount(3);
 }

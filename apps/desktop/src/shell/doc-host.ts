@@ -20,8 +20,8 @@ export type DocHost = {
   openWith?(root: string, path: string, appPath: string, textLike: boolean): Promise<void>;
   /** Tampilkan berkas di File Explorer. */
   reveal?(root: string, path: string): Promise<void>;
-  /** URL pratinjau HTML yang boleh memuat skrip dan sumber luar (hanya desktop; skema `zpreview`). */
-  previewUrl?(html: string): Promise<string>;
+  /** Jalankan (atau pakai ulang) live server untuk folder project dan kembalikan URL berkas HTML (hanya desktop). */
+  liveUrl?(root: string, path: string): Promise<string>;
   /** Simpan byte hasil ekspor (teks/PNG/SVG) lewat dialog Simpan sebagai (Tauri) atau unduhan (web). false = dibatalkan. */
   saveBytes(name: string, bytes: Uint8Array): Promise<boolean>;
 };
@@ -97,10 +97,12 @@ export async function loadDocHost(getApi: () => EngineApi | null): Promise<DocHo
         throw new Error(String(e));
       }
     },
-    async previewUrl(html) {
-      const { convertFileSrc } = await import("@tauri-apps/api/core");
-      const token = await invoke<string>("doc_preview_register", { html });
-      return convertFileSrc(token, "zpreview");
+    async liveUrl(root, path) {
+      try {
+        return await invoke<string>("doc_live_server", { root, path });
+      } catch (e) {
+        throw new Error(String(e));
+      }
     },
     async createEntry(root, parent, name, dir) {
       try {

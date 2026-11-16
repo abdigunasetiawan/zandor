@@ -14,6 +14,7 @@ async function openFiles(page: Page, files: Files): Promise<MockEngine> {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/docs");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await page.getByRole("tab", { name: "Berkas" }).click();
   return engine;
 }
@@ -275,4 +276,43 @@ test("klik berkas dari kartu tool di chat membuka Panel 3", async ({ page }) => 
   await expect(docs(page).getByTestId("monaco").locator(".view-lines")).toContainText("halo dunia", {
     timeout: 15_000,
   });
+});
+
+test("kustomisasi Panel 3: opsi sesuai jenis dokumen, tema baca, dan Ctrl+roda mouse memperbesar teks mentah", async ({
+  page,
+}) => {
+  await openFiles(page, { "README.md": SAMPLE_MD });
+  await openDoc(page, "README.md");
+  const md = docs(page).getByTestId("markdown");
+  await expect(md.getByRole("heading", { name: "Judul Dokumen" })).toBeVisible({ timeout: 15_000 });
+  // render Markdown → kelompok "Dokumen", tanpa kelompok kode
+  await docs(page).getByRole("button", { name: "Kustomisasi panel dokumen" }).click();
+  const pop = page.getByRole("dialog", { name: "Tampilan dokumen" });
+  await expect(pop.getByRole("region", { name: /^Dokumen \(Markdown/ })).toBeVisible();
+  await expect(pop.getByRole("region", { name: "Kode dan teks mentah" })).toHaveCount(0);
+  await pop.getByRole("combobox", { name: "Tema baca" }).click();
+  await page.getByRole("option", { name: "Sepia" }).click();
+  await expect(page.locator(".docs")).toHaveAttribute("data-doc-theme", "sepia");
+  await page.keyboard.press("Escape");
+  // mentah → kelompok kode; Ctrl+roda mengubah ukuran huruf teks (bukan UI)
+  await toolbar(page).getByRole("button", { name: "Tampilan mentah" }).click();
+  const editor = docs(page).getByTestId("monaco");
+  await expect(editor.locator(".view-lines")).toContainText("# Judul Dokumen", { timeout: 15_000 });
+  await expect(editor).toHaveAttribute("data-font-size", "13");
+  const uiScale = await page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
+  await editor.hover();
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, -100);
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up("Control");
+  await expect(editor).toHaveAttribute("data-font-size", "15");
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe(uiScale);
+  await docs(page).getByRole("button", { name: "Kustomisasi panel dokumen" }).click();
+  await expect(pop.getByRole("region", { name: "Kode dan teks mentah" })).toBeVisible();
+  await expect(pop.getByText("15px")).toBeVisible();
+  // tautan ke Pengaturan → Dokumen menampilkan semua kelompok
+  await pop.getByRole("button", { name: "Semua pengaturan dokumen" }).click();
+  await expect(page.getByRole("heading", { name: "Dokumen", level: 2 })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Gambar" })).toBeVisible();
+  await expect(page.getByRole("region", { name: /^Tabel dan data/ })).toBeVisible();
 });

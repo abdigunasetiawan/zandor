@@ -28,7 +28,118 @@ export type ChatStyle = {
   /** rem: jarak antarpesan */
   gap?: string;
   font?: string;
+  /** rem: lebar kolom isi chat (28–120) */
+  width?: string;
+  /** 1–2.4: tinggi baris teks pesan */
+  lineHeight?: number;
+  /** em: jarak antarhuruf (-0.05–0.2) */
+  tracking?: string;
+  /** rem: ukuran huruf kode di pesan */
+  codeSize?: string;
+  /** 1–1.6: lebar composer relatif terhadap lebar isi */
+  composerRatio?: number;
 };
+
+/** Semua kunci gaya chat (urutan tampil di UI dan sanitasi). */
+export const CHAT_STYLE_KEYS = [
+  "width",
+  "composerRatio",
+  "font",
+  "size",
+  "weight",
+  "opacity",
+  "lineHeight",
+  "tracking",
+  "gap",
+  "codeSize",
+] as const satisfies readonly (keyof ChatStyle)[];
+
+/** Tema baca dokumen hasil render (Markdown, Office, notebook). "auto" = ikut tema aplikasi. */
+export const DOC_THEMES = ["auto", "paper", "sepia", "night"] as const;
+export type DocTheme = (typeof DOC_THEMES)[number];
+/** Latar penampil gambar. */
+export const DOC_IMAGE_BGS = ["auto", "checker", "light", "dark"] as const;
+export type DocImageBg = (typeof DOC_IMAGE_BGS)[number];
+
+/** Kustomisasi Panel 3 (dokumen), dikelompokkan per jenis penampil. */
+export type DocStyle = {
+  /** px: ukuran huruf editor kode/mentah (Monaco), 8–40. Ctrl+roda mouse mengubahnya. */
+  codeSize?: number;
+  /** 1–2.4: tinggi baris editor (kelipatan ukuran huruf) */
+  codeLineHeight?: number;
+  codeFont?: string;
+  minimap?: boolean;
+  lineNumbers?: boolean;
+  ligatures?: boolean;
+  whitespace?: boolean;
+  /** Tema baca dokumen hasil render */
+  theme?: DocTheme;
+  proseFont?: string;
+  /** rem: 0.6–2 */
+  proseSize?: string;
+  /** 1–2.4 */
+  proseLine?: number;
+  /** rem: lebar kolom baca 28–120 */
+  proseWidth?: string;
+  /** rem: ukuran huruf tabel/JSON 0.6–1.6 */
+  tableSize?: string;
+  imageBg?: DocImageBg;
+};
+
+export const DOC_STYLE_KEYS = [
+  "codeSize",
+  "codeLineHeight",
+  "codeFont",
+  "minimap",
+  "lineNumbers",
+  "ligatures",
+  "whitespace",
+  "theme",
+  "proseFont",
+  "proseSize",
+  "proseLine",
+  "proseWidth",
+  "tableSize",
+  "imageBg",
+] as const satisfies readonly (keyof DocStyle)[];
+
+export const DOC_CODE_SIZE = { min: 8, max: 40, def: 13 } as const;
+
+const remIn = (v: unknown, lo: number, hi: number, what: string): string | null => {
+  if (typeof v !== "string" || !/^\d*\.?\d+rem$/.test(v)) return "nilai harus dalam rem, mis. 0.9rem";
+  const n = Number.parseFloat(v);
+  return n >= lo && n <= hi ? null : `${what} harus ${lo}rem–${hi}rem`;
+};
+
+export function validateDoc(key: keyof DocStyle, v: unknown): string | null {
+  switch (key) {
+    case "codeSize":
+      return typeof v === "number" && Number.isInteger(v) && v >= DOC_CODE_SIZE.min && v <= DOC_CODE_SIZE.max
+        ? null
+        : `ukuran huruf kode harus ${DOC_CODE_SIZE.min}–${DOC_CODE_SIZE.max}`;
+    case "codeLineHeight":
+    case "proseLine":
+      return typeof v === "number" && v >= 1 && v <= 2.4 ? null : "tinggi baris harus 1–2.4";
+    case "codeFont":
+    case "proseFont":
+      return validateFontFamily(v);
+    case "minimap":
+    case "lineNumbers":
+    case "ligatures":
+    case "whitespace":
+      return typeof v === "boolean" ? null : "nilai harus boolean";
+    case "theme":
+      return (DOC_THEMES as readonly unknown[]).includes(v) ? null : "tema dokumen tidak dikenal";
+    case "imageBg":
+      return (DOC_IMAGE_BGS as readonly unknown[]).includes(v) ? null : "latar gambar tidak dikenal";
+    case "proseSize":
+      return remIn(v, 0.6, 2, "ukuran");
+    case "proseWidth":
+      return remIn(v, 28, 120, "lebar");
+    case "tableSize":
+      return remIn(v, 0.6, 1.6, "ukuran");
+  }
+}
 
 /**
  * Gaya tampilan satu project di sidebar. `background` = warna, `gradient` = string CSS gradien (dari generator), `image` =
@@ -95,6 +206,8 @@ export type Appearance = {
   typography: Partial<Record<TypeVar, Partial<Record<TypeProp, string>>>>;
   fonts: Partial<Record<FontSlot, string>>;
   chat: ChatStyle;
+  /** Kustomisasi Panel 3 (dokumen). */
+  docs: DocStyle;
   projects: Record<string, ProjectStyle>;
   /** Tema editor (Monaco): id bawaan Monaco atau tema VS Code yang diimpor. */
   editorTheme: string;
@@ -112,6 +225,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   typography: {},
   fonts: {},
   chat: {},
+  docs: {},
   projects: {},
   editorTheme: "auto",
   editorThemes: [],
@@ -130,9 +244,18 @@ export function validateChat(key: keyof ChatStyle, v: unknown): string | null {
   if (key === "weight")
     return typeof v === "number" && Number.isInteger(v) && v >= 100 && v <= 900 ? null : "ketebalan harus 100–900";
   if (key === "font") return validateFontFamily(v);
+  if (key === "lineHeight") return typeof v === "number" && v >= 1 && v <= 2.4 ? null : "tinggi baris harus 1–2.4";
+  if (key === "composerRatio") return typeof v === "number" && v >= 1 && v <= 1.6 ? null : "rasio composer harus 1–1.6";
+  if (key === "tracking") {
+    if (typeof v !== "string" || !/^-?\d*\.?\d+em$/.test(v)) return "nilai harus dalam em, mis. 0.01em";
+    const n = Number.parseFloat(v);
+    return n >= -0.05 && n <= 0.2 ? null : "jarak huruf harus -0.05em–0.2em";
+  }
   if (typeof v !== "string" || !/^\d*\.?\d+rem$/.test(v)) return "nilai harus dalam rem, mis. 0.9rem";
   const n = Number.parseFloat(v);
   if (key === "size") return n >= 0.6 && n <= 2 ? null : "ukuran harus 0.6rem–2rem";
+  if (key === "codeSize") return n >= 0.6 && n <= 1.6 ? null : "ukuran kode harus 0.6rem–1.6rem";
+  if (key === "width") return n >= 28 && n <= 120 ? null : "lebar harus 28rem–120rem";
   return n >= 0 && n <= 3 ? null : "jarak harus 0rem–3rem";
 }
 
@@ -180,6 +303,23 @@ export function computeVars(a: Appearance, mode: Mode): Record<string, string> {
   if (c.size !== undefined && validateChat("size", c.size) === null) vars["--z-chat-size"] = c.size;
   if (c.gap !== undefined && validateChat("gap", c.gap) === null) vars["--z-chat-gap"] = c.gap;
   if (c.font !== undefined && validateChat("font", c.font) === null) vars["--z-chat-font"] = c.font;
+  const extra: Array<[keyof ChatStyle, string]> = [
+    ["width", "--z-chat-width"],
+    ["lineHeight", "--z-chat-line"],
+    ["tracking", "--z-chat-tracking"],
+    ["codeSize", "--z-chat-code-size"],
+    ["composerRatio", "--z-chat-composer-ratio"],
+  ];
+  for (const [k, name] of extra) if (c[k] !== undefined && validateChat(k, c[k]) === null) vars[name] = String(c[k]);
+  const d = a.docs;
+  const docVars: Array<[keyof DocStyle, string]> = [
+    ["proseFont", "--z-doc-font"],
+    ["proseSize", "--z-doc-size"],
+    ["proseLine", "--z-doc-line"],
+    ["proseWidth", "--z-doc-width"],
+    ["tableSize", "--z-doc-table-size"],
+  ];
+  for (const [k, name] of docVars) if (d[k] !== undefined && validateDoc(k, d[k]) === null) vars[name] = String(d[k]);
   return vars;
 }
 
@@ -215,9 +355,13 @@ export function sanitizeAppearance(raw: unknown): Appearance {
         out.fonts[slot] = fonts[slot] as string;
   const chat = o.chat as Record<string, unknown> | undefined;
   if (chat && typeof chat === "object")
-    for (const k of ["opacity", "weight", "size", "gap", "font"] as const)
+    for (const k of CHAT_STYLE_KEYS)
       if (chat[k] !== undefined && validateChat(k, chat[k]) === null)
         (out.chat as Record<string, unknown>)[k] = chat[k];
+  const docs = o.docs as Record<string, unknown> | undefined;
+  if (docs && typeof docs === "object")
+    for (const k of DOC_STYLE_KEYS)
+      if (docs[k] !== undefined && validateDoc(k, docs[k]) === null) (out.docs as Record<string, unknown>)[k] = docs[k];
   const projects = o.projects as Record<string, Record<string, unknown>> | undefined;
   if (projects && typeof projects === "object")
     for (const [id, st] of Object.entries(projects)) {
@@ -408,6 +552,27 @@ export class AppearanceStore {
       else a.chat[key] = value;
     });
     return null;
+  }
+
+  /** Kustomisasi Panel 3; `null` = kembali ke bawaan. */
+  setDoc<K extends keyof DocStyle>(key: K, value: DocStyle[K] | null): string | null {
+    if (value !== null) {
+      const err = validateDoc(key, value);
+      if (err) return err;
+    }
+    this.edit((a) => {
+      if (value === null) delete a.docs[key];
+      else a.docs[key] = value;
+    });
+    return null;
+  }
+
+  /** Hapus semua kustomisasi dokumen (atau hanya kunci yang disebut). */
+  resetDocs(keys?: readonly (keyof DocStyle)[]): void {
+    this.edit((a) => {
+      if (!keys) a.docs = {};
+      else for (const k of keys) delete a.docs[k];
+    });
   }
 
   setProjectStyle(projectId: string, key: keyof ProjectStyle, value: string | null): string | null {

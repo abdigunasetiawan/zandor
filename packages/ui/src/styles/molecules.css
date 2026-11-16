@@ -74,14 +74,13 @@
 .z-toast {
   display: flex;
   align-items: flex-start;
-  gap: var(--z-space-2);
-  padding: var(--z-space-3);
-  border: var(--z-border-width) solid var(--z-color-border-strong);
-  border-left-width: var(--z-focus-width);
+  gap: var(--z-space-3);
+  padding: var(--z-space-3) var(--z-space-3) var(--z-space-3) var(--z-space-4);
+  border: var(--z-border-width) solid var(--z-color-border-soft);
   border-radius: var(--z-radius-lg);
-  background: var(--z-color-raised);
+  background: var(--z-color-composer);
   color: var(--z-color-fg);
-  box-shadow: var(--z-shadow-2);
+  box-shadow: var(--z-shadow-panel);
   transition:
     opacity var(--z-duration-base) var(--z-ease),
     transform var(--z-duration-base) var(--z-ease);
@@ -89,35 +88,78 @@
 .z-toast[data-starting-style],
 .z-toast[data-ending-style] {
   opacity: 0;
-  transform: translateY(var(--z-space-2));
+  transform: translateY(var(--z-space-2)) scale(0.98);
 }
-.z-toast--success {
-  border-left-color: var(--z-color-success);
+/* Monokrom: warna status hanya pada ikon kecil, bukan dekorasi kartu. */
+.z-toast__icon {
+  flex: none;
+  margin-top: calc(var(--z-space-1) / 4);
+  color: var(--z-color-fg-muted);
 }
-.z-toast--danger {
-  border-left-color: var(--z-color-danger);
+.z-toast--success .z-toast__icon {
+  color: var(--z-color-success);
 }
-.z-toast--warning {
-  border-left-color: var(--z-color-warning);
+.z-toast--danger .z-toast__icon {
+  color: var(--z-color-danger);
+}
+.z-toast--warning .z-toast__icon {
+  color: var(--z-color-warning);
 }
 .z-toast__content {
   display: flex;
   flex: 1;
   flex-direction: column;
+  align-items: flex-start;
   gap: var(--z-space-1);
   min-width: 0;
 }
+.z-toast__title {
+  margin: 0;
+  font-size: var(--z-type-label-size);
+  font-weight: var(--z-type-h4-weight);
+  line-height: var(--z-type-label-lh);
+  overflow-wrap: anywhere;
+}
+.z-toast__desc {
+  margin: 0;
+  font-size: var(--z-type-small-size);
+  line-height: var(--z-type-small-lh);
+  color: var(--z-color-fg-muted);
+  overflow-wrap: anywhere;
+}
+.z-toast__desc:empty,
+.z-toast__action:empty {
+  display: none;
+}
+.z-toast__action {
+  margin-top: var(--z-space-1);
+  height: var(--z-control-sm);
+  padding: 0 var(--z-space-3);
+  border: 0;
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-hover);
+  color: var(--z-color-fg);
+  font: inherit;
+  font-size: var(--z-type-small-size);
+  font-weight: var(--z-type-label-weight);
+  cursor: pointer;
+}
+.z-toast__action:hover {
+  background: var(--z-color-active);
+}
 .z-toast__close {
   display: inline-flex;
+  flex: none;
   padding: var(--z-space-1);
   border: 0;
   border-radius: var(--z-radius-sm);
   background: transparent;
-  color: var(--z-color-fg-muted);
+  color: var(--z-color-fg-subtle);
   cursor: pointer;
 }
 .z-toast__close:hover {
   background: var(--z-color-hover);
+  color: var(--z-color-fg);
 }
 
 /* ---------- Tabs ---------- */

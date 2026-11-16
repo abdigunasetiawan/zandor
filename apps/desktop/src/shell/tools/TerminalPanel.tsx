@@ -5,7 +5,15 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { Terminal } from "@xterm/xterm";
-import { CHAT_KEY, type PtySocket, type TerminalTab } from "@zandor/core";
+import {
+  CHAT_KEY,
+  type DetectedShell,
+  type PtySocket,
+  pickShell,
+  type ShellOption,
+  shellId,
+  type TerminalTab,
+} from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import {
   Button,
@@ -28,6 +36,31 @@ const MAX_RECONNECTS = 5;
 
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+/** Ikon shell: ikon asli exe (dari deteksi aplikasi desktop) atau ikon terminal generik. */
+function ShellIcon({ shell }: { shell: ShellOption | undefined }) {
+  if (shell?.icon) return <img className="terms__appicon" src={`data:image/png;base64,${shell.icon}`} alt="" />;
+  return <TerminalIcon size="sm" />;
+}
+
+// Deteksi shell terpasang cukup sekali per jalannya aplikasi (Rust juga meng-cache; skrip butuh ~1 detik).
+let detectStarted = false;
+function useDetectShells() {
+  const { terminals } = useServices();
+  useEffect(() => {
+    if (detectStarted) return;
+    detectStarted = true;
+    void (async () => {
+      const c = await import("@tauri-apps/api/core");
+      if (!c.isTauri()) return;
+      try {
+        terminals.setDetectedShells(await c.invoke<DetectedShell[]>("terminal_shells", { refresh: false }));
+      } catch {
+        detectStarted = false; // gagal: coba lagi saat panel dibuka berikutnya; daftar engine tetap dipakai
+      }
+    })();
+  }, [terminals]);
 }
 
 /** Satu terminal xterm yang tersambung ke satu PTY. Tetap terpasang saat tab lain aktif (disembunyikan). */
@@ -175,6 +208,7 @@ export function TerminalPanel() {
   const proj = useProjects();
   const term = useTerminals();
   const [shell, setShell] = useState<string | null>(null);
+  useDetectShells();
 
   // konteks: project terpilih, atau folder Chat
   const ctx = useMemo(() => {
@@ -201,11 +235,19 @@ export function TerminalPanel() {
 
   const tabs = term.tabs.filter((x) => x.key === ctx.key);
   const active = term.activeByKey[ctx.key] ?? tabs.at(-1)?.id;
+  const usable = term.shells.filter((s) => s.acceptable);
+  const fallback = pickShell(term.shells);
+  const current = usable.find((s) => shellId(s) === shell) ?? fallback ?? undefined;
+  // tab → shell untuk ikon: cocokkan exe; bila exe sama untuk beberapa pilihan (distro WSL), cocokkan juga nama di judul
+  const shellOfTab = (x: TerminalTab) => {
+    const same = term.shells.filter((s) => x.command && s.path.toLowerCase() === x.command.toLowerCase());
+    return same.find((s) => x.title.startsWith(`${s.name} `)) ?? same[0];
+  };
 
   const create = async () => {
     if (!ctx.cwd) return;
     try {
-      await terminals.create(ctx.key, ctx.cwd, shell ?? undefined);
+      await terminals.create(ctx.key, ctx.cwd, current ? shellId(current) : undefined);
     } catch (e) {
       toast.show({ title: t("tm.error", { error: e instanceof Error ? e.message : String(e) }), tone: "danger" });
     }
@@ -216,7 +258,31 @@ export function TerminalPanel() {
 
   return (
     <div className="terms">
-      <div className="terms__bar">
+      {/* Bilah konteks: folder kerja (kiri, memotong dengan elipsis) + pemilih shell dan terminal baru (kanan) */}
+      <div className="terms__head">
+        <p className="terms__cwd z-small" title={ctx.cwd}>
+          <FolderIcon size="sm" />
+          <span className="terms__name">{ctx.name}</span>
+          <span className="terms__cwdtext">{ctx.cwd}</span>
+        </p>
+        {usable.length > 1 && (
+          <Select
+            aria-label={t("tm.shell")}
+            size="sm"
+            className="terms__shell"
+            icon={<ShellIcon shell={current} />}
+            items={usable.map((s) => ({
+              value: shellId(s),
+              label: s.name,
+              icon: <ShellIcon shell={s} />,
+            }))}
+            value={current ? shellId(current) : null}
+            onValueChange={setShell}
+          />
+        )}
+        <IconButton label={t("tm.new")} size="sm" icon={<PlusIcon />} onClick={() => void create()} />
+      </div>
+      {tabs.length > 0 && (
         <nav className="terms__tabs" aria-label={t("tm.tabs")}>
           {tabs.map((x) => (
             <div key={x.id} className="stabs__tab" data-active={x.id === active ? "" : undefined}>
@@ -226,7 +292,7 @@ export function TerminalPanel() {
                 aria-current={x.id === active ? "true" : undefined}
                 onClick={() => terminals.setActive(ctx.key, x.id)}
               >
-                <TerminalIcon size="sm" />
+                <ShellIcon shell={shellOfTab(x)} />
                 <span className="stabs__text">{x.title}</span>
                 {x.status === "exited" && (
                   <span className="z-small terms__exited" title={t("tm.exited")}>
@@ -245,24 +311,7 @@ export function TerminalPanel() {
             </div>
           ))}
         </nav>
-        {term.shells.length > 1 && (
-          <Select
-            aria-label={t("tm.shell")}
-            size="sm"
-            className="terms__shell"
-            items={term.shells.filter((s) => s.acceptable).map((s) => ({ value: s.path, label: s.name }))}
-            value={shell ?? term.shells.find((s) => /^powershell$/i.test(s.name))?.path ?? term.shells[0]?.path ?? null}
-            onValueChange={setShell}
-          />
-        )}
-        <IconButton label={t("tm.new")} size="sm" icon={<PlusIcon />} onClick={() => void create()} />
-      </div>
-      <p className="terms__cwd z-small" title={ctx.cwd}>
-        <FolderIcon size="sm" />
-        <span className="terms__cwdtext">
-          {ctx.name} — {ctx.cwd}
-        </span>
-      </p>
+      )}
       {term.error && (
         <p className="chat__note chat__note--error z-small" role="alert">
           {term.error}

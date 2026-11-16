@@ -30,8 +30,11 @@ export function Textarea({ invalid, className, rows = 3, ...rest }: TextareaProp
   );
 }
 
-/** `description` (opsional) tampil di bawah label hanya di daftar pilihan, tidak di pemicu. */
-export type SelectItem = { value: string; label: string; description?: string; disabled?: boolean };
+/**
+ * `description` (opsional) tampil di bawah label hanya di daftar pilihan, tidak di pemicu. `icon` (opsional, dekoratif)
+ * tampil di depan label di daftar; untuk menampilkannya di pemicu, teruskan ikon item terpilih lewat prop `icon`.
+ */
+export type SelectItem = { value: string; label: string; description?: string; disabled?: boolean; icon?: ReactNode };
 
 export type SelectProps = {
   items: SelectItem[];
@@ -90,6 +93,11 @@ export function Select({
                   disabled={item.disabled}
                   className={cx("z-item", item.description && "z-item--described")}
                 >
+                  {item.icon && (
+                    <span className="z-item__icon" aria-hidden="true">
+                      {item.icon}
+                    </span>
+                  )}
                   {item.description ? (
                     <span className="z-item__text">
                       <BaseSelect.ItemText className="z-item__label">{item.label}</BaseSelect.ItemText>

@@ -7,6 +7,13 @@
 
 - **Terminal:** xterm.js terhubung ke PTY engine; beberapa tab per project; cwd = folder project (sesi tanpa project =
   folder Chat); pilih shell; tab dipulihkan setelah muat ulang dengan riwayat; sambung ulang otomatis; penanda shell selesai.
+- **Deteksi shell terpasang** (aplikasi desktop): perintah Tauri `terminal_shells` (`src-tauri/src/shells.rs` + `shells.ps1`,
+  hanya membaca berkas/PATH/registri, di-cache) menemukan PowerShell 7/Preview, Windows PowerShell, Command Prompt, Git Bash,
+  **WSL per distro** (`wsl.exe -d <distro>`, dari registri Lxss tanpa menjalankan wsl), MSYS2, Cygwin, dan Nushell/fish/zsh/
+  Elvish/xonsh di PATH, masing-masing dengan **ikon asli exe**. Daftar ini digabung dengan `GET /pty/shells` engine
+  (`mergeShells`: urutan deteksi, exe sama tidak dobel, penolakan engine dihormati). Pemilih shell dan tab terminal
+  menampilkan ikon tersebut (cadangan: ikon terminal). Di web/engine remote hanya daftar engine yang dipakai.
+  Unix: `/etc/shells` + shell umum di PATH, tanpa ikon (`TODO(port)`).
 - **Git:** cabang + tracking, perubahan staged/unstaged/konflik, diff berwarna, stage/unstage per berkas atau semua, commit,
   buat/pindah cabang, commit terbaru. Hanya di aplikasi desktop (git CLI); di luar itu ada pesan jelas.
 - **Browser:** child webview native (default tanpa halaman; ketik alamat), mundur/maju/muat ulang, buka di browser sistem.
@@ -35,7 +42,8 @@
 
 ## Belum / terbatas
 
-Git Bash/WSL di terminal belum ada; push/pull/stash/discard di Git baru lulus tes Rust (repo nyata + remote bare lokal) dan belum dicoba di aplikasi Tauri atau ke remote sungguhan (butuh credential helper), airspace belum diuji otomatis,
+Git Bash/WSL kini muncul di pemilih shell, tetapi menjalankannya lewat PTY engine belum diuji di aplikasi Tauri (apakah engine
+menerima exe di luar daftarnya sendiri dan perilaku `--login` Git Bash/MSYS2 terhadap cwd); push/pull/stash/discard di Git baru lulus tes Rust (repo nyata + remote bare lokal) dan belum dicoba di aplikasi Tauri atau ke remote sungguhan (butuh credential helper), airspace belum diuji otomatis,
 login Google di browser belum diuji ulang.
 
 ## Cara test

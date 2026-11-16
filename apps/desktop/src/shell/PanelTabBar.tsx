@@ -8,8 +8,11 @@ export function PanelTabBar({
   children,
   closeLabel,
   onClose,
+  actions,
 }: {
   children?: ReactNode;
+  /** Tombol tambahan di kiri tombol tutup (mis. Kustomisasi di Panel 2). */
+  actions?: ReactNode;
   closeLabel: string;
   /** Tanpa ini, tombol tutup tidak ditampilkan (mis. panel sedang terlipat). */
   onClose?: () => void;
@@ -17,6 +20,7 @@ export function PanelTabBar({
   return (
     <div className="ptb">
       <div className="ptb__main">{children}</div>
+      {actions && <div className="ptb__actions">{actions}</div>}
       {onClose && (
         <IconButton label={closeLabel} size="sm" className="ptb__close" icon={<CloseIcon />} onClick={onClose} />
       )}

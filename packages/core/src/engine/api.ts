@@ -63,6 +63,13 @@ export type ModelOption = {
   inputs?: string[];
 };
 export type FileAttachment = { mime: string; url: string; filename?: string };
+export type EngineCommand = {
+  name: string;
+  description?: string;
+  source?: "command" | "mcp" | "skill";
+  /** Placeholder argumen ($1, $ARGUMENTS) yang dipakai templat. */
+  hints: string[];
+};
 export type ModelRef = { providerID: string; modelID: string };
 export type SubscriptionState = "connected" | "reconnecting";
 export type SubscriptionHandlers = {
@@ -123,7 +130,20 @@ export interface EngineApi {
   getRevert(directory: string, sessionId: string): Promise<string | null>;
   revert(directory: string, sessionId: string, messageId: string): Promise<void>;
   unrevert(directory: string, sessionId: string): Promise<void>;
-  fork(directory: string, sessionId: string, messageId: string): Promise<SessionInfo>;
+  /** Cabangkan sesi. Tanpa `messageId` seluruh riwayat ikut disalin. */
+  fork(directory: string, sessionId: string, messageId?: string): Promise<SessionInfo>;
+  /** Cari berkas project berdasarkan nama (fuzzy, oleh engine). Mengembalikan jalur relatif. */
+  findFiles(directory: string, query: string, limit?: number): Promise<string[]>;
+  /** Perintah slash milik engine (bawaan, config `command/`, MCP prompt, skill). */
+  listCommands(directory: string): Promise<EngineCommand[]>;
+  /** Jalankan perintah slash engine di sesi (hasil mengalir lewat `subscribe`). */
+  runCommand(
+    directory: string,
+    sessionId: string,
+    input: { command: string; arguments: string; model?: ModelRef; variant?: string; files?: FileAttachment[] },
+  ): Promise<void>;
+  /** Ringkas (compact) riwayat sesi dengan model terpilih agar konteks lega. */
+  summarize(directory: string, sessionId: string, model: ModelRef): Promise<void>;
   abort(directory: string, sessionId: string): Promise<void>;
   /** Buang instance engine satu direktori agar cache (skill, config) dibaca ulang; dibuat ulang otomatis saat dipakai. */
   disposeInstance(directory: string): Promise<void>;
@@ -299,8 +319,53 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
       await client.session.unrevert({ sessionID: sessionId, directory });
     },
     async fork(directory, sessionId, messageId) {
-      const r = await client.session.fork({ sessionID: sessionId, directory, messageID: messageId });
+      const r = await client.session.fork({
+        sessionID: sessionId,
+        directory,
+        ...(messageId ? { messageID: messageId } : {}),
+      });
       return toSession(body(r, "session.fork"));
+    },
+    async findFiles(directory, query, limit = 20) {
+      const r = await client.find.files({ directory, query, dirs: "false", limit });
+      return body(r, "find.files");
+    },
+    async listCommands(directory) {
+      const r = await client.command.list({ directory });
+      return body(r, "command.list").map((c) => ({
+        name: c.name,
+        hints: c.hints ?? [],
+        ...(c.description ? { description: c.description } : {}),
+        ...(c.source ? { source: c.source } : {}),
+      }));
+    },
+    async runCommand(directory, sessionId, input) {
+      await client.session.command({
+        sessionID: sessionId,
+        directory,
+        command: input.command,
+        arguments: input.arguments,
+        ...(input.model ? { model: `${input.model.providerID}/${input.model.modelID}` } : {}),
+        ...(input.variant ? { variant: input.variant } : {}),
+        ...(input.files?.length
+          ? {
+              parts: input.files.map((f) => ({
+                type: "file" as const,
+                mime: f.mime,
+                url: f.url,
+                ...(f.filename ? { filename: f.filename } : {}),
+              })),
+            }
+          : {}),
+      });
+    },
+    async summarize(directory, sessionId, model) {
+      await client.session.summarize({
+        sessionID: sessionId,
+        directory,
+        providerID: model.providerID,
+        modelID: model.modelID,
+      });
     },
     async abort(directory, sessionId) {
       await client.session.abort({ sessionID: sessionId, directory });

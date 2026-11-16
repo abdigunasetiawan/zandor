@@ -10,6 +10,7 @@ import {
   DownloadIcon,
   EditIcon,
   EyeIcon,
+  GlobeIcon,
   IconButton,
   type MenuEntry,
   RefreshIcon,
@@ -23,7 +24,10 @@ import {
 import { lazy, type ReactNode, Suspense, useCallback, useState } from "react";
 import { FileTypeIcon } from "../FileTypeIcon";
 import { PanelTabBar } from "../PanelTabBar";
-import { useDocs, useServices } from "../services";
+import { useAppearance, useDocs, useServices } from "../services";
+import { openInZandorBrowser } from "../tools/browser-bridge";
+import { DocCustomize } from "./DocCustomize";
+import { groupsForViewer } from "./DocStyleControls";
 import { OpenWithMenu } from "./OpenWithMenu";
 import { BinaryViewer, HtmlViewer, ImageViewer, JsonViewer, MediaViewer, TableViewer } from "./simple-viewers";
 import type { ViewerHandle, ViewerProps } from "./types";
@@ -89,6 +93,7 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   const { docs, docHost } = useServices();
   const { panels } = useServices();
   const state = useDocs();
+  const docStyle = useAppearance().docs;
   const toast = useToast();
   const confirm = useConfirm();
   const [handle, setHandle] = useState<ViewerHandle | null>(null);
@@ -97,7 +102,11 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   if (!tab) {
     return (
       <div className="docs">
-        <PanelTabBar closeLabel={t("panel.close.docs")} onClose={() => panels.actions?.close("docs")} />
+        <PanelTabBar
+          closeLabel={t("panel.close.docs")}
+          onClose={() => panels.actions?.close("docs")}
+          actions={<DocCustomize groups={["code", "prose", "table", "image"]} />}
+        />
         {empty}
       </div>
     );
@@ -138,6 +147,16 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   const openExternal = async () => {
     try {
       await docHost.openExternal(tab.root, tab.path);
+    } catch (e) {
+      fail(e);
+    }
+  };
+
+  /** HTML → live server (aset relatif, skrip, auto-reload saat berkas berubah) di Browser Panel 4. */
+  const openLive = async () => {
+    try {
+      if (!docHost.liveUrl) return;
+      openInZandorBrowser(panels, await docHost.liveUrl(tab.root, tab.path));
     } catch (e) {
       fail(e);
     }
@@ -211,8 +230,16 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
   };
 
   return (
-    <div className="docs">
-      <PanelTabBar closeLabel={t("panel.close.docs")} onClose={() => panels.actions?.close("docs")}>
+    <div
+      className="docs"
+      data-doc-theme={docStyle.theme && docStyle.theme !== "auto" ? docStyle.theme : undefined}
+      data-image-bg={docStyle.imageBg && docStyle.imageBg !== "auto" ? docStyle.imageBg : undefined}
+    >
+      <PanelTabBar
+        closeLabel={t("panel.close.docs")}
+        onClose={() => panels.actions?.close("docs")}
+        actions={<DocCustomize groups={groupsForViewer(viewerFor(tab))} />}
+      >
         <nav className="stabs" aria-label={t("doc.tabs")}>
           {state.tabs.map((x, index) => {
             const active = x.id === state.activeId;
@@ -296,6 +323,15 @@ export function DocPanel({ empty }: { empty: ReactNode }) {
               onClick={() => docs.setMode(tab.id, "raw")}
             />
           </span>
+        )}
+        {tab.kind === "html" && (
+          <IconButton
+            label={docHost.liveUrl ? t("doc.openInBrowser") : t("doc.openInBrowserDesktop")}
+            size="sm"
+            icon={<GlobeIcon />}
+            disabled={!docHost.liveUrl}
+            onClick={() => void openLive()}
+          />
         )}
         <IconButton
           label={handle?.find ? t("doc.find") : t("doc.findUnavailable")}

@@ -1,10 +1,32 @@
 // Penampil teks/kode (Monaco, read-only). `forceLanguage` dipakai mode "mentah" untuk jenis lain (mis. Markdown mentah).
-import { decodeText, languageFor } from "@zandor/core";
+import { DOC_CODE_SIZE, type DocStyle, decodeText, languageFor } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import { useEffect, useRef } from "react";
-import { useServices } from "../services";
+import { useAppearance, useServices } from "../services";
 import { applyEditorTheme, monaco, monacoLanguage } from "./monaco-setup";
 import type { ViewerProps } from "./types";
+
+const codeFont = () => getComputedStyle(document.documentElement).getPropertyValue("--z-font-code").trim();
+
+/** Opsi Monaco dari kustomisasi dokumen (Pengaturan → Dokumen / tombol Kustomisasi Panel 3). */
+export function editorOptions(d: DocStyle) {
+  const size = d.codeSize ?? DOC_CODE_SIZE.def;
+  return {
+    fontSize: size,
+    lineHeight: Math.round(size * (d.codeLineHeight ?? 1.5)),
+    fontFamily: d.codeFont ?? codeFont(),
+    fontLigatures: d.ligatures ?? false,
+    minimap: { enabled: d.minimap ?? false },
+    lineNumbers: (d.lineNumbers ?? true) ? ("on" as const) : ("off" as const),
+    renderWhitespace: (d.whitespace ?? false) ? ("all" as const) : ("none" as const),
+  };
+}
+
+/** Ukuran huruf berikutnya untuk Ctrl+roda mouse (naik = perbesar). */
+export function zoomStep(current: number, deltaY: number): number {
+  const next = current + (deltaY < 0 ? 1 : -1);
+  return Math.min(DOC_CODE_SIZE.max, Math.max(DOC_CODE_SIZE.min, next));
+}
 
 function isDark(): boolean {
   const a = document.documentElement.dataset.theme;
@@ -23,6 +45,7 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
   const tabIdRef = useRef(tab.id);
   tabIdRef.current = tab.id;
   const { appearance, docs } = useServices();
+  const docStyle = useAppearance().docs;
   const baseline = useRef("");
   const saveRef = useRef(onSaveRequest);
   saveRef.current = onSaveRequest;
@@ -41,11 +64,9 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
       readOnly: true,
       domReadOnly: true,
       automaticLayout: true,
-      minimap: { enabled: false },
       scrollBeyondLastLine: false,
-      renderWhitespace: "none",
-      fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--z-font-code").trim(),
-      fontSize: 13,
+      ...editorOptions(appearance.state().docs),
+      mouseWheelZoom: false,
       theme: currentTheme(),
       ariaLabel: tab.name,
       stickyScroll: { enabled: false },
@@ -62,12 +83,25 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
       if (ed.getOption(monaco.editor.EditorOption.readOnly)) return;
       docs.markDirty(tabIdRef.current, norm(ed.getValue()) !== baseline.current);
     });
+    // Ctrl+roda mouse = perbesar/perkecil teks (bukan UI); tersimpan sebagai ukuran huruf kode dokumen.
+    // Ditangkap di fase capture agar tidak sampai ke gulir Monaco maupun zoom WebView.
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.deltaY === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const cur = appearance.state().docs.codeSize ?? DOC_CODE_SIZE.def;
+      const next = zoomStep(cur, e.deltaY);
+      if (next !== cur) appearance.setDoc("codeSize", next === DOC_CODE_SIZE.def ? null : next);
+    };
+    const el = host.current;
+    el.addEventListener("wheel", onWheel, { capture: true, passive: false });
     // ikuti pergantian tema aplikasi (atribut data-theme pada <html>)
     const mo = new MutationObserver(() => monaco.editor.setTheme(currentTheme()));
     // ...dan pilihan tema editor di halaman Tampilan
     const off = appearance.subscribe(() => monaco.editor.setTheme(currentTheme()));
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style"] });
     return () => {
+      el.removeEventListener("wheel", onWheel, { capture: true });
       mo.disconnect();
       off();
       onHandle(null);
@@ -101,6 +135,10 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
   }, [tab.editing]);
 
   useEffect(() => {
+    editor.current?.updateOptions(editorOptions(docStyle));
+  }, [docStyle]);
+
+  useEffect(() => {
     editor.current?.updateOptions({ wordWrap: tab.wrap ? "on" : "off" });
   }, [tab.wrap]);
 
@@ -111,7 +149,12 @@ export default function CodeViewer({ tab, bytes, onHandle, onSaveRequest }: View
           {t("doc.truncated", { mb: 5 })}
         </p>
       )}
-      <div className="docview__editor" ref={host} data-testid="monaco" />
+      <div
+        className="docview__editor"
+        ref={host}
+        data-testid="monaco"
+        data-font-size={docStyle.codeSize ?? DOC_CODE_SIZE.def}
+      />
     </div>
   );
 }

@@ -8,7 +8,19 @@ import {
   type QuestionRequest,
   type SessionRunStatus,
   type Todo,
+  toTodos,
 } from "./types";
+
+/**
+ * Rencana dari tool part `todowrite` begitu argumennya diketahui (status running/completed). Event `todo.updated` engine baru
+ * datang setelah tool selesai dan tidak selalu sampai (mis. saat koneksi ulang), sehingga rencana terasa baru tercentang
+ * di akhir. Membaca part membuat dok rencana mengikuti langkah agent secara realtime.
+ */
+function todosFromPart(part: MessagePart): Todo[] | null {
+  if (part.type !== "tool" || part.tool.toLowerCase() !== "todowrite" || part.state.status === "pending") return null;
+  const todos = toTodos(part.state.input.todos);
+  return todos.length > 0 ? todos : null;
+}
 
 export type ChatState = {
   sessionID: string;
@@ -120,9 +132,11 @@ export function applyEvent(state: ChatState, ev: EngineEvent): ChatState {
         },
         parts: [],
       };
+      const liveTodos = todosFromPart(incoming);
       return {
         ...state,
         pending,
+        ...(liveTodos ? { todos: liveTodos } : {}),
         messages: upsertMessage(state.messages, { info: base.info, parts: upsertPart(base.parts, incoming) }),
       };
     }

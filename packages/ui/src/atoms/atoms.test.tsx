@@ -206,6 +206,26 @@ describe("Select", () => {
     const option = await screen.findByRole("option", { name: /Semua/ });
     expect(option).toHaveTextContent("Setujui semuanya.");
   });
+
+  test("ikon item tampil di daftar (dekoratif) tanpa mengubah nama opsi", async () => {
+    const user = userEvent.setup();
+    renderUi(
+      <Select
+        aria-label="Shell"
+        value="cmd"
+        onValueChange={() => {}}
+        items={[
+          { value: "cmd", label: "Command Prompt", icon: <img alt="" data-testid="ikon-cmd" /> },
+          { value: "wsl", label: "WSL: Ubuntu", icon: <img alt="" data-testid="ikon-wsl" /> },
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("combobox", { name: "Shell" }));
+    const option = await screen.findByRole("option", { name: "WSL: Ubuntu" });
+    const icon = screen.getByTestId("ikon-wsl");
+    expect(option).toContainElement(icon);
+    expect(icon.parentElement).toHaveAttribute("aria-hidden", "true");
+  });
 });
 
 describe("Slider", () => {

@@ -74,9 +74,8 @@ test("daftar rencana agent: status per item, ringkasan, dan pulih setelah muat u
   await ask(page, "buat rencana kerja");
   const todos = page.getByTestId("todo-list");
   await expect(todos).toBeVisible({ timeout: 15_000 });
-  await expect(todos.getByText("Rencana agent (1/3 selesai)")).toBeVisible();
-  await expect(todos.getByText("RENCANA KERJA")).toBeVisible();
-  await expect(todos.getByText("Rincian")).toBeVisible();
+  await expect(todos.getByRole("progressbar", { name: "Rencana agent: 1 dari 3 langkah selesai" })).toBeVisible();
+  await expect(todos.getByText("1/3")).toBeVisible();
   await expect(todos.getByRole("listitem")).toHaveCount(3);
   await expect(todos.getByRole("img", { name: "selesai" })).toHaveCount(1);
   await expect(todos.getByRole("img", { name: "sedang dikerjakan" })).toHaveCount(1);
@@ -86,5 +85,10 @@ test("daftar rencana agent: status per item, ringkasan, dan pulih setelah muat u
   await page.reload();
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
   await page.locator(".sidebar__section--chats .tree__session").first().click();
-  await expect(page.getByTestId("todo-list").getByText("Rencana agent (1/3 selesai)")).toBeVisible();
+  await expect(page.getByTestId("todo-list").getByText("1/3")).toBeVisible();
+  // lipat: daftar tersembunyi, langkah yang sedang dikerjakan tampil di kepala
+  const head = page.getByTestId("todo-list").getByRole("button", { name: /Rencana/ });
+  await head.click();
+  await expect(head).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("todo-list").getByRole("listitem")).toHaveCount(0);
 });

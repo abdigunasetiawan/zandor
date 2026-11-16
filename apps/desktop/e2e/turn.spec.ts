@@ -9,6 +9,7 @@ async function openProjectSession(page: Page) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:\\Work\\alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await page.getByRole("button", { name: /^Sesi baru di .*alpha/ }).click();
   await expect(composer(page)).toBeVisible();
 }

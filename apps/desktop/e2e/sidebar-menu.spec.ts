@@ -10,6 +10,7 @@ async function addProject(page: Page, path: string) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill(path);
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
 }
 const sessions = (page: Page) => page.locator(".sidebar__section--chats .tree__session .tree__label");
 const projectRows = (page: Page) =>

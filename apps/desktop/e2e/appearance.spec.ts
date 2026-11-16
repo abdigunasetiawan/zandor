@@ -8,6 +8,7 @@ async function setup(page: Page) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await expect(page.getByRole("button", { name: "alpha", exact: true })).toBeVisible();
 }
 
@@ -127,19 +128,20 @@ test("tipografi, font, panel chat: nilai valid jadi variabel CSS, nilai jahat di
   expect(await rootVar(page, "--z-font-code")).toBe("Consolas, monospace");
 
   await page.getByRole("tab", { name: "Panel chat" }).click();
-  const op = page.getByLabel("Opasitas teks (0.3–1)");
-  await op.fill("0.6");
-  await op.press("Enter");
-  expect(await rootVar(page, "--z-chat-opacity")).toBe("0.6");
+  // Kontrol chat kini slider (ChatStyleControls): nilai di luar 0.3–1 tidak bisa dimasukkan; penolakan nilai jahat
+  // diuji di core (theme.test.ts).
+  const op = page.getByRole("slider", { name: "Transparansi teks" });
+  await op.focus();
+  await op.press("Home");
+  await expect.poll(() => rootVar(page, "--z-chat-opacity")).toBe("0.3");
   expect(
     await page
       .getByTestId("chat-preview")
       .locator(".msg__text")
       .evaluate((e) => getComputedStyle(e).opacity),
-  ).toBe("0.6");
-  await op.fill("9");
-  await op.press("Enter");
-  await expect(page.getByText("opasitas harus 0.3–1")).toBeVisible();
+  ).toBe("0.3");
+  await op.press("End");
+  await expect.poll(() => rootVar(page, "--z-chat-opacity")).toBe("");
 });
 
 test("section project: logo dan warna tampil di sidebar", async ({ page }) => {

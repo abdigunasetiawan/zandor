@@ -2,6 +2,11 @@
 
 > Snapshot, selalu ditimpa. Terakhir diperbarui: 16-11-2026.
 
+## Terbaru (16-11-2026)
+
+- Composer: perintah slash (`/btw`, `/new`, `/compact`, `/undo`, `/redo`, `/fork`, `/copy`, `/mode`, `/stop` + perintah engine) dan mention `@berkas` (ADR-069). Unit + e2e `composer-slash` lulus.
+- Bilah aksi composer kembali membungkus saat panel sempit (aturan `flex-wrap: nowrap` membuat tombol suara menimpa pil model); suara + kirim tetap di kanan. E2E `chat`, `chat2`, `composer-*`, `draft` lulus (39/39).
+
 ## Fase
 
 - **Fase 0 — Spike Risiko:** lulus untuk Windows (ADR-019–027).
@@ -16,9 +21,13 @@
 - **Fase 9 — Memori & Skill Creator:** selesai di lokal (belum di-push); ADR-037, `docs/features/memory.md`. Adapter Hindsight/Graphify dan opt-in di dialog Tambah project belum.
 - **Pengaturan satu halaman (15-11-2026):** Tampilan lanjutan digabung ke kategori Tampilan; Memori dan skill serta Automasi kini kategori di Pengaturan (ADR-059); rute lama jadi alias. Bug aliran event (batas 6 koneksi WebView) diperbaiki di `ChatStore` (maks 4 aliran, lihat `docs/features/tools.md`); smoke native 50/50.
 - **Toggle memori/skill creator di composer (15-11-2026):** ADR-060; sesi project berbagi pengaturan project, sesi Chat per sesi; skill creator kini per project/sesi (plugin + inti).
+- **HTML → live server (16-11-2026):** bilah opsi di pratinjau HTML (saklar "Izinkan skrip…", teks sandbox, tombol) dihapus; tombol **Buka di browser** pindah ke toolbar dokumen (ikon globe) dan menjalankan live server Rust (`liveserver.rs`, perintah `doc_live_server`) → Browser Panel 4 dengan auto-reload. Skema `zpreview` dan `doc_preview_register` dihapus (CSP `frame-src` dirapikan). Tes: `cargo test liveserver` (3), e2e `doc-tabs`/`docs` hijau. Belum diuji di build Tauri sungguhan.
+- **Kustomisasi Panel 3 (16-11-2026):** tombol Kustomisasi di `PanelTabBar` Dokumen (kiri tombol tutup) → popover `DocStyleControls` yang **dinamis per jenis penampil** (`groupsForViewer`): kode/mentah (tema editor, font kode, ukuran px, tinggi baris, nomor baris, minimap, ligatur, spasi), dokumen render Markdown/Word/PowerPoint/notebook (tema baca Ikut aplikasi/Kertas/Sepia/Malam, font, ukuran, tinggi baris, lebar kolom), tabel/JSON (ukuran huruf), gambar (latar kotak-kotak/terang/gelap); reset per kelompok. Semua kelompok juga di Pengaturan → **Dokumen** (`/settings/documents`). Tersimpan di `appearance.docs` (`setDoc`/`resetDocs`, token `--z-doc-*`). **Ctrl + roda mouse** di teks mentah/kode memperbesar/memperkecil ukuran huruf editor (8–40px, tersimpan), bukan skala UI. Tes: core `theme.test.ts`, e2e `docs.spec.ts` ("kustomisasi Panel 3"). HTML/PDF/media belum punya opsi (popover menjelaskan).
+- **Kustomisasi Panel 2 (16-11-2026):** tombol Kustomisasi (ikon slider) di `PanelTabBar` Chat, kiri tombol tutup → popover `ChatStyleControls`: kerapatan (Rapat/Normal/Lega), jenis huruf, ketebalan, lebar kolom isi, lebar composer (× kolom), ukuran, transparansi, tinggi baris, jarak huruf, jarak antarpesan, ukuran kode, reset. Kontrol yang sama di Pengaturan → Chat (`/settings/chat`) dan Tampilan → Chat; tersimpan di `appearance.chat` (token baru `--z-chat-line/-tracking/-code-size/-composer-ratio`). Slider lebar menimpa pengaturan `chatWidth` (sempit/normal/lebar) selama diubah. Tes core + vitest desktop hijau; belum ada e2e khusus, tema terang dan build native belum diperiksa.
 - **Tombol tutup panel (15-11-2026):** Panel Chat, Dokumen, dan Tools memakai satu wrapper `PanelTabBar` (`.ptb`): baris paling atas panel, tinggi seragam (`--z-control-lg`), tampilan tab tetap seperti semula (tanpa latar atau warna baru), pemisah `--z-color-border`, tombol tutup di ujung kanan (di luar area tab yang menggulir). Sebelumnya tombol Chat melayang di tengah karena `.stabs--empty` mewarisi `flex: 1`. e2e (`shell.spec.ts`) memeriksa posisi paling atas, ujung kanan, sejajar, dan tinggi seragam.
 - **Menu tautan di respons model (16-11-2026):** klik tautan → pilih browser Zandor (Panel 4) / browser eksternal / salin (`rich/ChatLink.tsx`, lihat `docs/features/chat.md`); `openTool` tidak lagi menutup Browser yang sudah aktif (`showBrowserTool`). Belum diuji di build native Tauri.
 - **Pintasan panel + smart resize (16-11-2026):** `Ctrl+1..5` tampil/sembunyi panel 1–5; panel utama terakhir (Chat/Dokumen/Tools) tidak bisa ditutup (toast); smart resize `Ctrl+Alt+0` + tombol pertama di grup toggle title bar: sidebar 16rem (maks 22%), 2 panel utama 50/50, 3 panel utama Chat 40 / 30 / 30 (ADR-066, `smartLayout` di `layout-plan.ts`). Tes core + e2e `shell.spec.ts` 17/17. Belum dicoba di build native.
+- **Mode izin bawaan "Otomatis, tanya yang berisiko" (16-11-2026):** ADR-068; `permissionRisk` (core, bertes) memilah aksi berisiko, kartu izin menyebut alasannya; popup mode izin menampilkan penjelasan tiap mode (`SelectItem.description`), pil mode selebar labelnya. Pengguna yang pernah memilih mode lain tetap memakai pilihannya. Belum diuji dengan engine asli/build native.
 - **Profil pengguna (16-11-2026):** Pengaturan → Profil: nama tampilan + avatar (inisial / unggah / ilustrasi DiceBear lokal), dipakai footer sidebar dan sapaan (ADR-067, `docs/features/profile.md`). Menutup "belum: nama pengguna di pengaturan" dari layout shell. Tema gelap belum diperiksa.
 - **Sidebar & dialog project (16-11-2026):** hanya isi Workspace yang menggulir (tombol aksi tetap), scrollbar tipis menempel tepi dan tampil saat hover dengan ruang tetap; tombol tutup semua/kembalikan folder project; ikon kanan sejajar satu kolom; tanpa lapisan putih di latar kustom project; dialog tampilan project dirapikan; halaman utama tanpa overscroll (`overscroll-behavior` di root, `contain` di Workspace); `dragDropEnabled: false` di Tauri agar seret-lepas HTML5 (urutan project/sesi) jalan di Windows.
 - **Logo aplikasi (16-11-2026):** varian "Tiga Panel — Tajam" dipasang — atom `AppLogo` di header sidebar, favicon SVG, ikon Tauri (ADR-065); ikon di build native belum diperiksa.
@@ -77,6 +86,8 @@
 - [x] Plugin guard wajib + penanda diverifikasi (temuan: plugin dimuat per-instance; path `\?\` merusak URL)
 - [x] Connection manager lokal (struktur remote ada, belum diisi)
 - [x] Project (tambah/daftar/ganti nama/lepas), sesi (buat/ganti nama/hapus/pilih), sesi tanpa project, pencarian
+- [x] Dialog "Percayai folder ini?" (16-11-2026) sebelum folder baru ditambahkan sebagai project; folder yang sudah jadi
+      project tidak ditanya lagi; batal/Esc = tidak ditambahkan (e2e `projects.spec.ts`)
 - [x] Tab Files: pohon file nyata, ikon Material Icon Theme; ikon UI Lucide
 - [x] Terbukti end-to-end: smoke native 12/12 termasuk restart aplikasi → sesi tetap ada
 - [ ] Belum: UI warna project, single-instance (DB terkunci bila dua Zandor), remote engine (Fase 11)

@@ -4,6 +4,7 @@ import {
   type Project,
   type ProjectKey,
   type ProjectStyle,
+  pathKey,
   type SessionInfo,
   type SessionsState,
   sessionTitle,
@@ -279,9 +280,21 @@ function AddProject() {
   const fail = useErrorToast();
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState("");
+  const confirm = useConfirm();
+  const state = useProjects();
 
   const add = async (p: string) => {
     try {
+      // Folder baru harus dipercaya dulu: agent bisa membaca, mengubah, dan menjalankan perintah di dalamnya.
+      const known = state.projects.some((x) => pathKey(x.path) === pathKey(p));
+      if (!known) {
+        const ok = await confirm({
+          title: t("sb.trustTitle"),
+          description: t("sb.trustBody", { path: p }),
+          confirmLabel: t("sb.trustYes"),
+        });
+        if (!ok) return;
+      }
       await projects.addProject(p);
     } catch (e) {
       fail(e);

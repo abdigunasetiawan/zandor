@@ -3,7 +3,9 @@
 mod browser;
 mod engine;
 mod files;
+mod fonts;
 mod git;
+mod liveserver;
 mod memory;
 mod netprobe;
 mod openvsx;
@@ -12,6 +14,7 @@ mod openwork;
 mod providers;
 mod registry;
 mod secrets;
+mod shells;
 
 use engine::{EngineManager, EnginePaths, EngineSnapshot};
 use std::path::PathBuf;
@@ -636,6 +639,18 @@ fn fs_open_external(app: tauri::AppHandle, root: String, path: String) -> Result
     }
 }
 
+/// Shell yang terpasang di mesin ini (beserta ikon PNG base64) untuk pemilih shell panel Terminal.
+#[tauri::command]
+async fn terminal_shells(refresh: bool) -> Result<Vec<shells::ShellInfo>, String> {
+    git_blocking(move || shells::detect(refresh)).await
+}
+
+/// Keluarga font yang terinstal di sistem (pemilih jenis huruf kustomisasi Panel 2).
+#[tauri::command]
+async fn system_fonts(refresh: bool) -> Result<Vec<String>, String> {
+    git_blocking(move || fonts::list(refresh)).await
+}
+
 /// Daftar aplikasi terdaftar untuk ekstensi berkas (beserta ikon PNG base64) — untuk menu "Buka dengan".
 #[tauri::command]
 async fn fs_open_with_list(
@@ -688,62 +703,17 @@ fn fs_reveal(app: tauri::AppHandle, root: String, path: String) -> Result<(), St
     openwith::reveal(&resolve_file(&app, &root, &path)?)
 }
 
-// ---------- Pratinjau HTML dengan sumber luar (opt-in) ----------
-
-type Previews = std::sync::Mutex<std::collections::VecDeque<(String, Vec<u8>)>>;
-fn previews() -> &'static Previews {
-    static P: std::sync::OnceLock<Previews> = std::sync::OnceLock::new();
-    P.get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()))
-}
-
-/// Simpan HTML di memori dan kembalikan token untuk skema `zpreview://`. Hanya 8 pratinjau terakhir disimpan.
+/// Buka live server untuk folder project dan kembalikan URL berkas HTML `path` (Browser Panel 4, auto-reload).
 #[tauri::command]
-fn doc_preview_register(html: String) -> Result<String, String> {
-    if html.len() > files::MAX_WRITE_BYTES {
-        return Err("HTML terlalu besar untuk pratinjau".into());
-    }
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let token = format!(
-        "p{:x}{:x}",
-        nanos,
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    );
-    let mut q = previews().lock().map_err(|e| e.to_string())?;
-    q.push_back((token.clone(), html.into_bytes()));
-    while q.len() > 8 {
-        q.pop_front();
-    }
-    Ok(token)
-}
-
-/// CSP dokumen pratinjau: sumber https dan skrip diizinkan (pengguna memilihnya), tetapi tanpa form, tanpa base, dan
-/// iframe-nya tetap ber-sandbox tanpa `allow-same-origin` (origin buram, tidak bisa menjangkau aplikasi).
-const PREVIEW_CSP: &str = "default-src 'none'; img-src https: data: blob:; media-src https: data: blob:; font-src https: data:; style-src https: 'unsafe-inline'; script-src https: 'unsafe-inline' 'unsafe-eval'; connect-src https:; frame-src https:; form-action 'none'; base-uri 'none'";
-
-fn preview_response(request: &tauri::http::Request<Vec<u8>>) -> tauri::http::Response<Vec<u8>> {
-    let token = request.uri().path().trim_matches('/').to_string();
-    let body = previews()
-        .lock()
-        .ok()
-        .and_then(|q| q.iter().find(|(t, _)| *t == token).map(|(_, b)| b.clone()));
-    match body {
-        Some(b) => tauri::http::Response::builder()
-            .status(200)
-            .header("Content-Type", "text/html; charset=utf-8")
-            .header("Content-Security-Policy", PREVIEW_CSP)
-            .header("X-Content-Type-Options", "nosniff")
-            .header("Cache-Control", "no-store")
-            .body(b)
-            .unwrap_or_default(),
-        None => tauri::http::Response::builder()
-            .status(404)
-            .body(Vec::new())
-            .unwrap_or_default(),
-    }
+fn doc_live_server(app: tauri::AppHandle, root: String, path: String) -> Result<String, String> {
+    let file = resolve_file(&app, &root, &path)?;
+    let dir = files::resolve_dir(&files::allowed_roots(&app_data(&app)?), &root)?;
+    let rel = file
+        .strip_prefix(&dir)
+        .map_err(|_| "berkas berada di luar project".to_string())?
+        .to_string_lossy()
+        .replace('\\', "/");
+    liveserver::start(&dir, &rel)
 }
 
 // ---------- Git (Fase 8) ----------
@@ -932,7 +902,6 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        .register_uri_scheme_protocol("zpreview", |_ctx, request| preview_response(&request))
         .manage(EngineManager::default())
         .manage(OpenWorkFlow::default())
         .setup(|app| {
@@ -988,9 +957,11 @@ pub fn run() {
             fs_save_as,
             fs_open_external,
             fs_open_with_list,
+            terminal_shells,
+            system_fonts,
             fs_open_with,
             fs_reveal,
-            doc_preview_register,
+            doc_live_server,
             git_status,
             git_push,
             git_pull,

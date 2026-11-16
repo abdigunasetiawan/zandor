@@ -20,14 +20,14 @@
 
 ## Pelengkap (ADR-034)
 
-Tab sesi (maks 12, tersimpan), Salin pesan, mode izin (tanya / setujui edit otomatis / setujui semua — sisi klien),
+Tab sesi (maks 12, tersimpan), Salin pesan, mode izin (tanya / setujui edit otomatis / otomatis kecuali berisiko — bawaan, ADR-068 / setujui semua — sisi klien),
 varian reasoning (dari `model.variants`), lampiran berkas/folder, Ulangi jawaban (revert + kirim ulang), Kembalikan ke
 sebelum pesan ini (revert) dan Batalkan revert, Cabangkan dari sini (fork), kartu web search, diff untuk edit/izin, dan
 transcript tervirtualisasi untuk sesi ≥ 40 pesan. Provider ditambahkan lewat halaman Provider (lihat `providers.md`).
 
 ## Terbatas
 
-Mode izin otomatis hanya bekerja selama Zandor terbuka. Lampiran browser/clipboard/drop dibaca sebagai data URL tanpa batas ukuran
+Mode izin otomatis hanya bekerja selama Zandor terbuka. Deteksi risiko mode bawaan berbasis pola (`permissionRisk`), bukan sandbox: perintah yang dikaburkan bisa lolos — pakai mode Tanya bila butuh jaminan. Lampiran browser/clipboard/drop dibaca sebagai data URL tanpa batas ukuran
 buatan di Zandor (dibatasi kapasitas memori dan batas engine/provider); lampiran
 native dari pemilih berkas memakai URL `file://`. Lampiran berbasis data URL membuka modal viewer sesuai tipe (gambar, PDF,
 teks/kode, Markdown, tabel, JSON, media, Office best-effort, atau keterangan untuk biner); HTML tetap sandbox tanpa skrip.
@@ -60,7 +60,9 @@ pesan (tidak langsung terkirim); chip hilang saat mulai mengetik. Tes: `suggesti
 - **Form pertanyaan agent** (tool `question`): kartu dengan pilihan tunggal/jamak dan jawaban sendiri; Kirim/Lewati. **Rencana
   agent** (todo) tampil di atas composer.
 - **Info pemakaian** di composer: model, konteks terpakai vs batas (peringatan hampir penuh), token, biaya, rincian.
-- **Dok rencana agent** memakai ringkasan progres dan daftar langkah yang bisa dibuka/tutup, tampil konsisten dengan kartu composer.
+- **Dok rencana agent**: kepala satu baris (Rencana · n/N · langkah yang sedang dikerjakan · chevron) + bilah progres tipis, daftar
+  langkah bisa dilipat; langkah aktif digulir ke tampilan. Progres **realtime**: diturunkan dari tool part `todowrite` begitu
+  argumennya diterima (reducer `todosFromPart`), tidak menunggu event `todo.updated` yang baru datang setelah tool selesai.
 - **Batas:** kuota/limit tarif provider tidak tersedia dari engine; gambar dalam jawaban tidak dimuat; kepatuhan model pada
   tool `question` bergantung model.
 - **Tes:** `bun x vitest run packages/core/src/chat packages/core/src/tools`, `bun x playwright test e2e/rich e2e/questions
@@ -89,3 +91,19 @@ dan daftar rencana (todowrite). Tool lain memakai cadangan generik (masukan + ke
   Belum: sesi anak tampil sebagai sesi biasa di sidebar dan belum bisa dibuka dari langkahnya.
 - **Tes:** `bun x vitest run apps/desktop/src/shell/tool-view.test.ts`; e2e `bun x playwright test e2e/turn.spec.ts` (langkah,
   tidak menutup sendiri, gulir). Bentuk data tool diambil dari engine asli opencode 1.19.5.
+
+## Kustomisasi tampilan Panel 2
+
+Tombol **Kustomisasi** (ikon slider) di bilah atas Panel 2, di kiri tombol tutup, membuka popover `ChatStyleControls`
+(`apps/desktop/src/shell/ChatStyleControls.tsx`). Isinya: kerapatan (Rapat/Normal/Lega = jarak antarpesan + tinggi baris),
+jenis huruf, ketebalan, lebar kolom isi (28–120rem), lebar composer (1–1,6 × kolom), ukuran huruf, transparansi teks,
+tinggi baris, jarak antarhuruf, jarak antarpesan, ukuran huruf kode, dan Kembalikan bawaan. Kontrol yang sama ada di
+Pengaturan → Chat (`#/settings/chat`) dan Tampilan → Chat; semuanya menulis `appearance.chat` (divalidasi
+`validateChat`, diterapkan sebagai variabel `--z-chat-*`). Cara uji: `bun x vitest run packages/core/src/theme`.
+
+## Perintah slash dan mention (ADR-069)
+
+Popup `ComposerSuggest` di atas kartu composer. `/` = perintah bawaan aplikasi + perintah engine (`GET /command`,
+dijalankan via `session.command`); `@` = cari berkas (`GET /find/file`), dilampirkan sebagai `file://`. `/btw` memakai
+`ChatStore.aside` (fork tanpa `messageID` + kirim di cabang). ↑ di composer kosong memanggil ulang pesan terakhir.
+Tes: `composer-input.test.ts` (unit + store), `e2e/composer-slash.spec.ts`.

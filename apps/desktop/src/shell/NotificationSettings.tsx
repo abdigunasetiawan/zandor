@@ -127,11 +127,53 @@ function SoundRow({ ev }: { ev: SoundEvent }) {
   );
 }
 
+function TestNotification() {
+  const { t } = useI18n();
+  const { notify } = useServices();
+  const toast = useToast();
+  const s = useSettings();
+  const run = async () => {
+    const title = t("notify.done");
+    const body = t("notif.testAll.body");
+    // toast selalu tampil sebagai umpan balik uji; saluran lain mengikuti pengaturan
+    toast.show({ title, description: body, tone: "success", timeoutMs: 6000 });
+    if (s.notifySystem && notify.available) {
+      try {
+        await notify.notify(title, body);
+      } catch (e) {
+        toast.show({ title: t("sb.error", { error: errText(e) }), tone: "danger" });
+      }
+    }
+    if (s.notifySound && s.soundDone !== "none") {
+      const played = await playSound(s.soundDone, s.notifyVolume, "done");
+      if (!played)
+        toast.show({
+          title: s.soundDone === "custom" ? t("notif.custom.missing") : t("notif.test.failed"),
+          tone: "warning",
+        });
+    }
+  };
+  return (
+    <div className="settings__row" data-setting="notifyTest">
+      <div className="settings__text">
+        <span className="z-label">{t("notif.testAll.title")}</span>
+        <span className="z-small">{t("notif.testAll.help")}</span>
+      </div>
+      <div className="settings__control">
+        <Button size="sm" onClick={() => void run()}>
+          {t("notif.testAll.run")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function NotificationExtras() {
   const { t } = useI18n();
   return (
     <>
       <SystemPermission />
+      <TestNotification />
       <h3 className="z-label settings__sub">{t("notif.custom.title")}</h3>
       <p className="z-small settings__subnote">{t("notif.custom.help")}</p>
       {SOUND_EVENTS.map((ev) => (

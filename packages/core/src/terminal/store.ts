@@ -1,7 +1,15 @@
 // Daftar terminal per project (Fase 8): PTY dibuat di engine dengan `cwd` = folder project, sehingga terminal
 // "mengikuti project aktif". Setelah aplikasi dimuat ulang, PTY yang masih hidup di engine diadopsi kembali
 // (riwayat diputar ulang oleh engine saat WebSocket tersambung).
-import { type PtyClient, type PtyInfo, pickShell, type ShellOption } from "./pty";
+import {
+  type DetectedShell,
+  mergeShells,
+  type PtyClient,
+  type PtyInfo,
+  pickShell,
+  type ShellOption,
+  shellId,
+} from "./pty";
 
 export type TerminalTab = {
   id: string;
@@ -10,6 +18,8 @@ export type TerminalTab = {
   cwd: string;
   title: string;
   status: "running" | "exited";
+  /** Exe shell yang dijalankan (untuk ikon tab); kosong bila tidak diketahui. */
+  command?: string;
 };
 
 export type TerminalState = {
@@ -27,6 +37,8 @@ export class TerminalStore {
   private listeners = new Set<() => void>();
   private client: PtyClient | null = null;
   private counters = new Map<string, number>();
+  private engineShells: ShellOption[] = [];
+  private detected: DetectedShell[] = [];
 
   state(): TerminalState {
     return this.snap;
@@ -50,9 +62,19 @@ export class TerminalStore {
     this.client = client;
     if (!client) return;
     void client.shells().then(
-      (shells) => this.client === client && this.update({ shells }),
+      (shells) => {
+        if (this.client !== client) return;
+        this.engineShells = shells;
+        this.update({ shells: mergeShells(shells, this.detected) });
+      },
       (e) => this.client === client && this.update({ error: errMsg(e) }),
     );
+  }
+
+  /** Shell yang dideteksi aplikasi desktop di mesin ini; digabung dengan daftar engine. */
+  setDetectedShells(list: DetectedShell[]) {
+    this.detected = list;
+    this.update({ shells: mergeShells(this.engineShells, list) });
   }
 
   tabsOf(key: string): TerminalTab[] {
@@ -75,7 +97,14 @@ export class TerminalStore {
     if (client !== this.client) return 0;
     const fresh = list.filter((p) => p.status === "running" && !this.snap.tabs.some((t) => t.id === p.id));
     if (fresh.length === 0) return 0;
-    const tabs = fresh.map<TerminalTab>((p) => ({ id: p.id, key, cwd, title: p.title, status: "running" }));
+    const tabs = fresh.map<TerminalTab>((p) => ({
+      id: p.id,
+      key,
+      cwd,
+      title: p.title,
+      status: "running",
+      ...(p.command ? { command: p.command } : {}),
+    }));
     const active = this.snap.activeByKey[key] ?? tabs[0]?.id;
     this.update({
       tabs: [...this.snap.tabs, ...tabs],
@@ -84,21 +113,25 @@ export class TerminalStore {
     return fresh.length;
   }
 
-  async create(key: string, cwd: string, shellPath?: string): Promise<TerminalTab> {
+  /** `shell` = `shellId(...)` dari daftar (atau jalur exe saja, untuk kompatibilitas); kosong → shell bawaan. */
+  async create(key: string, cwd: string, shell?: string): Promise<TerminalTab> {
     const client = this.client;
     if (!client) throw new Error("engine belum siap");
-    const shell = shellPath ? this.snap.shells.find((s) => s.path === shellPath) : pickShell(this.snap.shells);
-    if (!shell) throw new Error("tidak ada shell yang tersedia di engine");
+    const chosen = shell
+      ? (this.snap.shells.find((s) => shellId(s) === shell) ?? this.snap.shells.find((s) => s.path === shell))
+      : pickShell(this.snap.shells);
+    if (!chosen) throw new Error("tidak ada shell yang tersedia di engine");
     const n = (this.counters.get(key) ?? 0) + 1;
     this.counters.set(key, n);
-    const isPwsh = /powershell|pwsh/i.test(shell.name);
+    const isPwsh = /powershell|pwsh/i.test(chosen.name);
+    const args = chosen.args ?? (isPwsh ? ["-NoLogo"] : undefined);
     try {
       const p = await client.create(cwd, {
-        command: shell.path,
-        ...(isPwsh ? { args: ["-NoLogo"] } : {}),
-        title: `${shell.name} ${n}`,
+        command: chosen.path,
+        ...(args ? { args } : {}),
+        title: `${chosen.name} ${n}`,
       });
-      const tab: TerminalTab = { id: p.id, key, cwd, title: p.title, status: "running" };
+      const tab: TerminalTab = { id: p.id, key, cwd, title: p.title, status: "running", command: chosen.path };
       this.update({
         tabs: [...this.snap.tabs, tab],
         activeByKey: { ...this.snap.activeByKey, [key]: tab.id },

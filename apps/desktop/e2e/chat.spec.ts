@@ -13,6 +13,7 @@ async function openSession(page: Page) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:\\Work\\alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await page.getByRole("button", { name: "Sesi baru di alpha" }).click();
   await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
 }
@@ -77,11 +78,23 @@ test("kartu izin: Izinkan sekali dikirim ke engine lalu kartu hilang dan jawaban
   await composer(page).press("Enter");
   const card = page.getByRole("alertdialog", { name: /Izin diperlukan: edit/ });
   await expect(card).toBeVisible({ timeout: 10_000 });
-  await expect(card).toContainText("catatan.txt");
+  await expect(card).toContainText(".env.local");
+  await expect(card).toContainText("berkas rahasia"); // alasan dari mode bawaan "Otomatis, tanya yang berisiko"
   await card.getByRole("button", { name: "Izinkan sekali" }).click();
   await expect(card).toHaveCount(0);
   expect(engine.permissionReplies[0]?.reply).toBe("once");
   await expect(page.getByRole("article", { name: "Asisten" })).toContainText("Sudah diubah.", { timeout: 10_000 });
+});
+
+test("mode bawaan menyetujui edit berkas biasa tanpa kartu izin", async ({ page }) => {
+  const engine = await mockEngine(page);
+  await openSession(page);
+  await expect(page.getByRole("combobox", { name: "Mode izin" })).toHaveText(/Otomatis, tanya yang berisiko/);
+  await composer(page).fill("ubah file aman, butuh izin");
+  await composer(page).press("Enter");
+  await expect(page.getByRole("article", { name: "Asisten" })).toContainText("Sudah diubah.", { timeout: 10_000 });
+  expect(engine.permissionReplies[0]?.reply).toBe("once");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });
 
 test("kartu izin: Tolak", async ({ page }) => {

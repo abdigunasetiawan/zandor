@@ -298,4 +298,50 @@ describe("profil pengguna", () => {
     const raw = JSON.stringify({ profile: { name: "\u0001", avatar: { kind: "image", src: "http://x" } } });
     expect(new AppearanceStore({ get: () => raw, set: () => {} }).state().profile).toEqual({});
   });
+  test("gaya chat lanjutan: lebar, tinggi baris, jarak huruf, ukuran kode, rasio composer", () => {
+    const a = sanitizeAppearance({
+      chat: { width: "60rem", lineHeight: 1.8, tracking: "0.02em", codeSize: "0.9rem", composerRatio: 1.4 },
+    });
+    const v = computeVars(a, "dark");
+    expect(v["--z-chat-width"]).toBe("60rem");
+    expect(v["--z-chat-line"]).toBe("1.8");
+    expect(v["--z-chat-tracking"]).toBe("0.02em");
+    expect(v["--z-chat-code-size"]).toBe("0.9rem");
+    expect(v["--z-chat-composer-ratio"]).toBe("1.4");
+    const bad = sanitizeAppearance({
+      chat: { width: "5rem", lineHeight: 9, tracking: "1em", codeSize: "url(x)", composerRatio: 3 },
+    });
+    expect(bad.chat).toEqual({});
+  });
+  test("kustomisasi dokumen (Panel 3): validasi, CSS var, store", () => {
+    const a = sanitizeAppearance({
+      docs: {
+        codeSize: 16,
+        minimap: true,
+        theme: "sepia",
+        proseSize: "1rem",
+        proseWidth: "50rem",
+        tableSize: "0.8rem",
+      },
+    });
+    expect(a.docs).toMatchObject({ codeSize: 16, minimap: true, theme: "sepia" });
+    const v = computeVars(a, "light");
+    expect(v["--z-doc-size"]).toBe("1rem");
+    expect(v["--z-doc-width"]).toBe("50rem");
+    expect(v["--z-doc-table-size"]).toBe("0.8rem");
+    const bad = sanitizeAppearance({
+      docs: { codeSize: 99, minimap: "ya", theme: "neon", proseWidth: "url(x)", imageBg: "x", codeFont: "<x>" },
+    });
+    expect(bad.docs).toEqual({});
+    let raw: string | null = null;
+    const st = new AppearanceStore({ get: () => raw, set: (x) => (raw = x) });
+    expect(st.setDoc("codeSize", 20)).toBeNull();
+    expect(st.setDoc("codeSize", 3)).not.toBeNull();
+    expect(st.state().docs.codeSize).toBe(20);
+    st.setDoc("theme", "night");
+    st.resetDocs(["codeSize"]);
+    expect(st.state().docs).toEqual({ theme: "night" });
+    st.resetDocs();
+    expect(st.state().docs).toEqual({});
+  });
 });

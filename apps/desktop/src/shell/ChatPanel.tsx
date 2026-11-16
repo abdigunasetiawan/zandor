@@ -10,8 +10,11 @@ import {
   type MessagePart,
   mergeAssistantTurns,
   messageText,
+  PERMISSION_MODES,
   type PermissionMode,
   type PermissionRequest,
+  parseSlash,
+  permissionRisk,
   type QuestionRequest,
   type SessionChat,
   type Suggestion,
@@ -59,8 +62,11 @@ import {
 } from "react";
 import { AssistantMessage } from "./AssistantMessage";
 import { AttachmentPreview } from "./AttachmentPreview";
+import { ChatCustomize } from "./ChatCustomize";
 import { ComposerInfo } from "./ComposerInfo";
 import { ComposerMemory, type PendingMemory } from "./ComposerMemory";
+import { ComposerSuggest } from "./ComposerSuggest";
+import { useComposerAssist } from "./composer-assist";
 import { DemoChat } from "./DemoChat";
 import { useDemo } from "./demo-context";
 import { DEMO_KEY, demoById } from "./demo-sessions";
@@ -288,7 +294,9 @@ function SessionTabs({ closePanel }: { closePanel: () => void }) {
       ?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [state.selection.sessionId, state.tabs.length]);
   if (state.tabs.length < 1) {
-    return panelState.collapsed.chat ? null : <PanelTabBar closeLabel={t("panel.close.chat")} onClose={closePanel} />;
+    return panelState.collapsed.chat ? null : (
+      <PanelTabBar closeLabel={t("panel.close.chat")} onClose={closePanel} actions={<ChatCustomize />} />
+    );
   }
   // model sesi = model pesan asisten terakhir; bila belum ada, model terpilih saat ini
   const modelOf = (sessionId: string) => {
@@ -305,7 +313,11 @@ function SessionTabs({ closePanel }: { closePanel: () => void }) {
     return s ? (sessionTitle(s) ?? t("sb.untitled")) : t("sb.untitled");
   };
   return (
-    <PanelTabBar closeLabel={t("panel.close.chat")} onClose={panelState.collapsed.chat ? undefined : closePanel}>
+    <PanelTabBar
+      closeLabel={t("panel.close.chat")}
+      onClose={panelState.collapsed.chat ? undefined : closePanel}
+      actions={panelState.collapsed.chat ? undefined : <ChatCustomize />}
+    >
       <nav className="stabs" aria-label={t("chat.tabs")} ref={barRef}>
         {state.tabs.map((tab, index) => {
           const title = titleOf(tab.key, tab.sessionId);
@@ -685,7 +697,10 @@ function PermissionCard({ request, sessionId }: { request: PermissionRequest; se
   const { chat } = useServices();
   const demo = useDemo();
   const fail = useErrorToast();
+  const { permissionMode } = useChat();
   const [busy, setBusy] = useState(false);
+  // Di mode "auto-safe" kartu hanya muncul untuk aksi berisiko: jelaskan mengapa ditanyakan.
+  const risk = permissionMode === "auto-safe" ? permissionRisk(request) : null;
   const answer = async (reply: "once" | "always" | "reject") => {
     if (demo) return demo.permission(request.id, reply);
     setBusy(true);
@@ -704,6 +719,7 @@ function PermissionCard({ request, sessionId }: { request: PermissionRequest; se
       aria-label={t("chat.permission.title", { permission: request.permission })}
     >
       <h3 className="z-label">{t("chat.permission.title", { permission: request.permission })}</h3>
+      {risk && <p className="perm__reason z-small">{t(`chat.risk.${risk}` as never)}</p>}
       {request.patterns.length > 0 && <pre className="fold__pre">{request.patterns.join("\n")}</pre>}
       {typeof request.metadata.diff === "string" && <DiffBlock rows={parseDiff(request.metadata.diff)} />}
       <div className="perm__actions">
@@ -822,10 +838,38 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
       : []),
   ];
 
+  /** Halaman bawaan: buat sesi di project terpilih (atau Chat) dan terapkan pilihan memori/skill tertunda. */
+  const ensureSession = async (): Promise<string> => {
+    const created = await projects.createSession(pstate.selection.key ?? CHAT_KEY);
+    chat.open(created.directory, created.id);
+    for (const kind of ["memory", "skill"] as const) {
+      const on = pendingMemory[kind];
+      if (on !== undefined && !projectPath) void memory.setScoped(kind, on, created.id, null).catch(() => {});
+    }
+    setPendingMemory({});
+    return created.id;
+  };
+  const assist = useComposerAssist({
+    session,
+    draft,
+    root: draft ? projectPath : session.directory || projectPath,
+    text,
+    setText,
+    files,
+    setFiles,
+    inputRef,
+    running,
+    disabled,
+    ensureSession,
+  });
+
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!canSend) return;
-    const value = text;
+    const slash = parseSlash(text);
+    if (slash && (await assist.runSlash(slash, files))) return;
+    // "//teks" = kirim garis miring apa adanya
+    const value = text.trimStart().startsWith("//") ? text.trimStart().slice(1) : text;
     const attached = files;
     if (running) {
       // agent sedang bekerja: pesan masuk antrean (dok di atas composer), dikirim berurutan setelah selesai
@@ -842,18 +886,8 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
     setFiles([]);
     try {
       let sessionId = session.sessionID;
-      if (draft) {
-        // halaman bawaan: buat sesi di project terpilih (atau Chat) lalu kirim pesan pertama
-        const created = await projects.createSession(pstate.selection.key ?? CHAT_KEY);
-        chat.open(created.directory, created.id);
-        sessionId = created.id;
-        // pilihan memori/skill creator untuk sesi Chat baru (di project, pengaturan project yang berlaku)
-        for (const kind of ["memory", "skill"] as const) {
-          const on = pendingMemory[kind];
-          if (on !== undefined && !projectPath) void memory.setScoped(kind, on, created.id, null).catch(() => {});
-        }
-        setPendingMemory({});
-      }
+      // halaman bawaan: buat sesi di project terpilih (atau Chat) lalu kirim pesan pertama
+      if (draft) sessionId = await ensureSession();
       await chat.send(sessionId, value, attached);
     } catch (err) {
       setText(value); // kembalikan agar tidak hilang
@@ -862,6 +896,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
     }
   };
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (assist.onKeyDown(e)) return;
     if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
     // "enter": Enter kirim, Shift+Enter baris baru. "ctrl-enter": Ctrl/Cmd+Enter kirim, Enter baris baru.
     const send = sendKey === "ctrl-enter" ? e.ctrlKey || e.metaKey : !e.shiftKey;
@@ -1085,6 +1120,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
         />
       )}
       <div className="composer__card">
+        {assist.popup && <ComposerSuggest {...assist.popup} />}
         <textarea
           ref={inputRef}
           className="composer__input"
@@ -1092,7 +1128,14 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
           value={text}
           placeholder={t("chat.placeholder")}
           aria-label={t("chat.placeholder")}
-          onChange={(e) => setText(e.target.value)}
+          aria-controls={assist.popup?.id}
+          aria-activedescendant={assist.activeId}
+          aria-autocomplete="list"
+          onChange={(e) => {
+            setText(e.target.value);
+            assist.trackCaret(e.target);
+          }}
+          onSelect={(e) => assist.trackCaret(e.currentTarget)}
           onKeyDown={onKey}
           onPaste={onPaste}
           disabled={disabled}
@@ -1129,7 +1172,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
             size="sm"
             icon={<ShieldIcon size="sm" />}
             className={permissionMode === "auto-all" ? "composer__mode composer__mode--full" : "composer__mode"}
-            items={(["ask", "auto-edit", "auto-all"] as PermissionMode[]).map((m) => ({
+            items={PERMISSION_MODES.map((m) => ({
               value: m,
               label: t(`chat.mode.${m}` as never),
               description: t(`chat.modeDesc.${m}` as never),

@@ -11,6 +11,7 @@ async function openFilesTab(page: Page, ...paths: string[]) {
     await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
     await page.getByLabel("Path folder").fill(p);
     await page.getByRole("button", { name: "Tambah", exact: true }).click();
+    await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   }
   await page.getByRole("tab", { name: "Berkas" }).click();
 }

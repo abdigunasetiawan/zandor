@@ -15,6 +15,7 @@ async function openSession(page: Page, opts?: MockOptions) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:\\Work\\alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await page.getByRole("button", { name: "Sesi baru di alpha" }).click();
   await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
   return engine;

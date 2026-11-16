@@ -15,6 +15,7 @@ test("3 project dan 12 sesi: buat, kirim pesan, berpindah-pindah, muat ulang —
     await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
     await page.getByLabel("Path folder").fill(`C:/Work/${n}`);
     await page.getByRole("button", { name: "Tambah", exact: true }).click();
+    await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
     await expect(page.getByRole("button", { name: n, exact: true })).toBeVisible();
   }
 

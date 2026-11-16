@@ -16,3 +16,18 @@
 - Bila berkas diubah program lain setelah Anda membukanya, Zandor memberi tahu dan menanyakan apakah mau **menimpa**.
 - Hanya berkas teks UTF-8 yang valid dan berukuran wajar yang bisa diedit; berkas yang dapat dieksekusi tidak diedit.
 - DOCX/XLSX/PPTX hanya bisa dilihat. Notebook bisa diedit sebagai JSON lewat tampilan mentah.
+
+## Kustomisasi tampilan
+
+- Tombol **Kustomisasi** (ikon slider, di kiri tombol tutup Panel 3) menampilkan opsi sesuai jenis dokumen yang terbuka:
+  kode/teks mentah (tema editor, font, ukuran, tinggi baris, nomor baris, minimap, ligatur, spasi), dokumen
+  Markdown/Word/PowerPoint (tema baca Kertas/Sepia/Malam, font, ukuran, tinggi baris, lebar kolom), tabel (ukuran huruf),
+  dan gambar (latar). Semua opsi juga ada di **Pengaturan → Dokumen**.
+- Saat melihat **teks mentah** atau kode, **Ctrl + roda mouse** memperbesar/memperkecil teks (bukan tampilan aplikasi).
+
+## Pratinjau HTML dan live server
+
+- Panel 3 menampilkan HTML dalam sandbox aman (tanpa skrip dan sumber luar).
+- Tombol **Buka di browser** (ikon globe di toolbar) menjalankan live server lokal dan membuka halaman di Browser
+  Panel 4: CSS/JS/gambar di folder project ikut dimuat, dan halaman **dimuat ulang otomatis** saat Anda menyimpan berkas.
+  Hanya di aplikasi desktop.

@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  BadgeCheck,
   Bell,
   Bookmark,
   Bot,
@@ -43,10 +44,12 @@ import {
   LayoutPanelLeft,
   Link2,
   List,
+  ListChecks,
   type LucideIcon,
   MessageSquare,
   Mic,
   Minus,
+  OctagonX,
   PanelLeft,
   PanelRight,
   PanelRightDashed,
@@ -60,10 +63,12 @@ import {
   Settings,
   Shield,
   Shuffle,
+  SlidersHorizontal,
   Sparkles,
   Square,
   Terminal,
   Trash2,
+  TriangleAlert,
   Undo2,
   Upload,
   User,
@@ -112,7 +117,11 @@ export const TerminalIcon = icon(Terminal, "TerminalIcon");
 export const GitIcon = icon(GitBranch, "GitIcon");
 export const GlobeIcon = icon(Globe, "GlobeIcon");
 export const InfoIcon = icon(Info, "InfoIcon");
+export const BadgeCheckIcon = icon(BadgeCheck, "BadgeCheckIcon");
+export const OctagonXIcon = icon(OctagonX, "OctagonXIcon");
+export const TriangleAlertIcon = icon(TriangleAlert, "TriangleAlertIcon");
 export const ListIcon = icon(List, "ListIcon");
+export const ListChecksIcon = icon(ListChecks, "ListChecksIcon");
 export const SettingsIcon = icon(Settings, "SettingsIcon");
 export const BrainIcon = icon(Brain, "BrainIcon");
 export const ClockIcon = icon(Clock, "ClockIcon");
@@ -165,3 +174,4 @@ export const EyeOffIcon = icon(EyeOff, "EyeOffIcon");
 export const UploadIcon = icon(Upload, "UploadIcon");
 export const BotIcon = icon(Bot, "BotIcon");
 export const SparklesIcon = icon(Sparkles, "SparklesIcon");
+export const CustomizeIcon = icon(SlidersHorizontal, "CustomizeIcon");

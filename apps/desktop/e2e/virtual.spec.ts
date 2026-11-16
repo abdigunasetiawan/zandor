@@ -10,6 +10,7 @@ test("sesi panjang (600 pesan) divirtualisasi: DOM kecil, scroll ke atas dan ke 
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/panjang");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await page.getByRole("button", { name: "Sesi baru di panjang" }).click();
 
   const log = page.getByRole("log");

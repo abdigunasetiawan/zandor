@@ -16,6 +16,10 @@ export type MockEngine = {
   reverts: string[];
   unreverts: number;
   forks: string[];
+  /** Perintah slash engine (GET /command) dan yang dijalankan (POST /session/:id/command). */
+  commands: Array<{ name: string; description?: string; source?: string; template: string; hints: string[] }>;
+  commandRuns: Array<{ command: string; arguments: string }>;
+  summaries: string[];
   /** Isi file yang dikirim bersama prompt (lampiran). */
   files: Array<{ mime: string; url: string; filename?: string }>;
   variants: Array<string | undefined>;
@@ -106,6 +110,9 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     reverts: [],
     unreverts: 0,
     forks: [],
+    commands: [{ name: "init", description: "Buat AGENTS.md untuk project", template: "init", hints: [] }],
+    commandRuns: [],
+    summaries: [],
     files: [],
     variants: [],
     oauth: { authorizes: [], callbacks: [] },
@@ -366,9 +373,10 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         id: id("per"),
         sessionID,
         permission: "edit",
-        patterns: ["catatan.txt"],
+        // Berkas rahasia → tetap ditanyakan di mode bawaan "auto-safe"; "aman" → berkas biasa (disetujui otomatis).
+        patterns: [text.includes("aman") ? "catatan.txt" : ".env.local"],
         metadata: {},
-        always: ["catatan.txt"],
+        always: [text.includes("aman") ? "catatan.txt" : ".env.local"],
       };
       permissions.push(req);
       emit("permission.asked", req);
@@ -735,6 +743,16 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         respond(sid, text);
         return route.fulfill({ status: 204, headers: cors });
       }
+      if (sub === "command" && req.method() === "POST") {
+        const body = req.postDataJSON() ?? {};
+        state.commandRuns.push({ command: body.command, arguments: body.arguments ?? "" });
+        respond(sid, `/${body.command} ${body.arguments ?? ""}`.trim());
+        return json({ info: {}, parts: [] });
+      }
+      if (sub === "summarize" && req.method() === "POST") {
+        state.summaries.push(sid);
+        return json(true);
+      }
       if (sub === "abort" && req.method() === "POST") {
         state.aborted.push(sid);
         const last = (messages.get(sid) ?? []).at(-1);
@@ -746,6 +764,11 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
         emit("session.status", { sessionID: sid, status: { type: "idle" } });
         return json(true);
       }
+    }
+    if (p === "/command" && req.method() === "GET") return json(state.commands);
+    if (p === "/find/file") {
+      const q = (url.searchParams.get("query") ?? "").toLowerCase();
+      return json([...state.project.keys()].filter((k) => k.toLowerCase().includes(q)).slice(0, 30));
     }
     if (p === "/file/content") {
       const reqPath = url.searchParams.get("path") ?? "";

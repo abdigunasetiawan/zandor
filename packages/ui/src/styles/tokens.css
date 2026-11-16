@@ -106,6 +106,30 @@
   /* lebar kolom isi chat (nyaman dibaca, ~70 karakter); composer = 120% darinya */
   --z-chat-width: 46rem;
   --z-chat-font: var(--z-font-ui);
+  --z-chat-line: var(--z-type-p-lh);
+  --z-chat-tracking: var(--z-type-p-tracking);
+  --z-chat-code-size: var(--z-type-code-size);
+  /* lebar composer relatif terhadap --z-chat-width */
+  --z-chat-composer-ratio: 1.2;
+
+  /* Panel dokumen (Panel 3): bisa diubah dari tombol Kustomisasi / Pengaturan → Dokumen. */
+  --z-doc-font: var(--z-font-ui);
+  --z-doc-size: var(--z-type-p-size);
+  --z-doc-line: var(--z-type-p-lh);
+  --z-doc-width: 48rem;
+  --z-doc-table-size: var(--z-type-small-size);
+  /* Tema baca tetap (tidak ikut mode gelap/terang); kontras teks ≥ 7:1 */
+  --z-doc-paper-bg: #ffffff;
+  --z-doc-paper-fg: #1f1f1f;
+  --z-doc-paper-muted: #5c5c5c;
+  --z-doc-sepia-bg: #f4ecd8;
+  --z-doc-sepia-fg: #3b2f1e;
+  --z-doc-sepia-muted: #6b5a41;
+  --z-doc-night-bg: #0f1115;
+  --z-doc-night-fg: #d8dbe0;
+  --z-doc-night-muted: #9aa0a8;
+  --z-doc-checker-a: #cfcfcf;
+  --z-doc-checker-b: #f2f2f2;
 
   /* ---------- Ruang, bentuk, bayangan ---------- */
   --z-space-1: 0.25rem;

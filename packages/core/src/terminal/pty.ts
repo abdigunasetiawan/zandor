@@ -3,7 +3,58 @@
 // sehingga otomatis benar untuk engine remote nanti (Fase 11).
 import { basicAuthHeader, type EngineConnectionInfo } from "../engine/api";
 
-export type ShellOption = { path: string; name: string; acceptable: boolean };
+export type ShellOption = {
+  path: string;
+  name: string;
+  acceptable: boolean;
+  /** Jenis stabil (pwsh, powershell, cmd, git-bash, wsl, bash, …) dari deteksi aplikasi desktop; untuk ikon cadangan. */
+  kind?: string;
+  /** Argumen peluncuran (mis. `-d Ubuntu` untuk distro WSL). Tanpa ini dipakai bawaan per jenis shell. */
+  args?: string[];
+  /** Ikon asli aplikasi, PNG base64 tanpa awalan `data:`. */
+  icon?: string;
+};
+
+/** Shell yang dideteksi aplikasi desktop di mesin pengguna (perintah Tauri `terminal_shells`). */
+export type DetectedShell = { id: string; name: string; path: string; args?: string[]; icon?: string };
+
+const shellKey = (path: string, args: readonly string[] = []) => [path.toLowerCase(), ...args].join("\u0000");
+
+/**
+ * Gabungkan daftar engine (`/pty/shells`, sering tidak lengkap) dengan hasil deteksi lokal. Urutan deteksi dipertahankan
+ * (sudah dikurasi: PowerShell, cmd, Git Bash, WSL per distro, …), lalu shell yang HANYA dikenal engine. Entri engine
+ * dibuang bila exe yang sama sudah ada di deteksi; penanda `acceptable: false` dari engine tetap dihormati.
+ */
+export function mergeShells(engine: ShellOption[], detected: DetectedShell[]): ShellOption[] {
+  const rejected = new Set(engine.filter((s) => !s.acceptable).map((s) => s.path.toLowerCase()));
+  const seen = new Set<string>();
+  const out: ShellOption[] = [];
+  for (const d of detected) {
+    const key = shellKey(d.path, d.args);
+    if (!d.path || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      path: d.path,
+      name: d.name || d.path,
+      kind: d.id,
+      acceptable: !rejected.has(d.path.toLowerCase()),
+      ...(d.args?.length ? { args: [...d.args] } : {}),
+      ...(d.icon ? { icon: d.icon } : {}),
+    });
+  }
+  const detectedPaths = new Set(detected.map((d) => d.path.toLowerCase()));
+  for (const s of engine) {
+    if (detectedPaths.has(s.path.toLowerCase()) || seen.has(shellKey(s.path))) continue;
+    seen.add(shellKey(s.path));
+    out.push(s);
+  }
+  return out;
+}
+
+/** Kunci unik satu pilihan shell (exe yang sama bisa muncul beberapa kali dengan argumen berbeda, mis. distro WSL). */
+export function shellId(s: Pick<ShellOption, "path" | "args">): string {
+  return s.args?.length ? `${s.path}\u0000${s.args.join("\u0000")}` : s.path;
+}
 export type PtyInfo = {
   id: string;
   title: string;
@@ -60,8 +111,8 @@ export function toShell(raw: unknown): ShellOption | null {
 export function pickShell(shells: ShellOption[]): ShellOption | null {
   const ok = shells.filter((s) => s.acceptable);
   return (
-    ok.find((s) => /^powershell$/i.test(s.name)) ??
-    ok.find((s) => /^(pwsh|bash|zsh|sh)$/i.test(s.name)) ??
+    ok.find((s) => s.kind === "powershell" || /^powershell$/i.test(s.name)) ??
+    ok.find((s) => s.kind === "pwsh" || /^(pwsh|bash|zsh|sh)$/i.test(s.name)) ??
     ok[0] ??
     null
   );

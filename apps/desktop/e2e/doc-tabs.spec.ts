@@ -11,6 +11,7 @@ async function open(page: Page) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/docs");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await page.getByRole("tab", { name: "Berkas" }).click();
   await page.locator('.tree__file[title="README.md"]').click();
   await page.locator('.tree__file[title="halaman.html"]').click();
@@ -69,15 +70,18 @@ test("tab dokumen: ikon file, tanpa scrollbar, dan menu klik kanan (tutup/lainny
   await expect(bar(page)).toHaveCount(0);
 });
 
-test("HTML: sumber luar memang diblokir di pratinjau; opsi izin dinonaktifkan jujur di luar aplikasi desktop; buka dengan nonaktif", async ({
+test("HTML: pratinjau sandbox tanpa bilah opsi; Buka di browser (live server) dan buka dengan nonaktif jujur di luar desktop", async ({
   page,
 }) => {
   await open(page);
   await tabs(page).filter({ hasText: "halaman.html" }).locator(".stabs__label").click();
   const docs = page.getByRole("region", { name: "Dokumen", exact: true });
-  await expect(docs.getByText("Pratinjau HTML dalam sandbox", { exact: false })).toHaveCount(0); // diganti keterangan desktop
-  await expect(docs.getByText("Hanya tersedia di aplikasi desktop.")).toBeVisible();
-  await expect(docs.getByRole("switch", { name: "Izinkan skrip dan sumber luar" })).toBeDisabled();
-  await expect(docs.getByRole("button", { name: "Buka di browser" })).toBeDisabled(); // butuh aplikasi desktop
+  await expect(docs.getByRole("switch")).toHaveCount(0); // saklar sumber luar dihapus
+  await expect(docs.getByTestId("html-frame")).toHaveAttribute("sandbox", "");
+  await expect(
+    page
+      .getByRole("toolbar", { name: "Alat dokumen" })
+      .getByRole("button", { name: "Buka di browser (hanya di aplikasi desktop)" }),
+  ).toBeDisabled(); // live server butuh aplikasi desktop
   await expect(docs.getByRole("button", { name: "Buka di aplikasi lain (hanya di aplikasi desktop)" })).toBeDisabled();
 });

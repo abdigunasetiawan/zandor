@@ -77,6 +77,31 @@ describe("reducer", () => {
   });
   const base = initialChatState("s");
 
+  test("tool todowrite memperbarui rencana seketika, sebelum event todo.updated", () => {
+    const todoPart = (status: "pending" | "running", todos: unknown): EngineEvent => ({
+      type: "message.part.updated",
+      part: {
+        id: "t1",
+        messageID: "m1",
+        sessionID: "s",
+        type: "tool",
+        tool: "todowrite",
+        callID: "c1",
+        state: { status, input: { todos } },
+      },
+    });
+    const pending = applyEvent(base, todoPart("pending", []));
+    expect(pending.todos).toEqual([]);
+    const running = applyEvent(
+      pending,
+      todoPart("running", [
+        { content: "A", status: "completed" },
+        { content: "B", status: "in_progress" },
+      ]),
+    );
+    expect(running.todos.map((x) => x.status)).toEqual(["completed", "in_progress"]);
+  });
+
   test("delta yang tiba sebelum part-nya ditahan lalu diterapkan saat part muncul", () => {
     const s = replay([msgInfo("m1"), delta("p1", "ha"), delta("p1", "lo"), textPart("p1", "m1", "")], base);
     expect(s.pending).toEqual({});
@@ -340,6 +365,7 @@ describe("ChatStore", () => {
 
   test("abort dan balasan izin diteruskan ke engine; izin hilang dari state", async () => {
     const { engine, store } = await setup();
+    store.setPermissionMode("ask");
     store.open(DIR, "s1");
     await flush();
     engine.emit(DIR, {

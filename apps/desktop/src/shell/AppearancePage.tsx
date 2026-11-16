@@ -36,6 +36,7 @@ import {
   useToast,
 } from "@zandor/ui";
 import { useEffect, useRef, useState } from "react";
+import { ChatStyleControls } from "./ChatStyleControls";
 import { PageFrame } from "./PageFrame";
 import { ProjectStyleDialog } from "./ProjectStyleDialog";
 import { useAppearance, useProjects, useServices, useSettings } from "./services";
@@ -408,47 +409,12 @@ function TypeTab({ a }: { a: Appearance }) {
 
 // ---------- Chat ----------
 
-function ChatTab({ a }: { a: Appearance }) {
+function ChatTab(_: { a: Appearance }) {
   const { t } = useI18n();
-  const { appearance: store } = useServices();
-  const num = (key: "opacity" | "weight") => (v: string | null) => {
-    if (v === null) return store.setChat(key, null);
-    const n = Number(v);
-    return Number.isFinite(n) ? store.setChat(key, n) : t("ap.chat.notNumber");
-  };
   return (
     <section className="mempage__section" aria-label={t("ap.tab.chat")}>
       <p className="z-small mempage__muted">{t("ap.chat.intro")}</p>
-      <ValueField
-        label={t("ap.chat.opacity")}
-        value={a.chat.opacity?.toString() ?? ""}
-        placeholder="1"
-        onCommit={num("opacity")}
-      />
-      <ValueField
-        label={t("ap.chat.weight")}
-        value={a.chat.weight?.toString() ?? ""}
-        placeholder="400"
-        onCommit={num("weight")}
-      />
-      <ValueField
-        label={t("ap.chat.size")}
-        value={a.chat.size ?? ""}
-        placeholder="0.875rem"
-        onCommit={(v) => store.setChat("size", v)}
-      />
-      <ValueField
-        label={t("ap.chat.gap")}
-        value={a.chat.gap ?? ""}
-        placeholder="0.75rem"
-        onCommit={(v) => store.setChat("gap", v)}
-      />
-      <ValueField
-        label={t("ap.chat.font")}
-        value={a.chat.font ?? ""}
-        placeholder={t("ap.editor.default")}
-        onCommit={(v) => store.setChat("font", v)}
-      />
+      <ChatStyleControls />
       <div className="ap__chatpreview" data-testid="chat-preview">
         <p className="msg__text">{t("ap.chat.preview")}</p>
       </div>

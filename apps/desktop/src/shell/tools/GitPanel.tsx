@@ -177,9 +177,8 @@ export function GitPanel() {
   };
   return (
     <div className="gitp">
-      {g.repos.length > 0 && (
-        <div className="gitp__repos" data-testid="git-repos">
-          <span className="z-small">{t("git.repo")}</span>
+      <div className="gitp__bar">
+        {g.repos.length > 0 && (
           <Select
             aria-label={t("git.repo")}
             size="sm"
@@ -188,19 +187,8 @@ export function GitPanel() {
             value={g.root}
             onValueChange={(dir) => void git.selectRepo(dir)}
           />
-        </div>
-      )}
-      <div className="gitp__head">
-        <span className="gitp__branch" data-testid="git-branch">
-          {st.detached ? t("git.detached") : (st.branch ?? "?")}
-        </span>
-        {st.upstream && (
-          <span className="z-small gitp__tracking">
-            {st.ahead > 0 && `↑${st.ahead} `}
-            {st.behind > 0 && `↓${st.behind}`}
-          </span>
         )}
-        {g.branches.length > 0 && (
+        {g.branches.length > 0 && !st.detached ? (
           <Select
             aria-label={t("git.switchTo")}
             size="sm"
@@ -209,14 +197,19 @@ export function GitPanel() {
             value={g.branches.find((b) => b.current)?.name ?? null}
             onValueChange={(name) => void run(git.switchBranch(name))}
           />
+        ) : (
+          <span className="gitp__branch" data-testid="git-branch">
+            {st.detached ? t("git.detached") : (st.branch ?? "?")}
+          </span>
         )}
-        <IconButton label={t("git.refresh")} size="sm" icon={<RefreshIcon />} onClick={() => void git.refresh()} />
+        <span className="gitp__spacer" />
         <IconButton
           label={t("git.newBranch")}
           size="sm"
           icon={<PlusIcon />}
           onClick={() => setNewBranch(newBranch === null ? "" : null)}
         />
+        <IconButton label={t("git.refresh")} size="sm" icon={<RefreshIcon />} onClick={() => void git.refresh()} />
       </div>
       {(git.canNetwork || git.canStash) && (
         <div className="gitp__sync" role="toolbar" aria-label={t("git.sync")}>
@@ -344,18 +337,20 @@ export function GitPanel() {
       </form>
 
       {g.log.length > 0 && (
-        <section aria-label={t("git.recent")}>
-          <h3 className="z-label">{t("git.recent")}</h3>
-          <ul className="gitp__log">
+        <section aria-label={t("git.recent")} className="gitp__section">
+          <h3 className="z-label gitp__h">{t("git.recent")}</h3>
+          <ol className="gitp__log">
             {g.log.map((c) => (
-              <li key={c.hash} className="z-small">
-                <code>{c.hash}</code> {c.subject}{" "}
-                <span className="gitp__meta">
-                  — {c.author}, {c.date}
+              <li key={c.hash} className="gitp__entry" title={`${c.hash} ${c.subject}`}>
+                <span className="gitp__subject">{c.subject}</span>
+                <span className="gitp__meta z-small">
+                  <code className="gitp__hash">{c.hash}</code>
+                  <span className="gitp__who">{c.author}</span>
+                  <span className="gitp__when">{c.date}</span>
                 </span>
               </li>
             ))}
-          </ul>
+          </ol>
         </section>
       )}
     </div>

@@ -5,6 +5,7 @@ async function addProject(page: Page, path: string) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill(path);
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
 }
 
 test("tambah project, buat sesi, rename, cari, hapus; data bertahan setelah muat ulang", async ({ page }) => {
@@ -98,4 +99,16 @@ test("engine bermasalah: galat per-grup tampil, UI tidak runtuh", async ({ page 
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Tambah project (pilih folder)" })).toBeVisible();
   await expect(page.getByText(/Gagal memuat sesi/).first()).toBeVisible();
+});
+
+test("folder baru meminta konfirmasi trust; menolak tidak menambah project", async ({ page }) => {
+  await mockEngine(page);
+  await page.goto("/");
+  await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
+  await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
+  await page.getByLabel("Path folder").fill("C:/tidak-dipercaya");
+  await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await expect(page.getByRole("alertdialog", { name: "Percayai folder ini?" })).toContainText("C:/tidak-dipercaya");
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("tidak-dipercaya")).toHaveCount(0);
 });

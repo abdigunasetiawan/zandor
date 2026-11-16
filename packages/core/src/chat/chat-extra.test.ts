@@ -58,11 +58,31 @@ describe("mode izin", () => {
     request: { id: `per_${permission}`, sessionID: "s1", permission, patterns: [], metadata: {}, always: [] },
   });
 
-  test("bawaan 'ask': tidak ada jawaban otomatis", async () => {
-    const { engine } = await setup();
+  test("'ask': tidak ada jawaban otomatis", async () => {
+    const { engine, store } = await setup();
+    store.setPermissionMode("ask");
     engine.emit(DIR, ask("edit"));
     await flush();
     expect(engine.replies).toEqual([]);
+  });
+
+  test("bawaan 'auto-safe': aksi biasa disetujui, aksi berisiko tetap menjadi kartu", async () => {
+    const { engine, store } = await setup();
+    expect(store.state().permissionMode).toBe("auto-safe");
+    const bash = (id: string, cmd: string): EngineEvent => ({
+      type: "permission.asked",
+      request: { id, sessionID: "s1", permission: "bash", patterns: [cmd], metadata: {}, always: [] },
+    });
+    engine.emit(DIR, ask("edit"));
+    engine.emit(DIR, bash("per_test", "bun test"));
+    engine.emit(DIR, bash("per_push", "git push origin main"));
+    engine.emit(DIR, ask("external_directory"));
+    await flush();
+    expect(engine.replies).toEqual([
+      { requestId: "per_edit", reply: "once" },
+      { requestId: "per_test", reply: "once" },
+    ]);
+    expect(store.state().sessions.s1?.permissions.map((p) => p.id)).toEqual(["per_push", "per_external_directory"]);
   });
 
   test("'auto-edit' hanya menyetujui edit; bash tetap menunggu pengguna", async () => {
@@ -76,6 +96,7 @@ describe("mode izin", () => {
 
   test("'auto-all' menyetujui semuanya, dan izin yang sudah menunggu ikut dijawab saat mode berubah", async () => {
     const { engine, store } = await setup();
+    store.setPermissionMode("ask");
     engine.emit(DIR, ask("bash"));
     expect(engine.replies).toEqual([]);
     store.setPermissionMode("auto-all");
@@ -110,7 +131,7 @@ describe("mode izin", () => {
     const b = await setup(a.prefs);
     expect(b.store.state().permissionMode).toBe("auto-edit");
     const c = await setup(prefsOf({ "zandor.permissionMode": "bebas" }));
-    expect(c.store.state().permissionMode).toBe("ask");
+    expect(c.store.state().permissionMode).toBe("auto-safe");
   });
 });
 

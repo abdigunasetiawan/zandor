@@ -9,6 +9,7 @@ import {
   initialBrowserTabs,
   MAX_BROWSER_TABS,
   normalizeBrowserUrl,
+  remToPx,
   selectBrowserTab,
   setBrowserTabUrl,
 } from "@zandor/core";
@@ -37,6 +38,9 @@ const created = new Set<string>();
 
 const OVERLAY =
   '[data-shortcut-scope="modal"],[data-shortcut-scope="menu"],[data-shortcut-scope="palette"],[role="alertdialog"],.z-backdrop,.z-popup';
+/** Di bawah ukuran ini (rem) webview disembunyikan, mis. saat panel Tools dilipat. */
+const MIN_VISIBLE_REM = 3;
+
 // Toast sengaja TIDAK termasuk: ia tidak memblokir dan muncul tiap notifikasi; menyembunyikan webview selama 6–10 detik
 // membuat halaman yang sedang dijelajahi menghilang/ter-render ulang. Konsekuensinya toast yang beririsan dengan webview
 // tertutup webview (notifikasi sistem dan suara tetap berjalan).
@@ -124,11 +128,27 @@ export function BrowserPanel() {
     if (mode !== "native") return;
     let alive = true;
     let raf = 0;
+    // Webview native selalu di atas HTML: saat panel dilipat/disempitkan sampai hampir nol, host masih punya beberapa
+    // piksel dan webview akan tampil sebagai potongan tipis. Sembunyikan bila host terlalu kecil atau ada overlay.
+    let hidden = false; // tampak/tersembunyi yang terakhir dikirim ke Rust
+    let overlay = false;
+    let tiny = false;
+    const applyVisible = () => {
+      const want = !(overlay || tiny);
+      if (want === !hidden) return;
+      hidden = !want;
+      void call("browser_visible", { tab: activeRef.current, visible: want }).catch(() => {});
+    };
     const sync = () => {
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         const b = bounds();
-        if (b && alive) void call("browser_set_bounds", { tab: activeRef.current, ...b }).catch(() => {});
+        if (!b || !alive) return;
+        const rootPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+        const minPx = remToPx(MIN_VISIBLE_REM, rootPx);
+        tiny = b.w < minPx || b.h < minPx;
+        applyVisible();
+        if (!tiny) void call("browser_set_bounds", { tab: activeRef.current, ...b }).catch(() => {});
       });
     };
     const ro = new ResizeObserver(sync);
@@ -142,12 +162,9 @@ export function BrowserPanel() {
     };
     window.addEventListener(BROWSER_OPEN_EVENT, onOpen);
     // overlay UI → sembunyikan webview aktif (airspace)
-    let hidden = false;
     const mo = new MutationObserver(() => {
-      const overlay = document.querySelector(OVERLAY) !== null;
-      if (overlay === hidden) return;
-      hidden = overlay;
-      void call("browser_visible", { tab: activeRef.current, visible: !overlay }).catch(() => {});
+      overlay = document.querySelector(OVERLAY) !== null;
+      applyVisible();
     });
     mo.observe(document.body, { childList: true, subtree: true });
     let off: (() => void) | null = null;
@@ -283,11 +300,14 @@ export function BrowserPanel() {
           onClick={external}
         />
       </form>
-      {loading && (
-        <p className="z-small brw__note" role="status">
-          {t("br.loading")}
-        </p>
-      )}
+      {/* Bilah progres tipis (tinggi tetap → webview tidak bergeser saat memuat); teks hanya untuk pembaca layar */}
+      <div className="brw__progress" data-loading={loading ? "" : undefined}>
+        {loading && (
+          <span className="z-visually-hidden" role="status">
+            {t("br.loading")}
+          </span>
+        )}
+      </div>
       {error && (
         <p className="chat__note chat__note--error z-small" role="alert">
           {error}

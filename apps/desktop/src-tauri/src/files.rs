@@ -69,7 +69,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 /// Kanonisasi tanpa awalan verbatim `\\?\` (Windows) supaya perbandingan dan tampilan konsisten.
-fn dunce(p: &Path) -> Option<PathBuf> {
+pub(crate) fn dunce(p: &Path) -> Option<PathBuf> {
     let c = std::fs::canonicalize(p).ok()?;
     let s = c.to_string_lossy();
     Some(match s.strip_prefix(r"\\?\") {

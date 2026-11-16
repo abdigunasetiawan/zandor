@@ -8,6 +8,7 @@ async function setup(page: Page) {
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/Work/alpha");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
   await expect(page.getByRole("button", { name: "alpha", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Automasi", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Automasi Terjadwal" })).toBeVisible();

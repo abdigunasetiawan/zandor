@@ -9,7 +9,6 @@ import {
   FilesIcon,
   GitIcon,
   GlobeIcon,
-  GripIcon,
   IconButton,
   InfoIcon,
   ListIcon,
@@ -76,13 +75,9 @@ export const TOOL_ICONS: Record<ToolId, ReactNode> = {
   log: <ListIcon />,
 };
 
-/** Pegangan pil yang muncul saat separator disorot/diseret (tanda bisa di-resize). */
+/** Pegangan batang tipis di dalam celah antarpanel, muncul saat separator disorot/diseret (tanda bisa di-resize). */
 function SepGrip() {
-  return (
-    <span className="shell-sep__grip" aria-hidden="true">
-      <GripIcon size="sm" />
-    </span>
-  );
+  return <span className="shell-sep__grip" aria-hidden="true" />;
 }
 
 function PanelEmpty({ title, body }: { title: string; body: string }) {

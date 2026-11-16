@@ -14,6 +14,7 @@ import {
   ClockIcon,
   DatabaseIcon,
   EyeIcon,
+  FileIcon,
   IconButton,
   LayoutIcon,
   SearchField,
@@ -28,6 +29,8 @@ import {
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { AppearancePage } from "./AppearancePage";
 import { AutomationPage } from "./AutomationPage";
+import { ChatStyleControls } from "./ChatStyleControls";
+import { DocStyleControls } from "./docs/DocStyleControls";
 import { MemoryPage } from "./MemoryPage";
 import { ModelSettings } from "./ModelSettings";
 import { NotificationExtras } from "./NotificationSettings";
@@ -36,7 +39,7 @@ import { useServices, useSettings } from "./services";
 
 const GROUPS = ["general", "appearance", "chat", "notifications", "tools", "layout"] as const;
 type Group = (typeof GROUPS)[number];
-const EXTRA_SECTIONS = ["profile", "models", "memory", "automation", "data"] as const;
+const EXTRA_SECTIONS = ["profile", "documents", "models", "memory", "automation", "data"] as const;
 type Section = Group | (typeof EXTRA_SECTIONS)[number];
 /** Kategori tambahan yang bisa dituju dari rute (#/settings/models, alias /memory, /appearance, /automation). */
 export type SettingsSection = Section;
@@ -45,6 +48,7 @@ const SECTION_ICONS: Record<Section, ReactNode> = {
   general: <SettingsIcon size="sm" />,
   appearance: <EyeIcon size="sm" />,
   chat: <ChatIcon size="sm" />,
+  documents: <FileIcon size="sm" />,
   notifications: <BellIcon size="sm" />,
   tools: <WrenchIcon size="sm" />,
   layout: <LayoutIcon size="sm" />,
@@ -180,6 +184,7 @@ export function SettingsPage({ initial = null }: { initial?: SettingsSection | n
   const navItems: Array<{ id: Section; label: string }> = [
     { id: "profile", label: t("settings.profile") },
     ...GROUPS.map((g) => ({ id: g as Section, label: t(`settings.${g}` as MessageKey) })),
+    { id: "documents", label: t("docStyle.section") },
     { id: "models", label: t("settings.models") },
     { id: "memory", label: t("settings.more.memory") },
     { id: "automation", label: t("settings.more.automation") },
@@ -192,6 +197,16 @@ export function SettingsPage({ initial = null }: { initial?: SettingsSection | n
         <div id="settings-appearanceAdv">
           <AppearancePage embedded />
         </div>
+      ) : null;
+    if (g === "chat")
+      return matchesText(t("chatStyle.title"), t("chatStyle.body")) ? (
+        <section className="settings__block" id="settings-chatStyle" aria-label={t("chatStyle.title")}>
+          <div className="settings__text">
+            <span className="z-label">{t("chatStyle.title")}</span>
+            <span className="z-small">{t("chatStyle.body")}</span>
+          </div>
+          <ChatStyleControls />
+        </section>
       ) : null;
     if (g === "notifications")
       return !q || matchesText(t("settings.notifications"), t("notif.custom.title")) ? <NotificationExtras /> : null;
@@ -301,6 +316,16 @@ export function SettingsPage({ initial = null }: { initial?: SettingsSection | n
 
             {show("profile") && matchesText(t("settings.profile"), t("profile.name"), t("profile.avatar")) && (
               <ProfileSettings />
+            )}
+
+            {show("documents") && matchesText(t("docStyle.section"), t("docStyle.body"), t("docStyle.title")) && (
+              <section className="settings__group" id="settings-documents" aria-labelledby="settings-h-documents">
+                <h2 id="settings-h-documents" className="z-h4">
+                  {t("docStyle.section")}
+                </h2>
+                <p className="z-small settings__note">{t("docStyle.body")}</p>
+                <DocStyleControls />
+              </section>
             )}
 
             {show("models") &&
