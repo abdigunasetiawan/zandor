@@ -30,7 +30,8 @@ export function Textarea({ invalid, className, rows = 3, ...rest }: TextareaProp
   );
 }
 
-export type SelectItem = { value: string; label: string; disabled?: boolean };
+/** `description` (opsional) tampil di bawah label hanya di daftar pilihan, tidak di pemicu. */
+export type SelectItem = { value: string; label: string; description?: string; disabled?: boolean };
 
 export type SelectProps = {
   items: SelectItem[];
@@ -83,8 +84,20 @@ export function Select({
           <BaseSelect.Popup className="z-popup z-select__popup">
             <BaseSelect.List className="z-select__list">
               {items.map((item) => (
-                <BaseSelect.Item key={item.value} value={item.value} disabled={item.disabled} className="z-item">
-                  <BaseSelect.ItemText>{item.label}</BaseSelect.ItemText>
+                <BaseSelect.Item
+                  key={item.value}
+                  value={item.value}
+                  disabled={item.disabled}
+                  className={cx("z-item", item.description && "z-item--described")}
+                >
+                  {item.description ? (
+                    <span className="z-item__text">
+                      <BaseSelect.ItemText className="z-item__label">{item.label}</BaseSelect.ItemText>
+                      <span className="z-item__desc">{item.description}</span>
+                    </span>
+                  ) : (
+                    <BaseSelect.ItemText>{item.label}</BaseSelect.ItemText>
+                  )}
                   <BaseSelect.ItemIndicator className="z-item__indicator">
                     <CheckIcon size="sm" />
                   </BaseSelect.ItemIndicator>

@@ -185,6 +185,27 @@ describe("Select", () => {
     await user.click(await screen.findByRole("option", { name: "English" }));
     expect(onChange).toHaveBeenCalledWith("en");
   });
+
+  test("deskripsi item tampil di daftar, bukan di pemicu", async () => {
+    const user = userEvent.setup();
+    renderUi(
+      <Select
+        aria-label="Mode"
+        value="ask"
+        onValueChange={() => {}}
+        items={[
+          { value: "ask", label: "Tanya", description: "Selalu minta izin." },
+          { value: "all", label: "Semua", description: "Setujui semuanya." },
+        ]}
+      />,
+    );
+    const trigger = screen.getByRole("combobox", { name: "Mode" });
+    expect(trigger).toHaveTextContent("Tanya");
+    expect(trigger).not.toHaveTextContent("Selalu minta izin.");
+    await user.click(trigger);
+    const option = await screen.findByRole("option", { name: /Semua/ });
+    expect(option).toHaveTextContent("Setujui semuanya.");
+  });
 });
 
 describe("Slider", () => {

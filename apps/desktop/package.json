@@ -15,6 +15,15 @@
     "e2e:native": "bun e2e-native/smoke.ts"
   },
   "dependencies": {
+    "@dicebear/adventurer": "9.4.2",
+    "@dicebear/big-smile": "9.4.2",
+    "@dicebear/core": "9.4.2",
+    "@dicebear/fun-emoji": "9.4.2",
+    "@dicebear/lorelei": "9.4.2",
+    "@dicebear/notionists": "9.4.2",
+    "@dicebear/open-peeps": "9.4.2",
+    "@dicebear/pixel-art": "9.4.2",
+    "@dicebear/thumbs": "9.4.2",
     "@tanstack/react-virtual": "3.14.26",
     "@tauri-apps/api": "2.12.4",
     "@tauri-apps/plugin-dialog": "2.8.4",

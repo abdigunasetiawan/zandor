@@ -779,6 +779,51 @@
   min-height: 0;
   overflow-y: auto;
 }
+/* tab Sesi: tombol aksi + judul Workspace diam, hanya isi workspace yang digulir */
+.sidebar .z-tabs__panel:has(> .sidebar__tab) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sidebar__tab {
+  flex: 1;
+  min-height: 0;
+}
+.sidebar__scroll {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  min-height: 0;
+  /* scrollbar menempel di tepi kanan panel */
+  margin-right: calc(var(--z-space-3) * -1);
+  padding-right: calc(var(--z-space-3) - var(--z-sidebar-scrollbar));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+/* scrollbar tipis; thumb hanya terlihat saat di-hover (ruang tetap dicadangkan agar layout tidak bergeser) */
+.sidebar .z-tabs__panel::-webkit-scrollbar,
+.sidebar__scroll::-webkit-scrollbar {
+  width: var(--z-sidebar-scrollbar);
+}
+.sidebar .z-tabs__panel::-webkit-scrollbar-thumb,
+.sidebar__scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+.sidebar .z-tabs__panel:hover::-webkit-scrollbar-thumb,
+.sidebar__scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--z-color-scrollbar);
+}
+.sidebar .z-tabs__panel:hover::-webkit-scrollbar-thumb:hover,
+.sidebar__scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--z-color-scrollbar-hover);
+}
+.sidebar {
+  --z-sidebar-scrollbar: calc(var(--z-space-1) * 1.5);
+  /* ikon lepas (pin, chevron) diberi jarak kanan agar tengahnya sejajar dengan tengah IconButton kecil */
+  --z-sidebar-icon-inset: calc((var(--z-control-sm) - var(--z-icon-sm)) / 2);
+}
 .sidebar__tab {
   display: flex;
   flex-direction: column;
@@ -873,7 +918,7 @@
   align-items: center;
   justify-content: space-between;
   margin: var(--z-space-1) calc(var(--z-space-3) * -1) 0;
-  padding: var(--z-space-2) var(--z-space-3);
+  padding: var(--z-space-2) calc(var(--z-space-3) + var(--z-sidebar-icon-inset)) var(--z-space-2) var(--z-space-3);
   border: 0;
   border-top: var(--z-border-width) solid var(--z-color-border);
   border-bottom: var(--z-border-width) solid var(--z-color-border);
@@ -934,7 +979,6 @@
   display: flex;
   align-items: center;
   gap: var(--z-space-1);
-  padding-right: var(--z-space-1);
   border-radius: var(--z-radius-md);
 }
 .tree__toggle,
@@ -1407,9 +1451,6 @@
 }
 .composer__spacer {
   flex: 1;
-}
-.composer__mode {
-  max-width: 10rem;
 }
 .diff {
   margin: var(--z-space-1) 0;
@@ -3198,11 +3239,11 @@
 .composer__round.z-button:not(.z-button--solid, .z-button--danger):hover:not(:disabled) {
   background: var(--z-color-hover);
 }
+/* Pil mode izin selebar labelnya: tidak menyusut dan tidak dipotong; bilah aksi membungkus bila sempit. */
 .composer__mode.z-select {
-  flex: 0 1 auto;
+  flex: none;
   width: auto;
-  min-width: 0;
-  max-width: 11rem;
+  white-space: nowrap;
   border-color: var(--z-color-border-soft);
   border-radius: var(--z-radius-full);
   background: transparent;
@@ -3235,7 +3276,6 @@
   max-width: 100%;
   font-family: var(--z-font-code);
 }
-.composer__mode .z-select__value,
 .composer__model .chat__model-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3579,6 +3619,9 @@
 .sidebar__demo-rows,
 .sidebar__session-rows {
   padding-left: 0;
+}
+.tree__demo {
+  padding-right: var(--z-sidebar-icon-inset);
 }
 .tree__pin {
   flex: none;
@@ -4554,13 +4597,6 @@
   overflow: hidden;
   border-radius: var(--z-radius-md);
 }
-.tree__row[data-bg]::before {
-  position: absolute;
-  inset: 0;
-  background: color-mix(in srgb, var(--z-color-bg) 45%, transparent);
-  content: "";
-  pointer-events: none;
-}
 .tree__row[data-bg] > * {
   position: relative;
 }
@@ -4576,8 +4612,26 @@
 .pstyle {
   display: flex;
   flex-direction: column;
-  gap: var(--z-space-3);
-  min-width: min(32rem, 80vw);
+  gap: var(--z-space-4);
+  min-width: 0;
+}
+.pstyle__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  min-width: 0;
+}
+.pstyle__head {
+  margin: 0;
+}
+.pstyle__inline {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+.pstyle__inline > .z-input {
+  flex: 1;
+  min-width: 0;
 }
 .pstyle__preview {
   position: relative;
@@ -4588,12 +4642,6 @@
   overflow: hidden;
   border-radius: var(--z-radius-md);
   background: var(--z-color-hover);
-}
-.pstyle__preview[data-bg]::before {
-  position: absolute;
-  inset: 0;
-  background: color-mix(in srgb, var(--z-color-bg) 45%, transparent);
-  content: "";
 }
 .pstyle__preview > * {
   position: relative;
@@ -4742,4 +4790,84 @@ fieldset.pstyle__templates {
 .owlogin__ok {
   margin: 0;
   color: var(--z-color-success);
+}
+.sidebar__section-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-1);
+}
+
+/* ---------- Pengaturan: Profil (nama + avatar) ---------- */
+.profile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-4);
+}
+.profile__card {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-3);
+  padding: var(--z-space-3);
+  border-radius: var(--z-radius-lg);
+  background: var(--z-color-hover);
+}
+.profile__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.profile__muted {
+  margin: 0;
+  color: var(--z-color-fg-muted);
+}
+.profile__group,
+.profile__illu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+}
+.profile__head {
+  margin: 0;
+}
+.profile__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+.profile__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--z-space-7), 1fr));
+  gap: var(--z-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.profile__tile {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: var(--z-space-1);
+  border: 0;
+  border-radius: var(--z-radius-lg);
+  background: var(--z-color-hover);
+  cursor: pointer;
+}
+.profile__tile:hover {
+  background: var(--z-color-active);
+}
+.profile__tile[aria-pressed="true"] {
+  background: var(--z-color-active);
+  box-shadow: inset 0 0 0 var(--z-focus-width) var(--z-color-fg);
+}
+.profile__tile img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--z-radius-md);
+}
+.profile__row > .z-select {
+  flex: 1;
+  width: auto;
+  min-width: 0;
 }

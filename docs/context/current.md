@@ -1,6 +1,6 @@
 # Kondisi Saat Ini
 
-> Snapshot, selalu ditimpa. Terakhir diperbarui: 15-11-2026 (audit fase 0–11).
+> Snapshot, selalu ditimpa. Terakhir diperbarui: 16-11-2026.
 
 ## Fase
 
@@ -19,12 +19,14 @@
 - **Tombol tutup panel (15-11-2026):** Panel Chat, Dokumen, dan Tools memakai satu wrapper `PanelTabBar` (`.ptb`): baris paling atas panel, tinggi seragam (`--z-control-lg`), tampilan tab tetap seperti semula (tanpa latar atau warna baru), pemisah `--z-color-border`, tombol tutup di ujung kanan (di luar area tab yang menggulir). Sebelumnya tombol Chat melayang di tengah karena `.stabs--empty` mewarisi `flex: 1`. e2e (`shell.spec.ts`) memeriksa posisi paling atas, ujung kanan, sejajar, dan tinggi seragam.
 - **Menu tautan di respons model (16-11-2026):** klik tautan → pilih browser Zandor (Panel 4) / browser eksternal / salin (`rich/ChatLink.tsx`, lihat `docs/features/chat.md`); `openTool` tidak lagi menutup Browser yang sudah aktif (`showBrowserTool`). Belum diuji di build native Tauri.
 - **Pintasan panel + smart resize (16-11-2026):** `Ctrl+1..5` tampil/sembunyi panel 1–5; panel utama terakhir (Chat/Dokumen/Tools) tidak bisa ditutup (toast); smart resize `Ctrl+Alt+0` + tombol pertama di grup toggle title bar: sidebar 16rem (maks 22%), 2 panel utama 50/50, 3 panel utama Chat 40 / 30 / 30 (ADR-066, `smartLayout` di `layout-plan.ts`). Tes core + e2e `shell.spec.ts` 17/17. Belum dicoba di build native.
+- **Profil pengguna (16-11-2026):** Pengaturan → Profil: nama tampilan + avatar (inisial / unggah / ilustrasi DiceBear lokal), dipakai footer sidebar dan sapaan (ADR-067, `docs/features/profile.md`). Menutup "belum: nama pengguna di pengaturan" dari layout shell. Tema gelap belum diperiksa.
+- **Sidebar & dialog project (16-11-2026):** hanya isi Workspace yang menggulir (tombol aksi tetap), scrollbar tipis menempel tepi dan tampil saat hover dengan ruang tetap; tombol tutup semua/kembalikan folder project; ikon kanan sejajar satu kolom; tanpa lapisan putih di latar kustom project; dialog tampilan project dirapikan; halaman utama tanpa overscroll (`overscroll-behavior` di root, `contain` di Workspace); `dragDropEnabled: false` di Tauri agar seret-lepas HTML5 (urutan project/sesi) jalan di Windows.
 - **Logo aplikasi (16-11-2026):** varian "Tiga Panel — Tajam" dipasang — atom `AppLogo` di header sidebar, favicon SVG, ikon Tauri (ADR-065); ikon di build native belum diperiksa.
 - **Gelembung pesan pengguna (15-11-2026):** token `--z-color-bubble` (campuran `fg` 8% di atas `bg`, ikut tema kustom) agar gelembung pesan pengguna terlihat di tema gelap maupun terang; e2e memeriksa latar berbeda dari panel.
 - **Penyempurnaan chat (permintaan pemilik 14-11-2026):** render kaya, form pertanyaan agent, info pemakaian composer — ADR-040 (Masuk dengan OpenWork dihapus oleh ADR-055 lalu dikembalikan sebagai kartu Sign-in + akun ganda oleh ADR-056, belum diuji ke akun OpenWork sungguhan); belum: kuota provider (engine tidak menyediakannya, lihat chat.md).
 - **Fase 11 — Panel 3 lanjutan & fitur ekstra:** sebagian selesai di lokal (ADR-039, ADR-045, ADR-050): edit berkas, DOCX/XLSX/PPTX/ipynb, saran prompt, automasi + notifikasi, input suara (dikte, Web Speech), save-as pesan (teks/gambar/SVG). Belum: remote engine, model peran (memori/image generator), skill bawaan "agent mengonfigurasi Zandor".
 - **Fase 10 — Kustomisasi:** selesai di lokal; ADR-038, `docs/features/appearance.md`. Belum: paket ikon file Open VSX.
-- **Layout shell baru (permintaan pemilik 14-11-2026):** panel mengambang, sidebar bertingkat, sapaan sesi baru — ADR-041; notifikasi sudah ada (ADR-050); belum: nama pengguna di pengaturan.
+- **Layout shell baru (permintaan pemilik 14-11-2026):** panel mengambang, sidebar bertingkat, sapaan sesi baru — ADR-041; notifikasi sudah ada (ADR-050); nama pengguna di pengaturan kini ada (ADR-067).
 - **Pengaturan Provider & model (permintaan pemilik 14-11-2026):** model bawaan, provider (protokol/id/kunci/ambil model), pengelola model (visibilitas, kemampuan, grup), logo kustom + otomatis — ADR-054; belum: fitur generate gambar, deteksi kemampuan dari endpoint.
 - **Status MVP:** audit PRD §13 selesai — kelima kriteria terpenuhi (`docs/features/mvp.md`); menunggu keputusan rilis `0.1.0`.
 

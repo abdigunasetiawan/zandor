@@ -59,12 +59,14 @@ import {
   Search,
   Settings,
   Shield,
+  Shuffle,
   Sparkles,
   Square,
   Terminal,
   Trash2,
   Undo2,
   Upload,
+  User,
   WrapText,
   Wrench,
   X,
@@ -132,6 +134,8 @@ export const RefreshIcon = icon(RotateCw, "RefreshIcon");
 export const ChatIcon = icon(MessageSquare, "ChatIcon");
 export const CopyIcon = icon(Copy, "CopyIcon");
 export const UndoIcon = icon(Undo2, "UndoIcon");
+export const UserIcon = icon(User, "UserIcon");
+export const ShuffleIcon = icon(Shuffle, "ShuffleIcon");
 export const ArchiveIcon = icon(Archive, "ArchiveIcon");
 export const PaperclipIcon = icon(Paperclip, "PaperclipIcon");
 export const PinIcon = icon(Pin, "PinIcon");

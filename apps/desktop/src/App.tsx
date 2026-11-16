@@ -41,6 +41,7 @@ export function parseRoute(path: string): Route {
   if (/^\/memory\/?$/.test(path)) return { page: "settings", section: "memory" };
   if (/^\/appearance\/?$/.test(path)) return { page: "settings", section: "appearance" };
   if (/^\/automation\/?$/.test(path)) return { page: "settings", section: "automation" };
+  if (/^\/(settings\/profile|profile)\/?$/.test(path)) return { page: "settings", section: "profile" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }

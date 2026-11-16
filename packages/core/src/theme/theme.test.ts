@@ -264,3 +264,38 @@ describe("AppearanceStore", () => {
     expect(new AppearanceStore(mem("{rusak")).state()).toEqual(DEFAULT_APPEARANCE);
   });
 });
+
+describe("profil pengguna", () => {
+  const memStore = () => {
+    let v: string | null = null;
+    return {
+      get: () => v,
+      set: (x: string) => {
+        v = x;
+      },
+    };
+  };
+  test("nama dan avatar ilustrasi tersimpan, bertahan, dan dipertahankan saat atur ulang tampilan", () => {
+    const s = memStore();
+    const st = new AppearanceStore(s);
+    expect(st.setProfileName("  Abdi  ")).toBeNull();
+    expect(st.setProfileAvatar({ kind: "illustration", style: "lorelei", seed: "abc-1" })).toBeNull();
+    const again = new AppearanceStore(s);
+    expect(again.state().profile).toEqual({
+      name: "Abdi",
+      avatar: { kind: "illustration", style: "lorelei", seed: "abc-1" },
+    });
+    again.resetAll();
+    expect(again.state().profile.name).toBe("Abdi");
+    expect(again.setProfileName("")).toBeNull();
+    expect(again.state().profile.name).toBeUndefined();
+  });
+  test("menolak nilai tidak valid dan membuang data rusak saat dimuat", () => {
+    const st = new AppearanceStore(memStore());
+    expect(st.setProfileName("x".repeat(41))).not.toBeNull();
+    expect(st.setProfileAvatar({ kind: "illustration", style: "bogus" as never, seed: "a" })).not.toBeNull();
+    expect(st.setProfileAvatar({ kind: "image", src: "javascript:alert(1)" })).not.toBeNull();
+    const raw = JSON.stringify({ profile: { name: "\u0001", avatar: { kind: "image", src: "http://x" } } });
+    expect(new AppearanceStore({ get: () => raw, set: () => {} }).state().profile).toEqual({});
+  });
+});

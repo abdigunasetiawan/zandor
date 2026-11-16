@@ -81,6 +81,7 @@ import { QuestionCard, TodoList } from "./QuestionCard";
 import { QueueDock } from "./QueueDock";
 import { TabStatus } from "./SessionDot";
 import {
+  useAppearance,
   useChat,
   useDocs,
   useEngineState,
@@ -259,7 +260,9 @@ function DraftChat() {
 /** Sapaan di sesi baru: bagian hari + nama pengguna OS (tanpa nama bila tidak diketahui). */
 function Greeting() {
   const { t } = useI18n();
-  const user = useOsUser();
+  const { profile } = useAppearance();
+  const osUser = useOsUser();
+  const user = profile.name ?? osUser;
   const part = dayPart(new Date().getHours());
   const name = user ? `, ${user}` : "";
   return (
@@ -1129,6 +1132,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
             items={(["ask", "auto-edit", "auto-all"] as PermissionMode[]).map((m) => ({
               value: m,
               label: t(`chat.mode.${m}` as never),
+              description: t(`chat.modeDesc.${m}` as never),
             }))}
             value={permissionMode}
             onValueChange={(v) => chat.setPermissionMode(v as PermissionMode)}

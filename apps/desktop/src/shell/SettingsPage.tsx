@@ -20,6 +20,7 @@ import {
   Select,
   SettingsIcon,
   Switch,
+  UserIcon,
   useConfirm,
   useToast,
   WrenchIcon,
@@ -30,11 +31,12 @@ import { AutomationPage } from "./AutomationPage";
 import { MemoryPage } from "./MemoryPage";
 import { ModelSettings } from "./ModelSettings";
 import { NotificationExtras } from "./NotificationSettings";
+import { ProfileSettings } from "./ProfileSettings";
 import { useServices, useSettings } from "./services";
 
 const GROUPS = ["general", "appearance", "chat", "notifications", "tools", "layout"] as const;
 type Group = (typeof GROUPS)[number];
-const EXTRA_SECTIONS = ["models", "memory", "automation", "data"] as const;
+const EXTRA_SECTIONS = ["profile", "models", "memory", "automation", "data"] as const;
 type Section = Group | (typeof EXTRA_SECTIONS)[number];
 /** Kategori tambahan yang bisa dituju dari rute (#/settings/models, alias /memory, /appearance, /automation). */
 export type SettingsSection = Section;
@@ -50,6 +52,7 @@ const SECTION_ICONS: Record<Section, ReactNode> = {
   memory: <BookmarkIcon size="sm" />,
   automation: <ClockIcon size="sm" />,
   data: <DatabaseIcon size="sm" />,
+  profile: <UserIcon size="sm" />,
 };
 
 function SettingControl({
@@ -175,6 +178,7 @@ export function SettingsPage({ initial = null }: { initial?: SettingsSection | n
   };
 
   const navItems: Array<{ id: Section; label: string }> = [
+    { id: "profile", label: t("settings.profile") },
     ...GROUPS.map((g) => ({ id: g as Section, label: t(`settings.${g}` as MessageKey) })),
     { id: "models", label: t("settings.models") },
     { id: "memory", label: t("settings.more.memory") },
@@ -294,6 +298,10 @@ export function SettingsPage({ initial = null }: { initial?: SettingsSection | n
                 </section>
               );
             })}
+
+            {show("profile") && matchesText(t("settings.profile"), t("profile.name"), t("profile.avatar")) && (
+              <ProfileSettings />
+            )}
 
             {show("models") &&
               matchesText(t("settings.models"), t("ms.defaults"), t("ms.providers"), t("ms.defaultChat")) && (

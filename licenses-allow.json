@@ -8,5 +8,20 @@
     "package": "elkjs",
     "license": "EPL-2.0 OR GPL-3.0-or-later",
     "reason": "Dependensi mermaid untuk tata letak ELK (opsional). TIDAK dibundel: Vite meng-alias 'elkjs/lib/elk.bundled.js' ke stub (apps/desktop/src/shell/stubs/elk-stub.ts), dan test memastikan dist tidak memuatnya. Hanya hadir di node_modules. ADR-035."
+  },
+  {
+    "package": "@dicebear/adventurer",
+    "license": "(MIT AND CC-BY-4.0)",
+    "reason": "Gaya ilustrasi avatar profil (ADR-067). Kode MIT; desain CC BY 4.0 yang mewajibkan atribusi — judul, pembuat, dan lisensi gaya ditampilkan di Pengaturan → Profil dari metadata paket. Diverifikasi 16-11-2026."
+  },
+  {
+    "package": "@dicebear/big-smile",
+    "license": "(MIT AND CC-BY-4.0)",
+    "reason": "Gaya ilustrasi avatar profil (ADR-067). Kode MIT; desain CC BY 4.0 yang mewajibkan atribusi — judul, pembuat, dan lisensi gaya ditampilkan di Pengaturan → Profil dari metadata paket. Diverifikasi 16-11-2026."
+  },
+  {
+    "package": "@dicebear/fun-emoji",
+    "license": "(MIT AND CC-BY-4.0)",
+    "reason": "Gaya ilustrasi avatar profil (ADR-067). Kode MIT; desain CC BY 4.0 yang mewajibkan atribusi — judul, pembuat, dan lisensi gaya ditampilkan di Pengaturan → Profil dari metadata paket. Diverifikasi 16-11-2026."
   }
 ]

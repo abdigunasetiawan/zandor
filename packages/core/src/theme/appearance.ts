@@ -52,6 +52,42 @@ export function validateImageDataUrl(v: unknown, maxChars = MAX_STYLE_IMAGE_CHAR
   return v.length > maxChars ? "gambar terlalu besar" : null;
 }
 
+/** Gaya ilustrasi avatar (DiceBear, dirender lokal). Hanya gaya berlisensi CC0/CC BY 4.0. */
+export const AVATAR_STYLES = [
+  "lorelei",
+  "notionists",
+  "openPeeps",
+  "adventurer",
+  "bigSmile",
+  "funEmoji",
+  "pixelArt",
+  "thumbs",
+] as const;
+export type AvatarStyle = (typeof AVATAR_STYLES)[number];
+export type ProfileAvatar = { kind: "image"; src: string } | { kind: "illustration"; style: AvatarStyle; seed: string };
+/** Profil pengguna lokal. Nama kosong → nama akun OS; avatar kosong → inisial. */
+export type Profile = { name?: string; avatar?: ProfileAvatar };
+
+export const MAX_PROFILE_NAME = 40;
+export const MAX_AVATAR_IMAGE_CHARS = 200_000;
+
+export function validateProfileName(v: unknown): string | null {
+  if (typeof v !== "string" || v.trim() === "") return "nama kosong";
+  if ([...v].length > MAX_PROFILE_NAME) return `nama maksimal ${MAX_PROFILE_NAME} karakter`;
+  return [...v].some((c) => (c.codePointAt(0) ?? 0) < 32) ? "nama mengandung karakter terlarang" : null;
+}
+
+export function validateProfileAvatar(v: unknown): string | null {
+  if (!v || typeof v !== "object") return "avatar tidak valid";
+  const a = v as Record<string, unknown>;
+  if (a.kind === "image") return validateImageDataUrl(a.src, MAX_AVATAR_IMAGE_CHARS);
+  if (a.kind === "illustration") {
+    if (!(AVATAR_STYLES as readonly unknown[]).includes(a.style)) return "gaya avatar tidak dikenal";
+    return typeof a.seed === "string" && /^[\w-]{1,64}$/.test(a.seed) ? null : "seed avatar tidak valid";
+  }
+  return "avatar tidak valid";
+}
+
 export type Appearance = {
   version: 1;
   preset: string;
@@ -66,6 +102,7 @@ export type Appearance = {
   editorThemes: EditorTheme[];
   /** Override shortcut: id binding → combo (mis. "Ctrl+Shift+K"). */
   shortcuts: Record<string, string>;
+  profile: Profile;
 };
 
 export const DEFAULT_APPEARANCE: Appearance = {
@@ -79,6 +116,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   editorTheme: "auto",
   editorThemes: [],
   shortcuts: {},
+  profile: {},
 };
 
 export const MAX_EDITOR_THEMES = 20;
@@ -217,6 +255,15 @@ export function sanitizeAppearance(raw: unknown): Appearance {
       out.editorThemes.some((t) => t.id === o.editorTheme))
   )
     out.editorTheme = o.editorTheme;
+  const prof = o.profile as Record<string, unknown> | undefined;
+  if (prof && typeof prof === "object") {
+    if (validateProfileName(prof.name) === null) out.profile.name = (prof.name as string).trim();
+    if (validateProfileAvatar(prof.avatar) === null) {
+      const a = prof.avatar as ProfileAvatar;
+      out.profile.avatar =
+        a.kind === "image" ? { kind: "image", src: a.src } : { kind: "illustration", style: a.style, seed: a.seed };
+    }
+  }
   return out;
 }
 
@@ -378,6 +425,33 @@ export class AppearanceStore {
     return null;
   }
 
+  /** Nama tampilan pengguna; null/kosong = kembali ke nama akun OS. */
+  setProfileName(name: string | null): string | null {
+    const v = name?.trim() || null;
+    if (v !== null) {
+      const err = validateProfileName(v);
+      if (err) return err;
+    }
+    this.edit((a) => {
+      if (v === null) delete a.profile.name;
+      else a.profile.name = v;
+    });
+    return null;
+  }
+
+  /** Avatar pengguna (gambar unggahan atau ilustrasi); null = inisial. */
+  setProfileAvatar(avatar: ProfileAvatar | null): string | null {
+    if (avatar !== null) {
+      const err = validateProfileAvatar(avatar);
+      if (err) return err;
+    }
+    this.edit((a) => {
+      if (avatar === null) delete a.profile.avatar;
+      else a.profile.avatar = avatar;
+    });
+    return null;
+  }
+
   /** Simpan override shortcut (validasi bentrok dilakukan ShortcutRegistry oleh pemanggil). */
   setShortcut(id: string, combo: string | null): string | null {
     if (combo !== null) {
@@ -428,7 +502,8 @@ export class AppearanceStore {
     });
   }
 
+  /** Atur ulang tampilan. Profil (nama/avatar) bukan bagian tampilan, jadi dipertahankan. */
   resetAll(): void {
-    this.commit(structuredClone(DEFAULT_APPEARANCE));
+    this.commit({ ...structuredClone(DEFAULT_APPEARANCE), profile: structuredClone(this.snap.profile) });
   }
 }

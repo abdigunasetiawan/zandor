@@ -4,6 +4,9 @@ body,
 #root {
   margin: 0;
   height: 100%;
+  overflow: hidden;
+  /* aplikasi desktop: halaman utama tidak memantul/bergeser saat gulir mentok */
+  overscroll-behavior: none;
 }
 
 body {

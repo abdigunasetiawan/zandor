@@ -20,10 +20,12 @@ import {
   ChevronRightIcon,
   ClockIcon,
   CloseIcon,
+  CollapseAllIcon,
   ContextMenu,
   CopyIcon,
   Dialog,
   EditIcon,
+  ExpandAllIcon,
   EyeIcon,
   Field,
   FileIcon,
@@ -46,6 +48,7 @@ import {
   Spinner,
   Tabs,
   TrashIcon,
+  UserIcon,
   useConfirm,
   useToast,
 } from "@zandor/ui";
@@ -56,9 +59,9 @@ import { DEMO_KEY, DEMO_SESSIONS } from "./demo-sessions";
 import { targetIndex, useDragReorder } from "./dnd";
 import { type FilesScope, FilesTree } from "./FilesTree";
 import { ProjectStyleDialog, projectBackground } from "./ProjectStyleDialog";
+import { useProfile } from "./profile";
 import { SessionDot, SessionDotFor } from "./SessionDot";
 import { useAppearance, useEngineState, useProjects, useServices, useSettings, useSidebarPrefs } from "./services";
-import { useOsUser } from "./use-os-user";
 
 type RenameTarget =
   | { kind: "project"; id: string; value: string }
@@ -94,6 +97,26 @@ export function Sidebar() {
   const [searching, setSearching] = useState(false);
   const [tab, setTab] = useState("sessions");
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
+  // project yang ditutup; `beforeCollapseAll` menyimpan keadaan sebelum "tutup semua" agar bisa dikembalikan
+  const [collapsed, setCollapsed] = useState<Set<ProjectKey>>(new Set());
+  const [beforeCollapseAll, setBeforeCollapseAll] = useState<Set<ProjectKey> | null>(null);
+  const toggleCollapsed = (key: ProjectKey) => {
+    setBeforeCollapseAll(null);
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  };
+  const collapseAllOrRestore = () => {
+    if (beforeCollapseAll) {
+      setCollapsed(beforeCollapseAll);
+      setBeforeCollapseAll(null);
+    } else {
+      setBeforeCollapseAll(collapsed);
+      setCollapsed(new Set([...collapsed, ...state.projects.map((p) => p.id as ProjectKey)]));
+    }
+  };
   const devBuild = useIsDevBuild();
   const filesScope = useMemo(() => filesScopeOf(state), [state]);
 
@@ -156,20 +179,31 @@ export function Sidebar() {
                   {workspaceOpen ? <ChevronDownIcon size="sm" /> : <ChevronRightIcon size="sm" />}
                 </button>
                 {workspaceOpen && (
-                  <>
+                  <div className="sidebar__scroll">
                     <div className="sidebar__section">
                       <header className="sidebar__section-head">
                         <h3 className="z-label">
                           {t("sb.section.projects")} <span className="sidebar__count">({state.projects.length})</span>
                         </h3>
-                        <AddProject />
+                        <span className="sidebar__section-tools">
+                          <AddProject />
+                          {state.projects.length > 0 && (
+                            <IconButton
+                              label={beforeCollapseAll ? t("sb.restoreProjects") : t("sb.collapseProjects")}
+                              size="sm"
+                              icon={beforeCollapseAll ? <ExpandAllIcon /> : <CollapseAllIcon />}
+                              aria-pressed={beforeCollapseAll ? true : undefined}
+                              onClick={collapseAllOrRestore}
+                            />
+                          )}
+                        </span>
                       </header>
-                      <SessionsList query={query} kind="projects" />
+                      <SessionsList query={query} kind="projects" collapsed={collapsed} onToggle={toggleCollapsed} />
                     </div>
                     <div className="sidebar__section sidebar__section--chats">
-                      <SessionsList query={query} kind="chats" />
+                      <SessionsList query={query} kind="chats" collapsed={collapsed} onToggle={toggleCollapsed} />
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             ),
@@ -308,7 +342,17 @@ function rowStyle(s: ProjectStyle | undefined): React.CSSProperties | undefined 
   };
 }
 
-function SessionsList({ query, kind }: { query: string; kind: "projects" | "chats" }) {
+function SessionsList({
+  query,
+  kind,
+  collapsed,
+  onToggle: toggle,
+}: {
+  query: string;
+  kind: "projects" | "chats";
+  collapsed: Set<ProjectKey>;
+  onToggle: (key: ProjectKey) => void;
+}) {
   const { t } = useI18n();
   const settings = useSettings();
   const { projects: store, sidebarPrefs, docHost } = useServices();
@@ -319,7 +363,6 @@ function SessionsList({ query, kind }: { query: string; kind: "projects" | "chat
   const appearance = useAppearance();
   const confirm = useConfirm();
   const fail = useErrorToast();
-  const [collapsed, setCollapsed] = useState<Set<ProjectKey>>(new Set());
   const [rename, setRename] = useState<RenameTarget | null>(null);
   const q = query.trim().toLowerCase();
 
@@ -333,13 +376,6 @@ function SessionsList({ query, kind }: { query: string; kind: "projects" | "chat
     const ids = groups.map((g) => g.key);
     sidebarPrefs.moveProject(ids, dragId, targetIndex(ids, dragId, targetId, before));
   });
-
-  const toggle = (key: ProjectKey) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
 
   const run = (p: Promise<unknown>) => void p.catch(fail);
 
@@ -687,11 +723,17 @@ function SidebarFooter() {
   const { t } = useI18n();
   const { host, nav } = useServices();
   const engine = useEngineState();
-  const user = useOsUser();
-  const name = user ?? t("sb.user.fallback");
+  const { name, src } = useProfile();
   const tone =
     engine.status === "ready" ? "ok" : engine.status === "error" || engine.status === "stopped" ? "bad" : "wait";
   const entries: MenuEntry[] = [
+    {
+      type: "item",
+      id: "profile",
+      icon: <UserIcon size="sm" />,
+      label: t("profile.manage"),
+      onSelect: () => nav.push("/settings/profile"),
+    },
     {
       type: "item",
       id: "settings",
@@ -723,7 +765,7 @@ function SidebarFooter() {
   ];
   return (
     <footer className="sidebar__foot">
-      <Avatar name={name} size="md" />
+      <Avatar name={name} src={src} size="md" />
       <div className="sidebar__user">
         <span className="sidebar__user-name">{name}</span>
         <span className="z-small sidebar__version">{t("sb.versionShort", { version: build.version })}</span>

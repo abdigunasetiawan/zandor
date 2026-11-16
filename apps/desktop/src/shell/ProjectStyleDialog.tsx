@@ -170,154 +170,161 @@ export function ProjectStyleDialog({ project, onClose }: { project: Project; onC
           <span className="tree__label">{project.name}</span>
         </div>
 
-        <Tabs
-          aria-label={t("pstyle.background")}
-          value={mode}
-          onValueChange={(v) => setMode(v as BgMode)}
-          items={[
-            {
-              value: "none",
-              label: t("pstyle.bg.none"),
-              content: <p className="z-small pstyle__hint">{t("pstyle.bg.noneHint")}</p>,
-            },
-            { value: "color", label: t("pstyle.bg.color"), content: colorField(t("pstyle.bg.color"), color, setColor) },
-            {
-              value: "gradient",
-              label: t("pstyle.bg.gradient"),
-              content: (
-                <div className="pstyle__gradient">
-                  <fieldset className="pstyle__templates">
-                    <legend className="z-visually-hidden">{t("pstyle.templates")}</legend>
-                    {GRADIENT_TEMPLATES.map((tpl) => (
-                      <button
-                        key={tpl.id}
-                        type="button"
-                        className="pstyle__tpl"
-                        title={tpl.name}
-                        aria-label={t("pstyle.template", { name: tpl.name })}
-                        style={{ background: gradientCss(tpl.spec) }}
-                        onClick={() => setSpec(tpl.spec)}
-                      />
-                    ))}
-                  </fieldset>
-                  <Field label={t("pstyle.type")}>
-                    {(c) => (
-                      <Select
-                        {...c}
-                        value={spec.type}
-                        onValueChange={(v) => setSpec((s) => ({ ...s, type: v as GradientSpec["type"] }))}
-                        items={[
-                          { value: "linear", label: t("pstyle.type.linear") },
-                          { value: "radial", label: t("pstyle.type.radial") },
-                        ]}
+        <section className="pstyle__group" aria-labelledby="pstyle-bg-head">
+          <h3 id="pstyle-bg-head" className="z-label pstyle__head">
+            {t("pstyle.background")}
+          </h3>
+          <Tabs
+            aria-label={t("pstyle.background")}
+            value={mode}
+            onValueChange={(v) => setMode(v as BgMode)}
+            items={[
+              {
+                value: "none",
+                label: t("pstyle.bg.none"),
+                content: <p className="z-small pstyle__hint">{t("pstyle.bg.noneHint")}</p>,
+              },
+              {
+                value: "color",
+                label: t("pstyle.bg.color"),
+                content: colorField(t("pstyle.bg.color"), color, setColor),
+              },
+              {
+                value: "gradient",
+                label: t("pstyle.bg.gradient"),
+                content: (
+                  <div className="pstyle__gradient">
+                    <fieldset className="pstyle__templates">
+                      <legend className="z-visually-hidden">{t("pstyle.templates")}</legend>
+                      {GRADIENT_TEMPLATES.map((tpl) => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          className="pstyle__tpl"
+                          title={tpl.name}
+                          aria-label={t("pstyle.template", { name: tpl.name })}
+                          style={{ background: gradientCss(tpl.spec) }}
+                          onClick={() => setSpec(tpl.spec)}
+                        />
+                      ))}
+                    </fieldset>
+                    <Field label={t("pstyle.type")}>
+                      {(c) => (
+                        <Select
+                          {...c}
+                          value={spec.type}
+                          onValueChange={(v) => setSpec((s) => ({ ...s, type: v as GradientSpec["type"] }))}
+                          items={[
+                            { value: "linear", label: t("pstyle.type.linear") },
+                            { value: "radial", label: t("pstyle.type.radial") },
+                          ]}
+                        />
+                      )}
+                    </Field>
+                    {spec.type === "linear" && (
+                      <Slider
+                        label={t("pstyle.angle", { deg: spec.angle })}
+                        min={0}
+                        max={360}
+                        value={spec.angle}
+                        onValueChange={(angle) => setSpec((s) => ({ ...s, angle }))}
                       />
                     )}
-                  </Field>
-                  {spec.type === "linear" && (
-                    <Slider
-                      label={t("pstyle.angle", { deg: spec.angle })}
-                      min={0}
-                      max={360}
-                      value={spec.angle}
-                      onValueChange={(angle) => setSpec((s) => ({ ...s, angle }))}
-                    />
-                  )}
-                  <ul className="pstyle__stops" aria-label={t("pstyle.stops")}>
-                    {spec.stops.map((s, i) => (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: titik warna diidentifikasi urutannya
-                      <li key={i} className="pstyle__stop">
-                        {colorField(t("pstyle.stop", { n: i + 1 }), s.color, (color) => setStop(i, { color }))}
-                        <Slider
-                          label={t("pstyle.stopPos", { n: i + 1 })}
-                          min={0}
-                          max={100}
-                          value={s.pos}
-                          onValueChange={(pos) => setStop(i, { pos })}
-                        />
-                        <IconButton
-                          size="sm"
-                          label={t("pstyle.removeStop", { n: i + 1 })}
-                          icon={<TrashIcon size="sm" />}
-                          disabled={spec.stops.length <= MIN_STOPS}
-                          onClick={() => setSpec((sp) => ({ ...sp, stops: sp.stops.filter((_, j) => j !== i) }))}
-                        />
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="pstyle__row">
-                    <Button
-                      size="sm"
-                      disabled={spec.stops.length >= MAX_STOPS}
-                      onClick={() =>
-                        setSpec((s) => ({ ...s, stops: [...s.stops, { color: NEW_STOP_COLOR, pos: 100 }] }))
-                      }
-                    >
-                      {t("pstyle.addStop")}
-                    </Button>
-                    <Button size="sm" onClick={() => setSpec(randomGradient())}>
-                      {t("pstyle.random")}
-                    </Button>
+                    <ul className="pstyle__stops" aria-label={t("pstyle.stops")}>
+                      {spec.stops.map((s, i) => (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: titik warna diidentifikasi urutannya
+                        <li key={i} className="pstyle__stop">
+                          {colorField(t("pstyle.stop", { n: i + 1 }), s.color, (color) => setStop(i, { color }))}
+                          <Slider
+                            label={t("pstyle.stopPos", { n: i + 1 })}
+                            min={0}
+                            max={100}
+                            value={s.pos}
+                            onValueChange={(pos) => setStop(i, { pos })}
+                          />
+                          <IconButton
+                            size="sm"
+                            label={t("pstyle.removeStop", { n: i + 1 })}
+                            icon={<TrashIcon size="sm" />}
+                            disabled={spec.stops.length <= MIN_STOPS}
+                            onClick={() => setSpec((sp) => ({ ...sp, stops: sp.stops.filter((_, j) => j !== i) }))}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="pstyle__row">
+                      <Button
+                        size="sm"
+                        disabled={spec.stops.length >= MAX_STOPS}
+                        onClick={() =>
+                          setSpec((s) => ({ ...s, stops: [...s.stops, { color: NEW_STOP_COLOR, pos: 100 }] }))
+                        }
+                      >
+                        {t("pstyle.addStop")}
+                      </Button>
+                      <Button size="sm" onClick={() => setSpec(randomGradient())}>
+                        {t("pstyle.random")}
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              ),
-            },
-            {
-              value: "image",
-              label: t("pstyle.bg.image"),
-              content: (
-                <div className="pstyle__row">
-                  <input
-                    ref={bgFile}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/gif"
-                    hidden
-                    aria-label={t("pstyle.bg.upload")}
-                    onChange={(e) => {
-                      void upload(e.target.files?.[0], "bg");
-                      e.target.value = "";
-                    }}
-                  />
-                  <Button size="sm" onClick={() => bgFile.current?.click()}>
-                    {t("pstyle.bg.upload")}
-                  </Button>
-                  {image && (
-                    <Button size="sm" variant="ghost" onClick={() => setImage(null)}>
-                      {t("pstyle.bg.removeImage")}
+                ),
+              },
+              {
+                value: "image",
+                label: t("pstyle.bg.image"),
+                content: (
+                  <div className="pstyle__row">
+                    <input
+                      ref={bgFile}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      hidden
+                      aria-label={t("pstyle.bg.upload")}
+                      onChange={(e) => {
+                        void upload(e.target.files?.[0], "bg");
+                        e.target.value = "";
+                      }}
+                    />
+                    <Button size="sm" onClick={() => bgFile.current?.click()}>
+                      {t("pstyle.bg.upload")}
                     </Button>
-                  )}
-                  <p className="z-small pstyle__hint">{t("pstyle.bg.imageHint")}</p>
-                </div>
-              ),
-            },
-          ]}
-        />
+                    {image && (
+                      <Button size="sm" variant="ghost" onClick={() => setImage(null)}>
+                        {t("pstyle.bg.removeImage")}
+                      </Button>
+                    )}
+                    <p className="z-small pstyle__hint">{t("pstyle.bg.imageHint")}</p>
+                  </div>
+                ),
+              },
+            ]}
+          />
+        </section>
 
         <Field label={t("pstyle.logo")} description={t("pstyle.logoHint")}>
           {(c) => (
-            <Input {...c} value={logo} maxLength={8} placeholder="🚀" onChange={(e) => setLogo(e.target.value)} />
+            <div className="pstyle__inline">
+              <Input {...c} value={logo} maxLength={8} placeholder="🚀" onChange={(e) => setLogo(e.target.value)} />
+              <Button onClick={() => logoFile.current?.click()}>{t("pstyle.logo.upload")}</Button>
+              {logoImage && (
+                <Button variant="ghost" onClick={() => setLogoImage(null)}>
+                  {t("pstyle.logo.remove")}
+                </Button>
+              )}
+            </div>
           )}
         </Field>
-        <div className="pstyle__row">
-          <input
-            ref={logoFile}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            hidden
-            aria-label={t("pstyle.logo.upload")}
-            onChange={(e) => {
-              void upload(e.target.files?.[0], "logo");
-              e.target.value = "";
-            }}
-          />
-          <Button size="sm" onClick={() => logoFile.current?.click()}>
-            {t("pstyle.logo.upload")}
-          </Button>
-          {logoImage && (
-            <Button size="sm" variant="ghost" onClick={() => setLogoImage(null)}>
-              {t("pstyle.logo.remove")}
-            </Button>
-          )}
-        </div>
+        <input
+          ref={logoFile}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          hidden
+          aria-label={t("pstyle.logo.upload")}
+          onChange={(e) => {
+            void upload(e.target.files?.[0], "logo");
+            e.target.value = "";
+          }}
+        />
         <Field label={t("pstyle.border")}>{() => colorField(t("pstyle.border"), border, setBorder)}</Field>
       </div>
     </Dialog>
