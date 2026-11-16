@@ -122,10 +122,11 @@ test("tipografi, font, panel chat: nilai valid jadi variabel CSS, nilai jahat di
   await size.press("Enter");
   expect(await rootVar(page, "--z-type-h1-size")).toBe("");
 
-  const font = page.getByLabel("Font kode");
-  await font.fill("Consolas, monospace");
-  await font.press("Enter");
-  expect(await rootVar(page, "--z-font-code")).toBe("Consolas, monospace");
+  // Font kini dipilih lewat FontPicker (popover + pencarian), bukan kolom teks bebas.
+  await page.getByRole("button", { name: "Font kode" }).click();
+  await page.getByRole("dialog").getByRole("searchbox").fill("JetBrains");
+  await page.getByRole("button", { name: "JetBrains Mono", exact: true }).click();
+  await expect.poll(() => rootVar(page, "--z-font-code")).toBe("'JetBrains Mono Variable', monospace");
 
   await page.getByRole("tab", { name: "Panel chat" }).click();
   // Kontrol chat kini slider (ChatStyleControls): nilai di luar 0.3–1 tidak bisa dimasukkan; penolakan nilai jahat
