@@ -245,6 +245,31 @@ impl Theme {
     pub fn space(&self, i: usize) -> Pixels {
         self.rem(rem::SPACE[i])
     }
+    fn shadow(&self, y: f32, blur: f32) -> gpui::BoxShadow {
+        gpui::BoxShadow {
+            color: self.colors.shadow,
+            offset: gpui::point(px(0.), self.rem(y)),
+            blur_radius: self.rem(blur),
+            spread_radius: px(0.),
+            inset: false,
+        }
+    }
+    /// --z-shadow-1: 0 0.0625rem 0.125rem
+    pub fn shadow_1(&self) -> Vec<gpui::BoxShadow> {
+        vec![self.shadow(0.0625, 0.125)]
+    }
+    /// --z-shadow-2: 0 0.25rem 0.75rem
+    pub fn shadow_2(&self) -> Vec<gpui::BoxShadow> {
+        vec![self.shadow(0.25, 0.75)]
+    }
+    /// --z-shadow-3: 0 0.75rem 2rem
+    pub fn shadow_3(&self) -> Vec<gpui::BoxShadow> {
+        vec![self.shadow(0.75, 2.0)]
+    }
+    /// --z-shadow-panel
+    pub fn shadow_panel(&self) -> Vec<gpui::BoxShadow> {
+        vec![self.shadow(0.0625, 0.125), self.shadow(0.375, 1.25)]
+    }
 }
 
 #[cfg(test)]
