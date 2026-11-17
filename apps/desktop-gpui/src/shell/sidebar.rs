@@ -51,6 +51,7 @@ impl Sidebar {
         let rename = cx.new(|cx| TextInput::new(cx, ph2));
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
+        cx.observe(&crate::core::appearance::AppearanceStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&search, |_, _, _: &crate::ui::InputChanged, cx| cx.notify()).detach();
@@ -490,14 +491,25 @@ impl Render for Sidebar {
                         .danger(),
                     ];
                     let pid2 = pid.clone();
+                    let (logo, pborder, pbg, pfg) = {
+                        let ap = crate::core::appearance::AppearanceStore::global(cx).read(cx);
+                        let col = |k: &str| ap.project_style(&p.id, k).and_then(|v| crate::core::appearance::parse_color(&v));
+                        (ap.project_style(&p.id, "logo"), col("border"), col("background"), col("fg"))
+                    };
                     let row = row_base(&t, format!("p-{}", p.id), active && ctx.sel.1.is_none())
+                        .when_some(pbg, |d, c| d.bg(c))
+                        .when_some(pborder, |d, c| d.border_1().border_color(c))
+                        .when_some(pfg, |d, c| d.text_color(c))
                         .on_click(cx.listener(move |s, _, _, cx| {
                             if !s.collapsed.remove(&pid) {
                                 s.collapsed.insert(pid.clone());
                             }
                             cx.notify();
                         }))
-                        .child(icon(if open { "folder_open" } else { "folder" }).size(IconSize::Md))
+                        .child(match logo {
+                            Some(l) => div().flex_none().w(t.rem(rem::ICON_MD)).flex().justify_center().child(l).into_any_element(),
+                            None => icon(if open { "folder_open" } else { "folder" }).size(IconSize::Md).into_any_element(),
+                        })
                         .child(div().flex_1().min_w_0().truncate().child(p.name.clone()))
                         .child(
                             div().flex_none().invisible().group_hover("row", |s| s.visible()).child(

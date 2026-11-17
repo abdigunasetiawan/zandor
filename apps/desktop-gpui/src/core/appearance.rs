@@ -13,6 +13,30 @@ pub const SWATCH_KEYS: [&str; 5] = ["bg", "raised", "fg", "accent", "border-stro
 pub const DEFAULT_PRESET: &str = "zandor";
 pub const TYPE_PROPS: [&str; 4] = ["size", "weight", "lh", "tracking"];
 pub const FONT_SLOTS: [&str; 3] = ["ui", "code", "terminal"];
+/// Kunci gaya project yang didukung port ini (gradien/gambar/overlay belum).
+pub const PROJECT_STYLE_KEYS: [&str; 4] = ["logo", "border", "background", "fg"];
+
+/// Port validateLogo.
+pub fn validate_logo(v: &str) -> Option<&'static str> {
+    if v.trim().is_empty() {
+        return Some("logo kosong");
+    }
+    if v.chars().count() > 4 {
+        return Some("logo maksimal 4 karakter");
+    }
+    if v.chars().any(|c| "<>&\"'`\\".contains(c) || (c as u32) < 32) {
+        return Some("logo mengandung karakter terlarang");
+    }
+    None
+}
+
+pub fn validate_project_style(key: &str, v: &str) -> Option<&'static str> {
+    if key == "logo" {
+        return validate_logo(v);
+    }
+    (!is_color(v)).then_some("warna tidak valid")
+}
+
 pub const CHAT_STYLE_KEYS: [&str; 10] = ["width", "composerRatio", "font", "size", "weight", "opacity", "lineHeight", "tracking", "gap", "codeSize"];
 
 /// Port validateChat. None = valid.
@@ -320,6 +344,8 @@ pub struct AppearanceStore {
     pub chat: Map<String, Value>,
     /// Override pintasan: id perintah → combo ("Ctrl+Shift+K").
     pub shortcuts: std::collections::BTreeMap<String, String>,
+    /// Gaya project: id project → { logo, border, background, fg, … }.
+    pub projects: std::collections::BTreeMap<String, Map<String, Value>>,
 }
 struct Handle(Entity<AppearanceStore>);
 impl Global for Handle {}
@@ -370,7 +396,12 @@ impl AppearanceStore {
             .and_then(Value::as_object)
             .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
             .unwrap_or_default();
-        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat, shortcuts });
+        let projects = raw
+            .get("projects")
+            .and_then(Value::as_object)
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_object().map(|m| (k.clone(), m.clone()))).collect())
+            .unwrap_or_default();
+        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat, shortcuts, projects });
         cx.set_global(Handle(e.clone()));
         e
     }
@@ -433,6 +464,34 @@ impl AppearanceStore {
             code_size: u("codeSize", "rem"),
             composer_ratio: n("composerRatio"),
         };
+    }
+
+    pub fn project_style(&self, id: &str, key: &str) -> Option<String> {
+        let v = self.projects.get(id)?.get(key)?.as_str()?;
+        validate_project_style(key, v).is_none().then(|| v.to_string())
+    }
+
+    /// None = hapus. Kunci lain (mis. gradien dari aplikasi TS) dipertahankan.
+    pub fn set_project_style(&mut self, id: &str, key: &str, value: Option<&str>, cx: &mut Context<Self>) -> Option<&'static str> {
+        if let Some(v) = value {
+            if let Some(e) = validate_project_style(key, v) {
+                return Some(e);
+            }
+        }
+        let m = self.projects.entry(id.to_string()).or_default();
+        match value {
+            Some(v) => {
+                m.insert(key.into(), json!(v));
+            }
+            None => {
+                m.remove(key);
+            }
+        }
+        if m.is_empty() {
+            self.projects.remove(id);
+        }
+        self.save(cx);
+        None
     }
 
     /// Simpan override pintasan (None = bawaan). Validasi bentrok dilakukan pemanggil.
@@ -508,6 +567,7 @@ impl AppearanceStore {
         self.raw.insert("typography".into(), serde_json::to_value(&self.typography).unwrap_or(json!({})));
         self.raw.insert("fonts".into(), serde_json::to_value(&self.fonts).unwrap_or(json!({})));
         self.raw.insert("chat".into(), Value::Object(self.chat.clone()));
+        self.raw.insert("projects".into(), serde_json::to_value(&self.projects).unwrap_or(json!({})));
         self.raw.insert("shortcuts".into(), serde_json::to_value(&self.shortcuts).unwrap_or(json!({})));
         self.raw.insert("version".into(), json!(1));
         self.raw.insert("preset".into(), json!(self.preset));
@@ -578,6 +638,7 @@ impl AppearanceStore {
         self.fonts.clear();
         self.chat.clear();
         self.shortcuts.clear();
+        self.projects.clear();
         self.save(cx);
     }
 }
@@ -635,6 +696,15 @@ mod tests {
         assert!(validate_chat("width", &json!("10rem")).is_some());
         assert_eq!(validate_chat("tracking", &json!("0.01em")), None);
         assert!(validate_chat("weight", &json!(450.5)).is_some());
+    }
+
+    #[test]
+    fn logos() {
+        assert_eq!(validate_logo("🚀"), None);
+        assert!(validate_logo("abcde").is_some());
+        assert!(validate_logo("<a>").is_some());
+        assert_eq!(validate_project_style("border", "#ff0000"), None);
+        assert!(validate_project_style("background", "red").is_some());
     }
 
     #[test]

@@ -10,6 +10,7 @@ pub mod layout;
 pub mod memory_page;
 pub mod onboarding_page;
 pub mod profile_section;
+pub mod projects_style_section;
 pub mod providers_section;
 pub mod root;
 pub mod sidebar;
