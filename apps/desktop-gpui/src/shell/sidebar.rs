@@ -576,6 +576,23 @@ impl Render for Sidebar {
                             (None, None) => icon(if open { "folder_open" } else { "folder" }).size(IconSize::Md).into_any_element(),
                         })
                         .child(div().flex_1().min_w_0().truncate().child(p.name.clone()))
+                        .children(p.engine.as_ref().map(|eid| {
+                            use crate::core::projects::RemoteStatus;
+                            let st = ProjectStore::global(cx).read(cx);
+                            let name = st.remote_by_id(eid).map(|r| r.name.clone()).unwrap_or_else(|| eid.clone());
+                            let (status, color) = match st.remote_status.get(eid) {
+                                Some(RemoteStatus::Ready(v)) => (i.tp("remote.ready", &[("version", if v.is_empty() { "?" } else { v })]), t.colors.success),
+                                Some(RemoteStatus::Error(e)) => (format!("{}: {e}", i.t("remote.failed")), t.colors.danger),
+                                _ => (i.t("remote.checking"), t.colors.fg_subtle),
+                            };
+                            let tip = format!("{} · {status}", i.tp("remote.badge", &[("name", &name)]));
+                            div()
+                                .id(SharedString::from(format!("prm-{}", p.id)))
+                                .flex_none()
+                                .text_color(color)
+                                .tooltip(crate::ui::tooltip::text_tooltip(tip.into()))
+                                .child(icon("globe").size(IconSize::Sm))
+                        }))
                         .child(
                             div().flex_none().invisible().group_hover("row", |s| s.visible()).child(
                                 icon_button(SharedString::from(format!("pn-{}", p.id)), "plus", i.tp("sb.newSessionIn", &[("name", &p.name)]))
