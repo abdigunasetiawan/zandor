@@ -16,6 +16,7 @@ pub struct Root {
     settings_page: Entity<super::settings_page::SettingsPage>,
     memory_page: Entity<super::memory_page::MemoryPage>,
     automation_page: Entity<super::automation_page::AutomationPage>,
+    onboarding_page: Entity<super::onboarding_page::OnboardingPage>,
     palette: Option<Entity<super::command_center::CommandCenter>>,
 }
 
@@ -60,7 +61,11 @@ impl Root {
         });
         let memory_page = cx.new(|cx| super::memory_page::MemoryPage::new(app.clone(), cx));
         let automation_page = cx.new(|cx| super::automation_page::AutomationPage::new(app.clone(), cx));
-        Self { app, titlebar, layout, toasts, palette: None, settings_page, memory_page, automation_page }
+        let onboarding_page = cx.new(|cx| super::onboarding_page::OnboardingPage::new(app.clone(), cx));
+        if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
+            app.update(cx, |a, cx| a.push("/welcome", cx));
+        }
+        Self { app, titlebar, layout, toasts, palette: None, settings_page, memory_page, automation_page, onboarding_page }
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -147,6 +152,8 @@ impl Render for Root {
             self.memory_page.clone().into_any_element()
         } else if route == "/automation" {
             self.automation_page.clone().into_any_element()
+        } else if route == "/welcome" {
+            self.onboarding_page.clone().into_any_element()
         } else {
             // Halaman lain (Pengaturan, Memori, Otomasi, Tampilan, Onboarding) — diport bertahap.
             div().size_full().into_any_element()
