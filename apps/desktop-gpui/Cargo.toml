@@ -1,7 +1,7 @@
 [package]
 name = "zandor-gpui"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 # Crate terpisah dari workspace utama: GPUI berat & diambil dari git Zed.
@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed" }
+unicode-segmentation = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rust-embed = { version = "8", features = ["include-exclude"] }

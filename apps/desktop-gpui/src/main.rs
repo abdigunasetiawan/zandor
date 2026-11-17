@@ -48,6 +48,8 @@ fn main() {
     gpui_platform::application()
         .with_assets(assets::Assets)
         .run(|cx: &mut App| {
+            assets::load_fonts(cx);
+            ui::text_input::bind_keys(cx);
             cx.set_global(Theme::new(ThemeMode::Dark, true, 1.0));
             cx.set_global(I18n::new(detect_locale(std::env::var("LANG").ok().as_deref())));
             let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
