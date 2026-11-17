@@ -57,6 +57,7 @@ impl Root {
         let settings = crate::core::settings::SettingsStore::global(cx);
         cx.observe_in(&settings, window, |_, _, w, cx| apply_settings(w, cx)).detach();
         cx.observe_window_appearance(window, |_, w, cx| apply_settings(w, cx)).detach();
+        cx.observe_in(&crate::core::appearance::AppearanceStore::global(cx), window, |_, _, w, cx| apply_settings(w, cx)).detach();
         apply_settings(window, cx);
         let lay = layout.clone();
         let app2 = app.clone();
@@ -202,7 +203,9 @@ pub fn apply_settings(window: &mut Window, cx: &mut App) {
     let scale = st.num("uiScale") as f32;
     let locale = if st.str("language") == "en" { Locale::En } else { Locale::Id };
     let system_dark = matches!(window.appearance(), gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark);
-    cx.set_global(Theme::new(mode, system_dark, if scale > 0. { scale } else { 1.0 }));
+    let mut theme = Theme::new(mode, system_dark, if scale > 0. { scale } else { 1.0 });
+    crate::core::appearance::AppearanceStore::global(cx).read(cx).apply(&mut theme.colors, theme.dark);
+    cx.set_global(theme);
     cx.set_global(I18n::new(locale));
     window.refresh();
 }

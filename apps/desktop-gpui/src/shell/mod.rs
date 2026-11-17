@@ -14,5 +14,6 @@ pub mod sidebar;
 pub mod settings_page;
 pub mod state;
 pub mod terminal;
+pub mod themes_section;
 pub mod titlebar;
 pub mod tools;

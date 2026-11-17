@@ -36,6 +36,7 @@ pub struct SettingsPage {
     models: Option<Result<Vec<ModelOption>, String>>,
     providers: Entity<super::providers_section::ProvidersSection>,
     profile: Entity<super::profile_section::ProfileSection>,
+    themes: Entity<super::themes_section::ThemesSection>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -59,7 +60,8 @@ impl SettingsPage {
         .detach();
         let providers = cx.new(super::providers_section::ProvidersSection::new);
         let profile = cx.new(super::profile_section::ProfileSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile };
+        let themes = cx.new(super::themes_section::ThemesSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes };
         me.load_models(cx);
         me
     }
@@ -286,6 +288,9 @@ impl Render for SettingsPage {
                     )
                     .into_any_element(),
                 );
+            }
+            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.themes"), &i.t("ap.title")]) {
+                rows.push(div().py(t.space(2)).child(self.themes.clone()).into_any_element());
             }
             if !rows.is_empty() {
                 content = content.child(group(&t, i.t(&format!("settings.{g}")), rows));
