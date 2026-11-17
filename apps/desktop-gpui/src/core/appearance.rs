@@ -346,6 +346,9 @@ pub struct AppearanceStore {
     pub shortcuts: std::collections::BTreeMap<String, String>,
     /// Gaya project: id project → { logo, border, background, fg, … }.
     pub projects: std::collections::BTreeMap<String, Map<String, Value>>,
+    /// Tema editor terpilih ("auto", bawaan Monaco, atau id tema terpasang).
+    pub editor_theme: String,
+    pub editor_themes: Vec<crate::core::editor_theme::EditorTheme>,
 }
 struct Handle(Entity<AppearanceStore>);
 impl Global for Handle {}
@@ -401,7 +404,13 @@ impl AppearanceStore {
             .and_then(Value::as_object)
             .map(|o| o.iter().filter_map(|(k, v)| v.as_object().map(|m| (k.clone(), m.clone()))).collect())
             .unwrap_or_default();
-        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat, shortcuts, projects });
+        let editor_theme = raw.get("editorTheme").and_then(Value::as_str).unwrap_or("auto").to_string();
+        let editor_themes = raw
+            .get("editorThemes")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(crate::core::editor_theme::sanitize_editor_theme).collect())
+            .unwrap_or_default();
+        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat, shortcuts, projects, editor_theme, editor_themes });
         cx.set_global(Handle(e.clone()));
         e
     }
@@ -569,6 +578,8 @@ impl AppearanceStore {
         self.raw.insert("chat".into(), Value::Object(self.chat.clone()));
         self.raw.insert("projects".into(), serde_json::to_value(&self.projects).unwrap_or(json!({})));
         self.raw.insert("shortcuts".into(), serde_json::to_value(&self.shortcuts).unwrap_or(json!({})));
+        self.raw.insert("editorTheme".into(), json!(self.editor_theme));
+        self.raw.insert("editorThemes".into(), Value::Array(self.editor_themes.iter().map(|t| t.to_json()).collect()));
         self.raw.insert("version".into(), json!(1));
         self.raw.insert("preset".into(), json!(self.preset));
         self.raw.insert("customThemes".into(), Value::Array(self.custom.iter().map(ThemeDef::to_json).collect()));
@@ -639,6 +650,38 @@ impl AppearanceStore {
         self.chat.clear();
         self.shortcuts.clear();
         self.projects.clear();
+        self.editor_theme = "auto".into();
+        self.editor_themes.clear();
+        self.save(cx);
+    }
+
+    /// Terapkan warna sintaks dari tema editor terpilih.
+    pub fn apply_editor(&self, c: &mut crate::theme::Colors) {
+        let list = crate::core::editor_theme::code_colors_for(&self.editor_theme, &self.editor_themes);
+        crate::core::editor_theme::apply_code_colors(c, &list);
+    }
+
+    pub fn set_editor_theme(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.editor_theme = id.to_string();
+        self.save(cx);
+    }
+
+    /// Pasang/ganti tema editor (maks 30).
+    pub fn install_editor_theme(&mut self, t: crate::core::editor_theme::EditorTheme, cx: &mut Context<Self>) -> Result<(), String> {
+        match self.editor_themes.iter().position(|x| x.id == t.id) {
+            Some(i) => self.editor_themes[i] = t,
+            None if self.editor_themes.len() >= crate::core::editor_theme::MAX_EDITOR_THEMES => return Err("terlalu banyak tema editor".into()),
+            None => self.editor_themes.push(t),
+        }
+        self.save(cx);
+        Ok(())
+    }
+
+    pub fn remove_editor_theme(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.editor_themes.retain(|t| t.id != id);
+        if self.editor_theme == id {
+            self.editor_theme = "auto".into();
+        }
         self.save(cx);
     }
 }

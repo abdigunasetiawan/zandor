@@ -211,6 +211,7 @@ pub fn apply_settings(window: &mut Window, cx: &mut App) {
         let ap = crate::core::appearance::AppearanceStore::global(cx).read(cx);
         ap.apply(&mut theme.colors, theme.dark);
         ap.apply_type(&mut theme);
+        ap.apply_editor(&mut theme.colors);
     }
     cx.set_global(theme);
     cx.set_global(I18n::new(locale));
