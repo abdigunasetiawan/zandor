@@ -46,6 +46,7 @@ import {
   RefreshIcon,
   SearchField,
   SearchIcon,
+  Select,
   SettingsIcon,
   Spinner,
   Switch,
@@ -282,20 +283,22 @@ function SidebarActions() {
 /** Tombol tambah project (pilih folder / path); `labelled` = tombol berteks (dipakai tur pengenalan). */
 export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; onAdded?: () => void } = {}) {
   const { t } = useI18n();
-  const { host, projects } = useServices();
+  const { host, projects, memory } = useServices();
   const fail = useErrorToast();
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState("");
+  // "local" atau id engine remote; pilihan engine hanya tampil bila ada engine remote.
+  const [engine, setEngine] = useState("local");
   const state = useProjects();
   const mem = useMemory();
-  const { memory } = useServices();
   // Folder baru menunggu persetujuan "percayai" (dialog yang sama memuat pilihan memori project).
-  const [trust, setTrust] = useState<string | null>(null);
+  const [trust, setTrust] = useState<{ path: string; engine: string | null } | null>(null);
   const [memOn, setMemOn] = useState(false);
+  const hasRemotes = state.remotes.length > 0;
 
-  const commit = async (p: string, memoryChoice: boolean | null) => {
+  const commit = async (p: string, eng: string | null, memoryChoice: boolean | null) => {
     try {
-      await projects.addProject(p);
+      await projects.addProject(p, eng);
       // Simpan pilihan memori hanya bila berbeda dari bawaan, agar project tetap "ikuti bawaan" bila tidak diubah.
       if (memoryChoice !== null && memoryChoice !== mem.settings.defaultEnabled) {
         await memory.setProjectEnabled(await projectKey(p), memoryChoice);
@@ -305,24 +308,27 @@ export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; 
       fail(e);
     }
   };
-  const add = async (p: string) => {
+  const add = async (p: string, eng: string | null) => {
     // Folder baru harus dipercaya dulu: agent bisa membaca, mengubah, dan menjalankan perintah di dalamnya.
     const known = state.projects.some((x) => pathKey(x.path) === pathKey(p));
-    if (known) return commit(p, null);
+    if (known) return commit(p, eng, null);
     setMemOn(mem.settings.defaultEnabled);
-    setTrust(p);
+    setTrust({ path: p, engine: eng });
     // Pengaturan memori dimuat malas; baca sekarang agar sakelar mengikuti bawaan yang sebenarnya.
-    void memory.loadSettings().then(() => setMemOn(memory.state().settings.defaultEnabled));
+    if (!eng) void memory.loadSettings().then(() => setMemOn(memory.state().settings.defaultEnabled));
   };
+  const pickLocal = async () =>
+    host.pickFolder().catch((e) => {
+      fail(e);
+      return null;
+    });
   const onClick = async () => {
-    if (host.native) {
-      const picked = await host.pickFolder().catch((e) => {
-        fail(e);
-        return null;
-      });
-      if (picked) await add(picked);
+    if (host.native && !hasRemotes) {
+      const picked = await pickLocal();
+      if (picked) await add(picked, null);
     } else {
       setPath("");
+      setEngine("local");
       setOpen(true);
     }
   };
@@ -330,15 +336,16 @@ export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; 
     e.preventDefault();
     if (!path.trim()) return;
     setOpen(false);
-    void add(path);
+    void add(path, engine === "local" ? null : engine);
   };
+  const remoteName = (id: string | null) => state.remotes.find((r) => r.id === id)?.name ?? "";
   return (
     <>
       <Dialog
         open={trust !== null}
         onOpenChange={(o) => !o && setTrust(null)}
         title={t("sb.trustTitle")}
-        description={t("sb.trustBody", { path: trust ?? "" })}
+        description={t("sb.trustBody", { path: trust?.path ?? "" })}
         footer={
           <>
             <Button onClick={() => setTrust(null)}>{t("ui.cancel")}</Button>
@@ -346,9 +353,9 @@ export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; 
               variant="solid"
               autoFocus
               onClick={() => {
-                const p = trust;
+                const tr = trust;
                 setTrust(null);
-                if (p) void commit(p, memOn);
+                if (tr) void commit(tr.path, tr.engine, tr.engine ? null : memOn);
               }}
             >
               {t("sb.trustYes")}
@@ -356,10 +363,17 @@ export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; 
           </>
         }
       >
-        <div className="trust__memory">
-          <Switch label={t("sb.trustMemory")} checked={memOn} onCheckedChange={setMemOn} />
-          <p className="z-small trust__hint">{t("sb.trustMemoryHint")}</p>
-        </div>
+        {trust?.engine ? (
+          <div className="trust__memory">
+            <Badge>{t("remote.badge", { name: remoteName(trust.engine) })}</Badge>
+            <p className="z-small trust__hint">{t("remote.noMemory")}</p>
+          </div>
+        ) : (
+          <div className="trust__memory">
+            <Switch label={t("sb.trustMemory")} checked={memOn} onCheckedChange={setMemOn} />
+            <p className="z-small trust__hint">{t("sb.trustMemoryHint")}</p>
+          </div>
+        )}
       </Dialog>
       {labelled ? (
         <Button variant="solid" onClick={() => void onClick()}>
@@ -382,10 +396,39 @@ export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; 
           </>
         }
       >
-        <form id="add-project-form" onSubmit={submit}>
-          <Field label={t("sb.path")}>
+        <form id="add-project-form" className="addproj__form" onSubmit={submit}>
+          {hasRemotes && (
+            <div className="addproj__engine">
+              <span className="z-label" aria-hidden="true">
+                {t("remote.engine")}
+              </span>
+              <Select
+                aria-label={t("remote.engine")}
+                value={engine}
+                onValueChange={setEngine}
+                items={[
+                  { value: "local", label: t("remote.local") },
+                  ...state.remotes.map((r) => ({ value: r.id, label: r.name })),
+                ]}
+              />
+            </div>
+          )}
+          <Field label={t("sb.path")} description={engine === "local" ? undefined : t("remote.pathHint")}>
             {(c) => <Input {...c} value={path} onChange={(e) => setPath(e.target.value)} autoFocus />}
           </Field>
+          {host.native && engine === "local" && (
+            <div>
+              <Button
+                onClick={() =>
+                  void pickLocal().then((picked) => {
+                    if (picked) setPath(picked);
+                  })
+                }
+              >
+                <FolderOpenIcon size="sm" /> {t("sb.pickFolder")}
+              </Button>
+            </div>
+          )}
         </form>
       </Dialog>
     </>
@@ -415,6 +458,17 @@ function SessionsList({
   onToggle: (key: ProjectKey) => void;
 }) {
   const { t } = useI18n();
+  const remoteTitle = (id: string) => {
+    const r = state.remotes.find((x) => x.id === id);
+    const st = state.remoteStatus[id];
+    const status =
+      st?.status === "ready"
+        ? t("remote.ready", { version: st.version ?? "?" })
+        : st?.status === "error"
+          ? `${t("remote.failed")}: ${st.error ?? ""}`
+          : t("remote.checking");
+    return `${t("remote.badge", { name: r?.name ?? id })} · ${status}`;
+  };
   const settings = useSettings();
   const { projects: store, sidebarPrefs, docHost } = useServices();
   const prefs = useSidebarPrefs();
@@ -560,7 +614,9 @@ function SessionsList({
                     label={t("sb.newSessionIn", { name: label })}
                     size="sm"
                     icon={<PlusIcon />}
-                    disabled={!state.engineReady}
+                    disabled={
+                      project?.engine ? state.remoteStatus[project.engine]?.status !== "ready" : !state.engineReady
+                    }
                     onClick={() => run(store.createSession(key))}
                   />
                 </header>
@@ -601,6 +657,16 @@ function SessionsList({
                       <ChatIcon size="sm" />
                     )}
                     <span className="tree__label">{label}</span>
+                    {project?.engine && (
+                      <span
+                        className="tree__remote"
+                        data-status={state.remoteStatus[project.engine]?.status ?? "checking"}
+                        title={remoteTitle(project.engine)}
+                      >
+                        <GlobeIcon size="sm" />
+                        <span className="z-visually-hidden">{remoteTitle(project.engine)}</span>
+                      </span>
+                    )}
                     {project && prefs.pinnedProjects.includes(project.id) && (
                       <PinIcon size="sm" className="tree__pinmark" />
                     )}
@@ -610,7 +676,9 @@ function SessionsList({
                     size="sm"
                     icon={<PlusIcon />}
                     className="tree__action"
-                    disabled={!state.engineReady}
+                    disabled={
+                      project?.engine ? state.remoteStatus[project.engine]?.status !== "ready" : !state.engineReady
+                    }
                     onClick={() => run(store.createSession(key))}
                   />
                   <Menu

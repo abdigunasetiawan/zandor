@@ -6217,3 +6217,68 @@ fieldset.pstyle__templates {
   margin: 0;
   color: var(--z-color-fg-muted);
 }
+
+/* Engine remote (RemoteEngines.tsx) dan pilihan engine di dialog Tambah project */
+.addproj__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+}
+.addproj__engine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+}
+.remote__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.remote__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-2);
+  padding: var(--z-space-2) var(--z-space-3);
+  border-radius: var(--z-radius-md);
+  background: var(--z-color-surface);
+}
+.remote__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.remote__muted {
+  color: var(--z-color-fg-muted);
+}
+.remote__error {
+  margin: 0;
+  color: var(--z-color-danger);
+}
+.remote__checking {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--z-space-1);
+  color: var(--z-color-fg-muted);
+}
+.remote__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+}
+.tree__remote {
+  display: inline-flex;
+  flex: none;
+  color: var(--z-color-fg-muted);
+}
+.tree__remote[data-status="ready"] {
+  color: var(--z-color-success);
+}
+.tree__remote[data-status="error"] {
+  color: var(--z-color-danger);
+}

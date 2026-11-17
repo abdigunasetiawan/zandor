@@ -16,6 +16,7 @@ import {
   type CommandDef,
   CommandRegistry,
   ConnectionStore,
+  createEngineApi,
   DocStore,
   type DocsState,
   type EngineState,
@@ -191,6 +192,7 @@ export function createServices(options: {
     },
   };
   const modelPrefs = new ModelPrefs(lsPrefs, (m) => options.logger.warn(m));
+  const terminals = new TerminalStore();
   const chat = new ChatStore({
     defaultModel: () => modelPrefs.state().defaultChat,
     prefs: {
@@ -232,10 +234,16 @@ export function createServices(options: {
         removeIfEmpty: (path) => options.host.chatFolderRemoveIfEmpty(path),
       },
       onWarning: (m) => options.logger.warn(m),
+      // Engine remote (URL + Basic Auth) dan klien gabungan per project: chat dan terminal memakai klien gabungan.
+      createApi: (info) => createEngineApi(info),
+      onApi: (api) => {
+        chat.setApi(api);
+        terminals.setClient(api ? api.pty : null);
+      },
     }),
     chat,
     docHost: options.docHost,
-    terminals: new TerminalStore(),
+    terminals,
     git: new GitStore(options.gitHost),
     memory: new MemoryStore(options.memoryHost, {
       // Engine menyimpan cache skill per instance: skill yang baru disetujui/diubah/dihapus harus dimuat ulang (ADR-063).

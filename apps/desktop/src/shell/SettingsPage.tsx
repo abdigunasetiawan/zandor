@@ -15,6 +15,7 @@ import {
   DatabaseIcon,
   EyeIcon,
   FileIcon,
+  GlobeIcon,
   IconButton,
   LayoutIcon,
   SearchField,
@@ -35,11 +36,12 @@ import { MemoryPage } from "./MemoryPage";
 import { ModelSettings } from "./ModelSettings";
 import { NotificationExtras } from "./NotificationSettings";
 import { ProfileSettings } from "./ProfileSettings";
+import { RemoteEngines } from "./RemoteEngines";
 import { useServices, useSettings } from "./services";
 
 const GROUPS = ["general", "appearance", "chat", "notifications", "tools", "layout"] as const;
 type Group = (typeof GROUPS)[number];
-const EXTRA_SECTIONS = ["profile", "documents", "models", "memory", "automation", "data"] as const;
+const EXTRA_SECTIONS = ["profile", "documents", "models", "engines", "memory", "automation", "data"] as const;
 type Section = Group | (typeof EXTRA_SECTIONS)[number];
 /** Kategori tambahan yang bisa dituju dari rute (#/settings/models, alias /memory, /appearance, /automation). */
 export type SettingsSection = Section;
@@ -53,6 +55,7 @@ const SECTION_ICONS: Record<Section, ReactNode> = {
   tools: <WrenchIcon size="sm" />,
   layout: <LayoutIcon size="sm" />,
   models: <BrainIcon size="sm" />,
+  engines: <GlobeIcon size="sm" />,
   memory: <BookmarkIcon size="sm" />,
   automation: <ClockIcon size="sm" />,
   data: <DatabaseIcon size="sm" />,
@@ -186,6 +189,7 @@ export function SettingsPage({ initial = null }: { initial?: SettingsSection | n
     ...GROUPS.map((g) => ({ id: g as Section, label: t(`settings.${g}` as MessageKey) })),
     { id: "documents", label: t("docStyle.section") },
     { id: "models", label: t("settings.models") },
+    { id: "engines", label: t("settings.engines") },
     { id: "memory", label: t("settings.more.memory") },
     { id: "automation", label: t("settings.more.automation") },
     { id: "data", label: t("settings.data") },
@@ -334,6 +338,10 @@ export function SettingsPage({ initial = null }: { initial?: SettingsSection | n
                   <ModelSettings />
                 </div>
               )}
+
+            {show("engines") && matchesText(t("settings.engines"), t("remote.intro"), t("remote.add")) && (
+              <RemoteEngines />
+            )}
 
             {show("memory") &&
               matchesText(t("settings.more.memory"), t("settings.more.memoryBody"), t("mem.title")) && (

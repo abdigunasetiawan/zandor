@@ -142,6 +142,7 @@ describe("routing", () => {
     ["/settings", { page: "settings", section: null }],
     ["/settings/", { page: "settings", section: null }],
     ["/settings/models", { page: "settings", section: "models" }],
+    ["/settings/engines", { page: "settings", section: "engines" }],
     ["/providers", { page: "settings", section: "models" }],
     ["/design-system", { page: "design-system", section: null }],
     ["/design-system/atoms", { page: "design-system", section: "atoms" }],

@@ -35,7 +35,22 @@ Diurutkan terbaru dulu. Judul bawaan engine tampil sebagai "Sesi tanpa judul". P
 
 ## Batasan (jujur)
 
-- UI gaya/warna project ada (ADR-051). Remote engine belum (Fase 11). Single-instance: instans kedua langsung keluar dan memunculkan jendela yang sudah berjalan (`tauri-plugin-single-instance`, ADR-057); terbukti di build debug: instans kedua keluar sendiri dan hanya satu proses yang tersisa. Hanya Windows.
+- UI gaya/warna project ada (ADR-051). Engine remote lewat URL ada (ADR-076, lihat di bawah). Single-instance: instans kedua langsung keluar dan memunculkan jendela yang sudah berjalan (`tauri-plugin-single-instance`, ADR-057); terbukti di build debug: instans kedua keluar sendiri dan hanya satu proses yang tersisa. Hanya Windows.
+
+## Engine remote (ADR-076)
+
+- **Pengaturan → Engine remote** (`#/settings/engines`): tambah engine opencode yang sudah berjalan di mesin lain (nama,
+  URL, nama pengguna, kata sandi `OPENCODE_SERVER_PASSWORD`). URL ke mesin lain wajib HTTPS; HTTP hanya ke localhost
+  (tunnel SSH). Status dari health check nyata (Memeriksa / Tersambung · versi / Gagal tersambung + sebab), tombol Cek,
+  Ubah, Hapus (ditolak selama dipakai project).
+- **Tambah project**: bila ada engine remote, dialog menampilkan pilihan **Engine**; untuk remote, path diketik (path di
+  mesin engine). Baris project remote memakai penanda globe berwarna status; sesi baru nonaktif bila engine-nya tidak siap.
+- Chat, daftar sesi, pohon file, perubahan sesi, dan terminal project remote berjalan di engine remote; model/provider,
+  Chat tanpa project, dan memori tetap lokal.
+- **Batasan:** sandi tersimpan tanpa enkripsi di registry; Panel 3 belum bisa membuka berkas project remote (membaca disk
+  lokal); engine project ditetapkan saat ditambah.
+- **Tes:** `packages/core/src/engine/remote.test.ts` (validasi URL, router, ProjectStore), e2e `remote-engine.spec.ts`
+  (engine tiruan kedua di `https://remote.test`).
 
 ## Cara test
 

@@ -53,6 +53,8 @@ export type MockEngine = {
 export type MockOptions = {
   /** Semua panggilan gagal 500. */
   fail?: boolean;
+  /** Asal URL engine tiruan; diisi untuk engine kedua (remote). Bawaan http://engine.test. */
+  host?: string;
   /** Tampilkan tur pengenalan (bawaan: mati). */
   onboarding?: boolean;
   /** Daftar model; default satu model. Kosong = tidak ada provider. */
@@ -146,14 +148,17 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
   const id = (p: string) => `${p}_${String(++n).padStart(6, "0")}`;
   const models = opts.models ?? [{ id: "m-satu", name: "Model Satu" }];
 
-  await page.addInitScript((tour: boolean) => {
-    if (!localStorage.getItem("zandor.engine.override")) {
-      localStorage.setItem("zandor.engine.override", JSON.stringify({ url: "http://engine.test", password: "x" }));
-      localStorage.setItem("zandor.chatsDir", "C:\\data\\chats");
-    }
-    // Tur pengenalan tidak muncul otomatis di browser otomatis kecuali tes memintanya.
-    if (tour) localStorage.setItem("zandor.e2e.tour", "1");
-  }, opts.onboarding ?? false);
+  // Engine kedua (mis. engine remote) di host lain: tanpa init script dan tanpa WebSocket PTY (milik engine utama).
+  const secondary = opts.host !== undefined;
+  if (!secondary)
+    await page.addInitScript((tour: boolean) => {
+      if (!localStorage.getItem("zandor.engine.override")) {
+        localStorage.setItem("zandor.engine.override", JSON.stringify({ url: "http://engine.test", password: "x" }));
+        localStorage.setItem("zandor.chatsDir", "C:\\data\\chats");
+      }
+      // Tur pengenalan tidak muncul otomatis di browser otomatis kecuali tes memintanya.
+      if (tour) localStorage.setItem("zandor.e2e.tour", "1");
+    }, opts.onboarding ?? false);
 
   const emit = (type: string, properties: unknown) => queue.push({ id: id("evt"), type, properties });
   state.addStep = (sid, part) => {
@@ -435,7 +440,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     finish();
   };
 
-  await page.route("http://engine.test/**", async (route) => {
+  await page.route(`${opts.host ?? "http://engine.test"}/**`, async (route) => {
     const req = route.request();
     const url = new URL(req.url());
     const dir = url.searchParams.get("directory") ?? req.headers()["x-opencode-directory"] ?? "";
@@ -827,32 +832,33 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     return json({ message: `tidak ditangani: ${req.method()} ${p}` }, 404);
   });
   // WebSocket PTY tiruan: prompt, gema ketikan, "perintah" dijawab, riwayat diputar ulang saat tersambung lagi.
-  await page.routeWebSocket(/\/pty\/[^/?]+\/connect/, (ws) => {
-    const id = decodeURIComponent(new URL(ws.url()).pathname.split("/")[2] ?? "");
-    state.pty.connects++;
-    sockets.set(id, ws);
-    const prompt = "PS C:\\Work> ";
-    const hist = history.get(id) ?? prompt;
-    history.set(id, hist);
-    ws.send(hist);
-    let line = "";
-    ws.onMessage((m) => {
-      const data = String(m);
-      state.pty.inputs.push(data);
-      for (const ch of data) {
-        if (ch === "\r") {
-          const out = `\r\nhasil:${line}\r\n${prompt}`;
-          line = "";
-          history.set(id, (history.get(id) ?? "") + out);
-          ws.send(out);
-        } else {
-          line += ch;
-          history.set(id, (history.get(id) ?? "") + ch);
-          ws.send(ch);
+  if (!secondary)
+    await page.routeWebSocket(/\/pty\/[^/?]+\/connect/, (ws) => {
+      const id = decodeURIComponent(new URL(ws.url()).pathname.split("/")[2] ?? "");
+      state.pty.connects++;
+      sockets.set(id, ws);
+      const prompt = "PS C:\\Work> ";
+      const hist = history.get(id) ?? prompt;
+      history.set(id, hist);
+      ws.send(hist);
+      let line = "";
+      ws.onMessage((m) => {
+        const data = String(m);
+        state.pty.inputs.push(data);
+        for (const ch of data) {
+          if (ch === "\r") {
+            const out = `\r\nhasil:${line}\r\n${prompt}`;
+            line = "";
+            history.set(id, (history.get(id) ?? "") + out);
+            ws.send(out);
+          } else {
+            line += ch;
+            history.set(id, (history.get(id) ?? "") + ch);
+            ws.send(ch);
+          }
         }
-      }
+      });
+      ws.onClose(() => sockets.delete(id));
     });
-    ws.onClose(() => sockets.delete(id));
-  });
   return state;
 }

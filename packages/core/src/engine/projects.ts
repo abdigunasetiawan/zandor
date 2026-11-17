@@ -4,12 +4,28 @@
 // - SESI dimiliki engine dan terikat ke direktori (`GET /session?directory=`). Sesi tanpa project ("Chat")
 //   memakai direktori khusus milik Zandor.
 // Hapus project = lepas dari daftar; sesi di engine TIDAK dihapus.
-import { type EngineApi, isDefaultSessionTitle, type SessionInfo } from "./api";
+import { type EngineApi, type EngineConnectionInfo, isDefaultSessionTitle, type SessionInfo } from "./api";
+import {
+  createRoutedApi,
+  normalizeRemoteUrl,
+  type RemoteEngine,
+  type RemoteStatus,
+  type RouteTarget,
+  remoteUrlProblem,
+} from "./remote";
 
 export const CHAT_KEY = "chat" as const;
 export type ProjectKey = string; // id project atau CHAT_KEY
 
-export type Project = { id: string; path: string; name: string; color: string | null; addedAt: number };
+export type Project = {
+  id: string;
+  path: string;
+  name: string;
+  color: string | null;
+  addedAt: number;
+  /** Id engine remote; tidak ada = engine lokal. Path adalah path di mesin engine itu. */
+  engine?: string;
+};
 export type SessionsState = {
   status: "idle" | "loading" | "ready" | "error";
   items: SessionInfo[];
@@ -28,6 +44,10 @@ export type ProjectsState = {
   selection: Selection;
   /** Sesi yang dibuka sebagai tab di atas panel Chat (urutan dibuka). */
   tabs: SessionTab[];
+  /** Engine remote terdaftar (URL + Basic Auth). */
+  remotes: RemoteEngine[];
+  /** Status koneksi tiap engine remote (hasil cek health terakhir). */
+  remoteStatus: Record<string, RemoteStatus>;
 };
 
 export type RegistryStorage = { load(): Promise<string | null>; save(text: string): Promise<void> };
@@ -65,7 +85,13 @@ export function baseName(path: string): string {
 const emptySessions = (): SessionsState => ({ status: "idle", items: [], error: null });
 const byRecent = (a: SessionInfo, b: SessionInfo) => b.time.updated - a.time.updated || b.time.created - a.time.created;
 
-type Persisted = { version: number; projects: Project[]; selection: Selection; tabs: SessionTab[] };
+type Persisted = {
+  version: number;
+  projects: Project[];
+  selection: Selection;
+  tabs: SessionTab[];
+  remotes?: RemoteEngine[];
+};
 
 function parseRegistry(text: string | null): { value: Persisted | null; error: string | null } {
   if (!text) return { value: null, error: null };
@@ -93,7 +119,22 @@ function parseRegistry(text: string | null): { value: Persisted | null; error: s
       name: p.name,
       color: typeof p.color === "string" && isProjectColor(p.color) ? p.color : null,
       addedAt: typeof p.addedAt === "number" ? p.addedAt : 0,
+      ...(typeof p.engine === "string" && p.engine ? { engine: p.engine } : {}),
     });
+  }
+  const remotes: RemoteEngine[] = [];
+  const rawRemotes = (o as { remotes?: unknown }).remotes;
+  if (Array.isArray(rawRemotes)) {
+    for (const r of rawRemotes as Array<Partial<RemoteEngine>>) {
+      if (typeof r?.id !== "string" || typeof r.url !== "string" || remotes.some((x) => x.id === r.id)) continue;
+      remotes.push({
+        id: r.id,
+        name: typeof r.name === "string" && r.name.trim() ? r.name : r.url,
+        url: r.url,
+        username: typeof r.username === "string" && r.username ? r.username : "opencode",
+        password: typeof r.password === "string" ? r.password : "",
+      });
+    }
   }
   const sel = o.selection as Partial<Selection> | undefined;
   const selection: Selection = {
@@ -112,7 +153,10 @@ function parseRegistry(text: string | null): { value: Persisted | null; error: s
       }
     }
   }
-  return { value: { version: REGISTRY_VERSION, projects, selection, tabs: tabs.slice(-MAX_TABS) }, error: null };
+  return {
+    value: { version: REGISTRY_VERSION, projects, selection, tabs: tabs.slice(-MAX_TABS), remotes },
+    error: null,
+  };
 }
 
 /**
@@ -146,6 +190,10 @@ export type ProjectStoreOptions = {
   newId?: () => string;
   now?: () => number;
   onWarning?: (message: string) => void;
+  /** Pembuat klien engine untuk engine remote (App memakai `createEngineApi`). Tanpa ini engine remote tidak dipakai. */
+  createApi?: (info: EngineConnectionInfo) => EngineApi;
+  /** Dipanggil setiap klien gabungan berganti (engine lokal/remote berubah) agar store lain ikut memakainya. */
+  onApi?: (api: EngineApi | null) => void;
 };
 
 export class ProjectStore {
@@ -157,9 +205,14 @@ export class ProjectStore {
     sessions: {},
     selection: { key: null, sessionId: null },
     tabs: [],
+    remotes: [],
+    remoteStatus: {},
   };
   private listeners = new Set<() => void>();
   private api: EngineApi | null = null;
+  private local: EngineApi | null = null;
+  private remoteApis = new Map<string, EngineApi>();
+  private checkSeq = new Map<string, number>();
   private requestSeq = new Map<ProjectKey, number>();
   private readonly newId: () => string;
   private readonly now: () => number;
@@ -196,6 +249,7 @@ export class ProjectStore {
       projects: this.snap.projects,
       selection: this.snap.selection,
       tabs: this.snap.tabs,
+      ...(this.snap.remotes.length ? { remotes: this.snap.remotes } : {}),
     };
     await this.options.storage.save(JSON.stringify(data));
   }
@@ -210,7 +264,10 @@ export class ProjectStore {
       projects: value?.projects ?? [],
       selection: value?.selection ?? { key: null, sessionId: null },
       tabs: value?.tabs ?? [],
+      remotes: value?.remotes ?? [],
     });
+    for (const r of this.snap.remotes) this.connectRemote(r);
+    if (this.snap.remotes.length) this.rebuildApi();
   }
 
   setChatDir(dir: string | null) {
@@ -224,10 +281,116 @@ export class ProjectStore {
     return this.api;
   }
 
+  /** Pasang engine lokal (null = belum siap). Klien gabungan dibangun ulang; semua daftar sesi dimuat ulang. */
   setApi(api: EngineApi | null) {
-    this.api = api;
-    this.update({ engineReady: api !== null });
-    if (api) void this.refreshAll();
+    this.local = api;
+    this.rebuildApi();
+  }
+
+  /**
+   * Klien gabungan: tanpa engine remote = klien lokal apa adanya (perilaku lama); dengan engine remote = router per
+   * direktori project. `engineReady` tetap menggambarkan engine lokal.
+   */
+  private rebuildApi() {
+    this.api =
+      this.remoteApis.size > 0
+        ? createRoutedApi({
+            local: this.local,
+            remote: (id) => this.remoteApis.get(id) ?? null,
+            route: (dir) => this.routeOf(dir),
+            remoteName: (id) => this.snap.remotes.find((r) => r.id === id)?.name ?? id,
+          })
+        : this.local;
+    this.update({ engineReady: this.local !== null });
+    this.options.onApi?.(this.api);
+    if (this.api) void this.refreshAll();
+  }
+
+  /** Engine untuk direktori: project yang memuatnya (atau sama persis) menentukan; lainnya (Chat) lokal. */
+  routeOf(directory: string): RouteTarget {
+    const k = pathKey(directory);
+    let best: Project | null = null;
+    for (const p of this.snap.projects) {
+      const pk = pathKey(p.path);
+      const base = pk.replace(/[\\/]+$/, "");
+      const inside = k === pk || k.startsWith(`${base}/`) || k.startsWith(`${base}\\`);
+      if (inside && (!best || pk.length > pathKey(best.path).length)) best = p;
+    }
+    return best?.engine ? { kind: "remote", id: best.engine } : { kind: "local" };
+  }
+
+  // ---------- engine remote ----------
+
+  private connectRemote(r: RemoteEngine) {
+    const make = this.options.createApi;
+    if (!make) return;
+    this.remoteApis.set(r.id, make({ url: r.url, username: r.username, password: r.password }));
+    void this.checkRemote(r.id);
+  }
+
+  /** Cek health engine remote; status jujur (galat berisi sebab nyata). */
+  async checkRemote(id: string): Promise<RemoteStatus | null> {
+    const api = this.remoteApis.get(id);
+    if (!api) return null;
+    const seq = (this.checkSeq.get(id) ?? 0) + 1;
+    this.checkSeq.set(id, seq);
+    const set = (s: RemoteStatus) => {
+      if (this.checkSeq.get(id) !== seq || !this.snap.remotes.some((r) => r.id === id)) return;
+      this.update({ remoteStatus: { ...this.snap.remoteStatus, [id]: s } });
+    };
+    set({ status: "checking", version: null, error: null });
+    let result: RemoteStatus;
+    try {
+      const h = await api.health();
+      result = { status: "ready", version: h.version, error: null };
+    } catch (e) {
+      result = { status: "error", version: null, error: e instanceof Error ? e.message : String(e) };
+    }
+    set(result);
+    return result;
+  }
+
+  private validateRemote(input: Omit<RemoteEngine, "id">): Omit<RemoteEngine, "id"> {
+    const url = normalizeRemoteUrl(input.url);
+    const problem = remoteUrlProblem(url);
+    if (problem === "insecure")
+      throw new Error("URL engine di mesin lain harus HTTPS (HTTP hanya untuk localhost/tunnel)");
+    if (problem) throw new Error("URL engine tidak valid");
+    return {
+      name: input.name.trim() || url,
+      url,
+      username: input.username.trim() || "opencode",
+      password: input.password,
+    };
+  }
+
+  async addRemote(input: Omit<RemoteEngine, "id">): Promise<RemoteEngine> {
+    const remote: RemoteEngine = { id: this.newId(), ...this.validateRemote(input) };
+    this.update({ remotes: [...this.snap.remotes, remote] });
+    await this.persist();
+    this.connectRemote(remote);
+    this.rebuildApi();
+    return remote;
+  }
+
+  async updateRemote(id: string, input: Omit<RemoteEngine, "id">): Promise<void> {
+    if (!this.snap.remotes.some((r) => r.id === id)) throw new Error("engine remote tidak ditemukan");
+    const next: RemoteEngine = { id, ...this.validateRemote(input) };
+    this.update({ remotes: this.snap.remotes.map((r) => (r.id === id ? next : r)) });
+    await this.persist();
+    this.connectRemote(next);
+    this.rebuildApi();
+  }
+
+  /** Hapus engine remote. Ditolak selama masih dipakai project (lepas project-nya dulu). */
+  async removeRemote(id: string): Promise<void> {
+    const users = this.snap.projects.filter((p) => p.engine === id);
+    if (users.length) throw new Error(`engine masih dipakai project: ${users.map((p) => p.name).join(", ")}`);
+    const { [id]: _gone, ...status } = this.snap.remoteStatus;
+    this.update({ remotes: this.snap.remotes.filter((r) => r.id !== id), remoteStatus: status });
+    this.remoteApis.delete(id);
+    await this.persist();
+    this.rebuildApi();
   }
 
   private directoryOf(key: ProjectKey): string | null {
@@ -316,10 +479,11 @@ export class ProjectStore {
   // ---------- Project ----------
 
   /** Tambah folder sebagai project. Folder yang sudah ada tidak digandakan; project yang ada dikembalikan. */
-  async addProject(path: string): Promise<Project> {
+  async addProject(path: string, engine: string | null = null): Promise<Project> {
     const norm = normalizePath(path);
     if (!norm) throw new Error("path project kosong");
-    if (this.snap.chatDir && pathKey(this.snap.chatDir) === pathKey(norm)) {
+    if (engine && !this.snap.remotes.some((r) => r.id === engine)) throw new Error("engine remote tidak ditemukan");
+    if (!engine && this.snap.chatDir && pathKey(this.snap.chatDir) === pathKey(norm)) {
       throw new Error("folder ini dipakai untuk Chat dan tidak bisa menjadi project");
     }
     const existing = this.snap.projects.find((p) => pathKey(p.path) === pathKey(norm));
@@ -327,7 +491,14 @@ export class ProjectStore {
       this.select(existing.id, this.snap.selection.key === existing.id ? this.snap.selection.sessionId : null);
       return existing;
     }
-    const project: Project = { id: this.newId(), path: norm, name: baseName(norm), color: null, addedAt: this.now() };
+    const project: Project = {
+      id: this.newId(),
+      path: norm,
+      name: baseName(norm),
+      color: null,
+      addedAt: this.now(),
+      ...(engine ? { engine } : {}),
+    };
     this.update({ projects: [...this.snap.projects, project], selection: { key: project.id, sessionId: null } });
     await this.persist();
     void this.refresh(project.id);

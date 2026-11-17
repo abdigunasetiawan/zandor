@@ -44,6 +44,7 @@ export function parseRoute(path: string): Route {
   if (/^\/(settings\/profile|profile)\/?$/.test(path)) return { page: "settings", section: "profile" };
   if (/^\/settings\/chat\/?$/.test(path)) return { page: "settings", section: "chat" };
   if (/^\/settings\/documents\/?$/.test(path)) return { page: "settings", section: "documents" };
+  if (/^\/settings\/engines\/?$/.test(path)) return { page: "settings", section: "engines" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -112,10 +113,9 @@ function Effects() {
       }
       connection.set(state);
       const api = state.info ? createEngineApi(state.info) : null;
+      // ProjectStore meneruskan klien gabungan (lokal + engine remote per project) ke chat dan terminal.
       projects.setApi(api);
-      chat.setApi(api);
       providers.setApi(api);
-      terminals.setClient(api ? api.pty : null);
       // tab dokumen dipulihkan setelah engine siap; di Tauri membaca lewat Rust sehingga tidak butuh engine
       if (api || host.native) docs.restore();
     };
