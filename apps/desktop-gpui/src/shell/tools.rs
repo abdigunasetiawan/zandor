@@ -28,6 +28,7 @@ pub struct ToolsHost {
     open_change: Option<String>,
     jobs: Vec<serde_json::Value>,
     job_log: Option<(String, String)>,
+    terminal: Option<Entity<super::terminal::Terminal>>,
 }
 
 fn jobs_dir() -> PathBuf {
@@ -60,6 +61,7 @@ impl ToolsHost {
             open_change: None,
             jobs: vec![],
             job_log: None,
+            terminal: None,
         };
         me.sync(cx);
         me
@@ -604,6 +606,13 @@ impl Render for ToolsHost {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
+        if self.tool == ToolId::Terminal {
+            if self.terminal.is_none() {
+                let dir = self.dir(cx);
+                self.terminal = Some(cx.new(|cx| super::terminal::Terminal::new(dir, cx)));
+            }
+            return div().size_full().children(self.terminal.clone()).into_any_element();
+        }
         let body = match self.tool {
             ToolId::Git => self.render_git(&t, &i, cx),
             ToolId::Files => self.render_files(&t, &i, cx),
@@ -613,6 +622,6 @@ impl Render for ToolsHost {
             ToolId::Session => self.render_info(&t, &i, cx, true),
             other => note(&t, format!("{} — belum tersedia di versi GPUI.", other.key())),
         };
-        div().id("tools-body").size_full().overflow_y_scroll().child(body)
+        div().id("tools-body").size_full().overflow_y_scroll().child(body).into_any_element()
     }
 }

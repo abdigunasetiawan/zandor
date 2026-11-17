@@ -10,5 +10,6 @@ pub mod root;
 pub mod sidebar;
 pub mod settings_page;
 pub mod state;
+pub mod terminal;
 pub mod titlebar;
 pub mod tools;
