@@ -45,7 +45,9 @@ impl SettingsPage {
         cx.observe(&settings, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&search, |_, _, _: &InputChanged, cx| cx.notify()).detach();
         cx.observe(&app, |s, a, cx| {
-            if let Some(sec) = a.read(cx).current().strip_prefix("/settings/") {
+            let route = a.read(cx).current().to_string();
+            let sec = if route == "/appearance" { Some("appearance") } else { route.strip_prefix("/settings/") };
+            if let Some(sec) = sec {
                 if let Some((id, ..)) = SECTIONS.iter().find(|(id, ..)| *id == sec) {
                     s.active = id;
                 }

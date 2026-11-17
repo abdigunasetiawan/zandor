@@ -11,3 +11,4 @@ pub mod sidebar;
 pub mod settings_page;
 pub mod state;
 pub mod titlebar;
+pub mod tools;

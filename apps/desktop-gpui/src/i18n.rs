@@ -21,9 +21,10 @@ pub fn detect_locale(tag: Option<&str>) -> Locale {
     }
 }
 
+#[derive(Clone)]
 pub struct I18n {
     pub locale: Locale,
-    msgs: HashMap<String, String>,
+    msgs: std::sync::Arc<HashMap<String, String>>,
 }
 impl Global for I18n {}
 
@@ -35,7 +36,7 @@ impl I18n {
         };
         Self {
             locale,
-            msgs: serde_json::from_str(src).expect("katalog i18n valid"),
+            msgs: std::sync::Arc::new(serde_json::from_str(src).expect("katalog i18n valid")),
         }
     }
     pub fn t(&self, key: &str) -> String {

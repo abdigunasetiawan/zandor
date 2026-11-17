@@ -69,7 +69,7 @@ impl TitleBar {
     }
 
     fn menu_bar(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let i = I18n::new(cx.global::<I18n>().locale);
+        let i = cx.global::<I18n>().clone();
         let i = &i;
         let mut bar = div().flex().flex_none().items_center().gap(t.space(1));
         for (idx, (label_key, ids)) in MENUS.iter().enumerate() {

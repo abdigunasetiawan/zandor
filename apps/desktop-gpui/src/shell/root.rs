@@ -25,7 +25,13 @@ impl Root {
         let app = AppState::global(cx);
         let toasts = Toasts::init(cx);
         let layout = cx.new(|cx| {
-            ShellLayout::new(app.clone(), PanelContent { sidebar: Some(cx.new(|cx| super::sidebar::Sidebar::new(app.clone(), cx)).into()), chat: Some(cx.new(|cx| super::chat_panel::ChatPanel::new(app.clone(), cx)).into()), docs: None, tool: None }, cx)
+            ShellLayout::new(app.clone(), PanelContent { sidebar: Some(cx.new(|cx| super::sidebar::Sidebar::new(app.clone(), cx)).into()), chat: Some(cx.new(|cx| super::chat_panel::ChatPanel::new(app.clone(), cx)).into()), docs: None, tool: {
+                let host = cx.new(|cx| super::tools::ToolsHost::new(cx));
+                Some(Box::new(move |id, _w: &mut Window, cx: &mut App| {
+                    host.update(cx, |h, _| h.tool = id);
+                    Some(host.clone().into())
+                }))
+            } }, cx)
         });
         let me = cx.entity().downgrade();
         let titlebar = cx.new(|cx| {
@@ -146,7 +152,7 @@ impl Render for Root {
         let route = self.app.read(cx).current().to_string();
         let content: gpui::AnyElement = if route == "/" || route.is_empty() {
             self.layout.clone().into_any_element()
-        } else if route == "/settings" || route.starts_with("/settings/") {
+        } else if route == "/settings" || route == "/appearance" || route.starts_with("/settings/") {
             self.settings_page.clone().into_any_element()
         } else if route == "/memory" {
             self.memory_page.clone().into_any_element()
