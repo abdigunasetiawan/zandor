@@ -45,6 +45,8 @@ export type DocTab = {
   modified: number | null;
   editing: boolean;
   dirty: boolean;
+  /** Diff unified yang sedang ditinjau di tab ini (ADR-075); tidak dipersistenkan. */
+  diff?: string | null;
 };
 
 export type DocsState = { tabs: DocTab[]; activeId: string | null };
@@ -222,6 +224,18 @@ export class DocStore {
 
   toggleWrap(id: string) {
     this.patchTab(id, (x) => ({ ...x, wrap: !x.wrap }));
+  }
+
+  /** Buka berkas dan tinjau `patch` (diff unified dari engine) di tab itu. */
+  openDiff(root: string, path: string, patch: string): string {
+    const id = this.open(root, path);
+    this.setDiff(id, patch);
+    return id;
+  }
+
+  /** Pasang/lepas diff yang ditinjau; null kembali ke tampilan berkas biasa. */
+  setDiff(id: string, patch: string | null) {
+    this.patchTab(id, (t) => ({ ...t, diff: patch && patch.trim() ? patch : null }));
   }
 
   /** Apakah tab ini bisa diedit sekarang? null = bisa. */

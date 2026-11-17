@@ -475,7 +475,18 @@ export function useDocActions() {
     },
     [docHost, resolve],
   );
-  return { resolve, open, download };
+  /** Buka berkas dan tinjau `patch` (diff unified dari engine) di Panel 3 (ADR-075). */
+  const openDiff = useCallback(
+    (path: string, patch: string, root?: string): boolean => {
+      const target = resolve(path, root);
+      if (!target) return false;
+      docs.openDiff(target.root, target.path, patch);
+      panels.actions?.reveal("docs");
+      return true;
+    },
+    [docs, panels, resolve],
+  );
+  return { resolve, open, openDiff, download };
 }
 
 export function useOpenDoc(): (path: string, root?: string) => boolean {

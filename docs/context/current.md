@@ -4,6 +4,7 @@
 
 ## Terbaru (17-11-2026)
 
+- **Diff view Panel 3 (ADR-075):** tombol **Lihat diff** di Perubahan sesi (Panel 4) dan di langkah tool `edit` membuka `DiffViewer` (Monaco diff, inline saat sempit) dengan bilah per bagian: navigasi, Terima (menandai), Tolak (mengembalikan bagian + simpan, toast Urungkan), Terima/Tolak semua (konfirmasi), Tutup diff. Logika patch murni di `core/docs/patch.ts` (urai, balik, kembalikan satu hunk, geser). Tes: core `patch.test.ts` (5), komponen `DiffViewer.test.tsx` (4: terima tanpa tulis, tolak + urungkan, tolak semua, tanpa penulisan), e2e `panel4.spec.ts` (2). Biome kini mengecualikan `bundled-skills/**/*.md` (penyebab baris kosong di frontmatter skill). Belum: build native, pewarnaan TextMate di diff.
 - **Teks PDF bisa dipilih dan dicari:** `PdfViewer` memasang `TextLayer` pdf.js di atas kanvas tiap halaman (CSS diadaptasi dari `pdf_viewer.css`, token desain); kolom cari di bilah PDF (tombol cari toolbar dokumen / Ctrl+F memfokuskannya), hitungan "i dari n", sorotan semua hasil + hasil aktif, Enter/Shift+Enter dan tombol ↑/↓, tidak peka huruf besar; PDF tanpa lapisan teks diberi catatan jujur. Bilah PDF membungkus di panel sempit. Tes: e2e `docs.spec.ts` 19/19 (termasuk posisi span sejajar glyph). Batasan: kata yang terpecah di dua potongan teks PDF tidak ditemukan; belum dicek di build native.
 
 ## Sebelumnya (16-11-2026)

@@ -17,6 +17,7 @@
       "!**/test-results",
       "!**/playwright-report",
       "!docs/manual/settings.md",
+      "!apps/desktop/src-tauri/bundled-skills/**/*.md",
       "!docs/manual/settings.schema.json"
     ]
   },

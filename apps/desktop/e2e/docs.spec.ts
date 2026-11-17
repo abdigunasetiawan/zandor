@@ -225,7 +225,9 @@ test("PDF: teks bisa dipilih dan dicari (lapisan teks, Enter/Shift+Enter, tombol
 
   await find.press("Shift+Enter");
   await expect(status).toHaveText("1 dari 2");
-  await docs(page).getByRole("button", { name: /Hasil berikutnya/ }).click();
+  await docs(page)
+    .getByRole("button", { name: /Hasil berikutnya/ })
+    .click();
   await expect(status).toHaveText("2 dari 2");
 
   // Tidak peka huruf besar; tanpa hasil → status jujur dan tombol navigasi nonaktif.

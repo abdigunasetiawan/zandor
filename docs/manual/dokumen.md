@@ -33,3 +33,9 @@
   Hanya di aplikasi desktop.
 
 - Menutup tab dokumen terakhir otomatis menutup Panel 3; membuka berkas lagi memunculkannya kembali.
+
+## Meninjau perubahan agent
+
+Klik **Lihat diff** di Panel 4 → Perubahan sesi, atau ikon diff di langkah `edit` pada chat. Panel 3 menampilkan isi
+sebelum dan sesudah. Pindah antarbagian dengan ↑/↓, lalu **Terima** (biarkan perubahan) atau **Tolak** (kembalikan bagian
+itu; berkas langsung disimpan dan bisa diurungkan dari pemberitahuan). **Tolak semua** meminta konfirmasi dulu.

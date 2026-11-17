@@ -63,6 +63,14 @@ Semua kelompok juga tersedia di **Pengaturan → Dokumen** (`#/settings/document
 **Zoom teks mentah:** Ctrl + roda mouse di atas editor kode/mentah mengubah ukuran huruf editor (8–40px) dan menyimpannya;
 skala UI tidak berubah. Tes: `e2e/docs.spec.ts` ("kustomisasi Panel 3"), `packages/core/src/theme/theme.test.ts`.
 
+## Tinjau perubahan agent (ADR-075)
+
+**Lihat diff** di Perubahan sesi (Panel 4) atau di langkah tool `edit` di chat membuka diff berkas itu di Panel 3
+(`DiffViewer`): kiri isi sebelum (patch dibalik terhadap isi sekarang), kanan isi sekarang; bilah per bagian dengan
+Terima (menandai), Tolak (mengembalikan bagian + simpan, bisa diurungkan dari toast), Terima/Tolak semua, Tutup diff.
+Di web Tolak nonaktif (tidak ada penulisan berkas). Diff tidak dipersistenkan setelah muat ulang. Tes: `patch.test.ts`,
+`DiffViewer.test.tsx`, e2e `panel4.spec.ts` ("diff view Panel 3").
+
 ## Edit dokumen oleh agent (ADR-070)
 
 Agent memakai **skill bawaan** `zandor-docx`, `zandor-xlsx`, `zandor-pptx`, `zandor-pdf` (sumber:

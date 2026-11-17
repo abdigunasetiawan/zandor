@@ -79,3 +79,4 @@
 | 072 | 16-11-2026 | Background job agent: tool plugin `job_start/output/list/stop/restart` (proses anak env tersaring, izin lewat `ctx.ask` bash), status berkas di `<app_data>/jobs`, blok `<zandor-jobs>` tiap giliran, alat **Jobs** di Panel 4 |
 | 073 | 16-11-2026 | Alat **Trajectory** di Panel 4 (ikon di Rel): buku besar per giliran (pengguna, konteks, panggilan model, berpikir, tool call, langkah, galat) + ikhtisar waktu 3 jalur + inspektur Input/Output/Raw; tanpa waktu karangan |
 | 074 | 17-11-2026 | Pemeriksa dokumen skill bawaan pindah ke biner aplikasi (`Zandor office-check`, Rust `zip` + `roxmltree`); membaca/verifikasi DOCX/XLSX/PPTX/PDF tanpa Python, mengedit tetap butuh Python |
+| 075 | 17-11-2026 | Tinjau perubahan agent di Panel 3: Monaco diff + bilah per bagian (Terima menandai, Tolak mengembalikan bagian dan menyimpan, bisa diurungkan); sisi sebelum = patch dibalik terhadap isi berkas; dibuka dari Perubahan sesi dan langkah tool edit |

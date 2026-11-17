@@ -2226,6 +2226,34 @@
   flex: 1;
   min-width: 0;
 }
+/* Tinjau perubahan agent (DiffViewer, ADR-075) */
+.ddiff {
+  overflow: hidden;
+}
+.ddiff__bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-1) var(--z-space-2);
+  padding: var(--z-space-1) var(--z-space-3);
+  border-bottom: var(--z-border-width) solid var(--z-color-border);
+}
+.ddiff__pos {
+  white-space: nowrap;
+  color: var(--z-color-fg-muted);
+}
+.ddiff__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-1);
+  margin-left: auto;
+}
+.ddiff__editor {
+  flex: 1;
+  min-height: 0;
+}
 .pdfbar__count {
   flex: none;
   color: var(--z-color-fg-muted);

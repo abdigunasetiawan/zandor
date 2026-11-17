@@ -35,6 +35,7 @@ import type { ViewerHandle, ViewerProps } from "./types";
 const CodeViewer = lazy(() => import("./CodeViewer"));
 const MarkdownViewer = lazy(() => import("./MarkdownViewer"));
 const PdfViewer = lazy(() => import("./PdfViewer"));
+const DiffViewer = lazy(() => import("./DiffViewer"));
 const DocxViewer = lazy(() => import("./office-viewers").then((m) => ({ default: m.DocxViewer })));
 const XlsxViewer = lazy(() => import("./office-viewers").then((m) => ({ default: m.XlsxViewer })));
 const PptxViewer = lazy(() => import("./office-viewers").then((m) => ({ default: m.PptxViewer })));
@@ -57,7 +58,10 @@ function viewerFor(
   | "xlsx"
   | "pptx"
   | "notebook"
+  | "diff"
   | "binary" {
+  // diff yang ditinjau (ADR-075) didahulukan untuk berkas teks, kecuali sedang diedit
+  if (tab.diff && !tab.editing && isTextKind(tab.kind)) return "diff";
   const raw = tab.mode === "raw" && hasRawMode(tab.kind);
   if (tab.kind === "code" || raw) return "code";
   switch (tab.kind) {
@@ -464,6 +468,12 @@ function DocBody({
     </p>
   );
   switch (which) {
+    case "diff":
+      return (
+        <Suspense fallback={fallback}>
+          <DiffViewer key={`${tab.id}:diff`} {...props} />
+        </Suspense>
+      );
     case "code":
       return (
         <Suspense fallback={fallback}>

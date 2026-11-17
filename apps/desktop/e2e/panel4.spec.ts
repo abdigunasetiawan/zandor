@@ -110,3 +110,83 @@ test("sesi demo: info dan aktivitas memakai data demo berlabel", async ({ page }
   await tool(page, "Info sesi");
   await expect(page.getByText("Sesi demo", { exact: true }).first()).toBeVisible();
 });
+
+test("diff view Panel 3: Lihat diff dari Perubahan sesi, navigasi bagian, Terima, dan Tolak nonaktif di web", async ({
+  page,
+}) => {
+  const engine = await setup(page);
+  await expect.poll(() => engine.sessions.length).toBe(1);
+  const sid = engine.sessions[0]?.id ?? "";
+  engine.project.set("src/app.ts", { text: "const a = 2;\nconst b = 1;\nconst c = 1;\nconst d = 1;\nconst e = 9;\n" });
+  engine.sessionDiffs.set(sid, [
+    {
+      file: "src/app.ts",
+      patch: [
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        "@@ -1,2 +1,2 @@",
+        "-const a = 1;",
+        "+const a = 2;",
+        " const b = 1;",
+        "@@ -4,2 +4,2 @@",
+        " const d = 1;",
+        "-const e = 5;",
+        "+const e = 9;",
+      ].join("\n"),
+      additions: 2,
+      deletions: 2,
+      status: "modified",
+    },
+  ]);
+  await tool(page, "Perubahan sesi");
+  await page.getByTestId("session-changes").getByRole("button", { name: "Lihat diff" }).click();
+
+  const docs = page.getByRole("region", { name: "Dokumen", exact: true });
+  const pos = docs.getByTestId("diff-pos");
+  await expect(pos).toHaveText("Bagian 1 dari 2", { timeout: 20_000 });
+  // Monaco diff: sisi kiri berisi isi sebelum (hasil membalik patch), kanan isi berkas sekarang
+  const editor = docs.getByTestId("diff-editor");
+  await expect(editor.locator(".editor.original")).toContainText("const a = 1;", { timeout: 15_000 });
+  await expect(editor.locator(".editor.original")).toContainText("const e = 5;");
+  await expect(editor.locator(".editor.modified")).toContainText("const a = 2;");
+
+  // navigasi
+  await docs.getByRole("button", { name: "Bagian berikutnya" }).click();
+  await expect(pos).toHaveText("Bagian 2 dari 2");
+  await expect(docs.getByRole("button", { name: "Bagian berikutnya" })).toBeDisabled();
+  await docs.getByRole("button", { name: "Bagian sebelumnya" }).click();
+  await expect(pos).toHaveText("Bagian 1 dari 2");
+
+  // di web berkas tidak bisa ditulis: Tolak nonaktif dengan alasan jujur
+  await expect(docs.getByRole("button", { name: "Tolak", exact: true })).toBeDisabled();
+  await expect(docs.getByText(/hanya tersedia di aplikasi desktop/)).toBeVisible();
+
+  // Terima menandai bagian selesai; sisi kiri kini sama dengan isi berkas untuk bagian itu
+  await docs.getByRole("button", { name: "Terima", exact: true }).click();
+  await expect(pos).toHaveText("Bagian 1 dari 1");
+  await expect(editor.locator(".editor.original")).toContainText("const a = 2;");
+  await docs.getByRole("button", { name: "Terima", exact: true }).click();
+  await expect(page.getByText("Semua bagian sudah ditinjau")).toBeVisible();
+  await expect(docs.getByTestId("diff-editor")).toHaveCount(0); // kembali ke tampilan berkas biasa
+});
+
+test("diff view Panel 3: tombol Lihat diff di langkah tool edit membuka diff edit itu", async ({ page }) => {
+  const engine = await setup(page);
+  engine.project.set("a.txt", { text: "baru\n" });
+  await send(page, "tolong buat diff");
+  // langkah tool ada di dalam ringkasan proses yang terlipat
+  const toggle = page.locator(".work__sum, .work__step").last();
+  await expect(toggle).toBeVisible({ timeout: 15_000 });
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  const review = page.locator(".fold--tool").filter({ hasText: "edit" }).getByRole("button", { name: "Lihat diff" });
+  await expect(review).toBeVisible({ timeout: 15_000 });
+  await review.click();
+  const docs = page.getByRole("region", { name: "Dokumen", exact: true });
+  await expect(docs.getByTestId("diff-pos")).toHaveText("Bagian 1 dari 1", { timeout: 20_000 });
+  const editor = docs.getByTestId("diff-editor");
+  await expect(editor.locator(".editor.original")).toContainText("lama", { timeout: 15_000 });
+  await expect(editor.locator(".editor.modified")).toContainText("baru");
+  // Tutup diff kembali ke tampilan berkas biasa tanpa menulis apa pun
+  await docs.getByRole("button", { name: /Tutup diff/ }).click();
+  await expect(docs.getByTestId("diff-editor")).toHaveCount(0);
+});

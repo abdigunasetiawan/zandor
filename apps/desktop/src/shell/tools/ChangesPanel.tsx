@@ -103,6 +103,11 @@ export function ChangesPanel() {
                 <span className="chg__count z-small">
                   <span className="chg__add">+{d.additions}</span> <span className="chg__del">−{d.deletions}</span>
                 </span>
+                {d.status !== "deleted" && d.patch && (
+                  <Button size="sm" onClick={() => docs.openDiff(d.file, d.patch, dir)}>
+                    {t("diff.open")}
+                  </Button>
+                )}
                 {d.status !== "deleted" && (
                   <Button size="sm" onClick={() => docs.open(d.file, dir)}>
                     {t("chg.open")}

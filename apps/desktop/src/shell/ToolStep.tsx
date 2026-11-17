@@ -29,7 +29,7 @@ import {
 import type { ReactNode } from "react";
 import { useDemo } from "./demo-context";
 import { useOpenState } from "./open-state";
-import { useOpenDoc } from "./services";
+import { useDocActions } from "./services";
 import {
   contentRows,
   type DiffRow,
@@ -303,7 +303,7 @@ export function ToolCard({ part }: { part: ToolPart }) {
   const view = describeTool(part);
   const finished = useFinished(state);
   const web = WEB_SEARCH.has(part.tool);
-  const openDoc = useOpenDoc();
+  const { open: openDoc, openDiff } = useDocActions();
   const toast = useToast();
   const demo = useDemo();
   // di sesi demo berkasnya fiktif: tombol Buka tidak ditampilkan
@@ -311,6 +311,11 @@ export function ToolCard({ part }: { part: ToolPart }) {
     !demo && (view.kind === "read" || view.kind === "edit" || view.kind === "write") ? str(view.path?.full) : "";
   const openFile = () => {
     if (!openDoc(file)) toast.show({ title: t("doc.outside"), tone: "warning" });
+  };
+  // diff edit yang sudah selesai bisa ditinjau per bagian di Panel 3
+  const reviewDiff = file && view.kind === "edit" && view.diff && state.status === "completed" ? view.diff : "";
+  const openReview = () => {
+    if (!openDiff(file, reviewDiff)) toast.show({ title: t("doc.outside"), tone: "warning" });
   };
   const range = view.range
     ? view.range.total !== undefined
@@ -357,6 +362,15 @@ export function ToolCard({ part }: { part: ToolPart }) {
           </span>
           <Status status={state.status} />
         </button>
+        {reviewDiff && (
+          <IconButton
+            label={t("diff.open")}
+            size="sm"
+            className="tstep__open"
+            icon={<DiffIcon />}
+            onClick={openReview}
+          />
+        )}
         {file && (
           <IconButton
             label={t("doc.open", { name: file.split(/[\\/]/).at(-1) ?? file })}
