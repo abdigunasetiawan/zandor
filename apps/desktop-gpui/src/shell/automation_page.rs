@@ -56,7 +56,14 @@ impl AutomationPage {
         self.form = Some(Form {
             id: t.map(|t| t.id.clone()),
             name: mk(cx, "", t.map(|t| t.name.clone()).unwrap_or_default()),
-            prompt: mk(cx, "", t.map(|t| t.prompt.clone()).unwrap_or_default()),
+            prompt: {
+                let e = mk(cx, "", t.map(|t| t.prompt.clone()).unwrap_or_default());
+                e.update(cx, |ti, _| {
+                    ti.multiline = true;
+                    ti.enter_newline = true;
+                });
+                e
+            },
             minutes: mk(cx, "60", minutes),
             time: mk(cx, "09:00", time),
             at: mk(cx, "2026-12-31 09:00", at),

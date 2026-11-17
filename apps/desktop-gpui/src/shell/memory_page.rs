@@ -4,7 +4,7 @@ use super::state::AppState;
 use crate::core::services::app_data_dir;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme, H3};
-use crate::ui::{button, icon_button, markdown, switch, tabs, ButtonVariant, ControlSize, TabItem, TypeExt};
+use crate::ui::{button, icon_button, switch, tabs, ButtonVariant, ControlSize, TabItem, TypeExt};
 use gpui::{div, prelude::*, Context, Entity, FontWeight, IntoElement, SharedString, Window};
 use serde_json::{json, Value};
 
@@ -12,6 +12,7 @@ pub struct MemoryPage {
     app: Entity<AppState>,
     tab: SharedString,
     open_file: Option<(String, String)>,
+    editor: Option<Entity<crate::ui::TextInput>>,
 }
 
 fn mem_dir() -> std::path::PathBuf {
@@ -30,7 +31,7 @@ fn read_settings() -> Value {
 
 impl MemoryPage {
     pub fn new(app: Entity<AppState>, _cx: &mut Context<Self>) -> Self {
-        Self { app, tab: "settings".into(), open_file: None }
+        Self { app, tab: "settings".into(), open_file: None, editor: None }
     }
 
     fn set_flag(&mut self, key: &str, v: bool, cx: &mut Context<Self>) {
@@ -114,6 +115,13 @@ impl Render for MemoryPage {
                             .hover(|s| s.bg(t.colors.hover))
                             .on_click(cx.listener(move |s, _, _, cx| {
                                 let text = crate::memory::read_memory(&mem_dir(), &rel).unwrap_or_default();
+                                s.editor = Some(cx.new(|cx| {
+                                    let mut ti = crate::ui::TextInput::new(cx, "");
+                                    ti.multiline = true;
+                                    ti.enter_newline = true;
+                                    ti.set_text(text.clone(), cx);
+                                    ti
+                                }));
                                 s.open_file = Some((rel.clone(), text));
                                 cx.notify();
                             }))
@@ -124,7 +132,8 @@ impl Render for MemoryPage {
                     list = list.child(div().text_color(t.colors.fg_muted).child(i.t("mem.loading")));
                 }
                 col = col.child(list);
-                if let Some((rel, text)) = self.open_file.clone() {
+                if let (Some((rel, _text)), Some(ed)) = (self.open_file.clone(), self.editor.clone()) {
+                    let (rel_s, ed_s) = (rel.clone(), ed.clone());
                     col = col.child(
                         div()
                             .flex()
@@ -138,6 +147,20 @@ impl Render for MemoryPage {
                                     .items_center()
                                     .child(div().flex_1().code(&t).text_color(t.colors.fg_muted).child(rel.clone()))
                                     .child(
+                                        button("mem-save")
+                                            .label(i.t("mem.notes.save"))
+                                            .size(ControlSize::Sm)
+                                            .variant(ButtonVariant::Solid)
+                                            .on_click(cx.listener(move |s, _, _, cx| {
+                                                let text = ed_s.read(cx).text().to_string();
+                                                match crate::memory::write_memory(&mem_dir(), &rel_s, &text) {
+                                                    Ok(()) => s.open_file = Some((rel_s.clone(), text)),
+                                                    Err(e) => eprintln!("[zandor] {e}"),
+                                                }
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
                                         button("mem-del")
                                             .label(i.t("mem.notes.delete"))
                                             .size(ControlSize::Sm)
@@ -145,12 +168,13 @@ impl Render for MemoryPage {
                                             .on_click(cx.listener(move |s, _, _, cx| {
                                                 let _ = crate::memory::delete_memory(&mem_dir(), &rel);
                                                 s.open_file = None;
+                                                s.editor = None;
                                                 cx.notify();
                                             })),
                                     ),
                             )
                             .child(div().small(&t).text_color(t.colors.fg_subtle).child(i.t("mem.notes.hint")))
-                            .child(div().p(t.space(3)).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.raised).child(markdown(&text, &t))),
+                            .child(div().id("mem-ed").max_h(t.rem(32.)).overflow_y_scroll().code(&t).child(ed)),
                     );
                 }
                 col.into_any_element()

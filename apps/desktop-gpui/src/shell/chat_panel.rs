@@ -37,7 +37,11 @@ impl ChatPanel {
         let chat = ChatStore::global(cx);
         let engine = EngineStatus::global(cx);
         let ph = cx.global::<I18n>().t("chat.placeholder");
-        let input = cx.new(|cx| TextInput::new(cx, ph));
+        let input = cx.new(|cx| {
+            let mut ti = TextInput::new(cx, ph);
+            ti.multiline = true; // Enter kirim, Shift+Enter baris baru
+            ti
+        });
         cx.observe(&store, |this, _, cx| {
             this.sync(cx);
             cx.notify();

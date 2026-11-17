@@ -31,6 +31,9 @@ actions!(
         Copy,
         Quit,
         Submit,
+        Newline,
+        Up,
+        Down,
     ]
 );
 
@@ -49,6 +52,11 @@ pub struct TextInput {
     pub disabled: bool,
     /// Tampilkan isi sebagai bintang (kunci API, sandi).
     pub masked: bool,
+    /// Banyak baris (baris keras `\n`, tanpa bungkus lunak). Shift+Enter = baris baru.
+    pub multiline: bool,
+    /// Bila multiline: Enter juga menyisipkan baris baru (editor), bukan mengirim.
+    pub enter_newline: bool,
+    last_lines: Vec<(usize, ShapedLine)>,
 }
 
 impl TextInput {
@@ -123,9 +131,9 @@ impl TextInput {
         window.request_virtual_keyboard();
 
         if event.modifiers.shift {
-            self.select_to(self.index_for_mouse_position(event.position), window, cx);
+            self.select_to(if self.multiline { self.line_index_at(event.position, window) } else { self.index_for_mouse_position(event.position) }, window, cx);
         } else {
-            self.move_to(self.index_for_mouse_position(event.position), window, cx)
+            self.move_to(if self.multiline { self.line_index_at(event.position, window) } else { self.index_for_mouse_position(event.position) }, window, cx)
         }
     }
 
@@ -140,7 +148,7 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) {
         if self.is_selecting {
-            self.select_to(self.index_for_mouse_position(event.position), window, cx);
+            self.select_to(if self.multiline { self.line_index_at(event.position, window) } else { self.index_for_mouse_position(event.position) }, window, cx);
         }
     }
 
@@ -187,6 +195,58 @@ impl TextInput {
             self.selected_range.start
         } else {
             self.selected_range.end
+        }
+    }
+
+    fn line_index_at(&self, position: Point<Pixels>, window: &Window) -> usize {
+        let Some(bounds) = self.last_bounds.as_ref() else { return 0 };
+        if self.last_lines.is_empty() {
+            return 0;
+        }
+        let lh = window.line_height();
+        let row = ((position.y - bounds.top()) / lh).floor().max(0.) as usize;
+        let (start, line) = &self.last_lines[row.min(self.last_lines.len() - 1)];
+        start + line.closest_index_for_x(position.x - bounds.left())
+    }
+
+    /// (baris, kolom-byte) untuk offset.
+    fn row_col(&self, offset: usize) -> (usize, usize) {
+        let before = &self.content[..offset.min(self.content.len())];
+        let row = before.matches('\n').count();
+        let col = before.rfind('\n').map(|i| offset - i - 1).unwrap_or(offset);
+        (row, col)
+    }
+
+    fn offset_of(&self, row: usize, col: usize) -> usize {
+        let mut start = 0;
+        for (n, l) in self.content.split('\n').enumerate() {
+            if n == row {
+                let mut c = col.min(l.len());
+                while !l.is_char_boundary(c) {
+                    c -= 1;
+                }
+                return start + c;
+            }
+            start += l.len() + 1;
+        }
+        self.content.len()
+    }
+
+    fn up(&mut self, _: &Up, window: &mut Window, cx: &mut Context<Self>) {
+        let (r, c) = self.row_col(self.cursor_offset());
+        let o = if r == 0 { 0 } else { self.offset_of(r - 1, c) };
+        self.move_to(o, window, cx);
+    }
+
+    fn down(&mut self, _: &Down, window: &mut Window, cx: &mut Context<Self>) {
+        let (r, c) = self.row_col(self.cursor_offset());
+        let o = self.offset_of(r + 1, c);
+        self.move_to(o, window, cx);
+    }
+
+    fn newline(&mut self, _: &Newline, window: &mut Window, cx: &mut Context<Self>) {
+        if self.multiline {
+            self.replace_text_in_range(None, "\n", window, cx);
         }
     }
 
@@ -469,6 +529,8 @@ struct TextElement {
 }
 
 struct PrepaintState {
+    lines: Vec<(usize, ShapedLine)>,
+    quads: Vec<PaintQuad>,
     line: Option<ShapedLine>,
     cursor: Option<PaintQuad>,
     selection: Option<PaintQuad>,
@@ -495,7 +557,9 @@ impl Element for TextElement {
     ) -> (LayoutId, Self::RequestLayoutState) {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        style.size.height = window.line_height().into();
+        let input = self.input.read(cx);
+        let rows = if input.multiline { input.content.split('\n').count().max(1) } else { 1 };
+        style.size.height = (window.line_height() * rows as f32).into();
         (window.request_layout(style, [], cx), ())
     }
 
@@ -559,6 +623,43 @@ impl Element for TextElement {
         };
 
         let font_size = style.font_size.to_pixels(window.rem_size());
+        if input.multiline && !input.content.is_empty() {
+            let lh = window.line_height();
+            let fg = cx.global::<Theme>().colors.fg;
+            let mut sel_c = fg;
+            sel_c.a = 0.25;
+            let (mut lines, mut quads, mut start) = (vec![], vec![], 0usize);
+            for (row, l) in display_text.split('\n').enumerate() {
+                let end = start + l.len();
+                let shaped = window.text_system().shape_line(
+                    SharedString::from(l.to_string()),
+                    font_size,
+                    &[TextRun { len: l.len(), color: text_color, font: style.font(), background_color: None, underline: None, strikethrough: None }],
+                    None,
+                );
+                let top = bounds.top() + lh * row as f32;
+                if selected_range.is_empty() {
+                    if cursor >= start && cursor <= end {
+                        quads.push(fill(Bounds::new(point(bounds.left() + shaped.x_for_index(cursor - start), top), size(px(2.), lh)), fg));
+                    }
+                } else if selected_range.start <= end && selected_range.end >= start {
+                    let a = selected_range.start.max(start);
+                    let b = selected_range.end.min(end);
+                    let extra = if selected_range.end > end { px(4.) } else { px(0.) };
+                    quads.push(fill(
+                        Bounds::from_corners(
+                            point(bounds.left() + shaped.x_for_index(a - start), top),
+                            point(bounds.left() + shaped.x_for_index(b - start) + extra, top + lh),
+                        ),
+                        sel_c,
+                    ));
+                }
+                lines.push((start, shaped));
+                start = end + 1;
+            }
+            let caret = selected_range.is_empty();
+            return PrepaintState { lines, quads, line: None, cursor: if caret { Some(fill(Bounds::default(), fg)) } else { None }, selection: None };
+        }
         let line = window
             .text_system()
             .shape_line(display_text, font_size, &runs, None);
@@ -594,6 +695,8 @@ impl Element for TextElement {
             )
         };
         PrepaintState {
+            lines: vec![],
+            quads: vec![],
             line: Some(line),
             cursor,
             selection,
@@ -616,6 +719,26 @@ impl Element for TextElement {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
+        if prepaint.line.is_none() {
+            let lh = window.line_height();
+            let focused = focus_handle.is_focused(window);
+            let caret = prepaint.cursor.is_some();
+            for q in prepaint.quads.drain(..) {
+                if !caret || focused {
+                    window.paint_quad(q);
+                }
+            }
+            for (row, (_, l)) in prepaint.lines.iter().enumerate() {
+                let _ = l.paint(point(bounds.left(), bounds.top() + lh * row as f32), lh, gpui::TextAlign::Left, None, window, cx);
+            }
+            let lines = std::mem::take(&mut prepaint.lines);
+            self.input.update(cx, |input, _cx| {
+                input.last_lines = lines;
+                input.last_layout = None;
+                input.last_bounds = Some(bounds);
+            });
+            return;
+        }
         if let Some(selection) = prepaint.selection.take() {
             window.paint_quad(selection)
         }
@@ -637,6 +760,7 @@ impl Element for TextElement {
         }
 
         self.input.update(cx, |input, _cx| {
+            input.last_lines = vec![(0, line.clone())];
             input.last_layout = Some(line);
             input.last_bounds = Some(bounds);
         });
@@ -652,7 +776,8 @@ impl Render for TextInput {
             .flex()
             .items_center()
             .w_full()
-            .h(t.rem(self.size.height_rem()))
+            .when(!self.multiline, |d| d.h(t.rem(self.size.height_rem())))
+            .when(self.multiline, |d| d.min_h(t.rem(self.size.height_rem())).py(t.space(2)).items_start())
             .px(t.space(3))
             .border_1()
             .border_color(border)
@@ -684,7 +809,16 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
-            .on_action(cx.listener(|this, _: &Submit, _, cx| cx.emit(InputSubmit(this.content.clone()))))
+            .on_action(cx.listener(|this, _: &Submit, w, cx| {
+                if this.multiline && this.enter_newline {
+                    this.replace_text_in_range(None, "\n", w, cx);
+                } else {
+                    cx.emit(InputSubmit(this.content.clone()))
+                }
+            }))
+            .on_action(cx.listener(Self::newline))
+            .on_action(cx.listener(Self::up))
+            .on_action(cx.listener(Self::down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -717,6 +851,9 @@ impl TextInput {
             invalid: false,
             disabled: false,
             masked: false,
+            multiline: false,
+            enter_newline: false,
+            last_lines: vec![],
         }
     }
     pub fn text(&self) -> SharedString {
@@ -750,6 +887,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("home", Home, ctx),
         KeyBinding::new("end", End, ctx),
         KeyBinding::new("enter", Submit, ctx),
+        KeyBinding::new("shift-enter", Newline, ctx),
+        KeyBinding::new("up", Up, ctx),
+        KeyBinding::new("down", Down, ctx),
     ]);
 }
 
