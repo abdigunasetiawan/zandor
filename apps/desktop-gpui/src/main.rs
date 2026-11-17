@@ -1,4 +1,6 @@
 //! Zandor — kerangka awal rewrite ke Rust + GPUI.
+mod i18n;
+mod theme;
 use gpui::{
     div, prelude::*, px, rgb, size, App, Bounds, Context, SharedString, Window,
     WindowBounds, WindowOptions,
