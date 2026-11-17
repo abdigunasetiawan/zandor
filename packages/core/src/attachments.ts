@@ -130,3 +130,18 @@ export function attachmentParts(files: readonly FileAttachment[]): Array<PromptF
     });
   return parts;
 }
+
+/** Kebalikan `attachmentParts`: daftar lampiran (nama + path) dari teks sintetis `<zandor-attachments>`. */
+export function attachmentsFromNote(text: string): Array<{ name: string; path: string | null }> {
+  if (!text.startsWith("<zandor-attachments>")) return [];
+  return text
+    .split("\n")
+    .filter((l) => l.startsWith("- "))
+    .map((l) => {
+      const body = l.slice(2);
+      const at = body.indexOf(": ");
+      if (at === -1) return { name: body, path: null };
+      const rest = body.slice(at + 2);
+      return { name: body.slice(0, at), path: rest.startsWith("(") ? null : rest };
+    });
+}

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   attachmentFromPath,
   attachmentParts,
+  attachmentsFromNote,
   baseNameOf,
   DIRECTORY_MIME,
   fileUrlFromPath,
@@ -52,5 +53,9 @@ describe("lampiran yang tidak diterima model", () => {
     expect(modelReadable("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe(false);
     expect(modelReadable("text/csv")).toBe(true);
     expect(pathFromFileUrl("file:///C:/a%20b/c.txt")).toBe("C:/a b/c.txt");
+    expect(note?.type === "text" ? attachmentsFromNote(note.text) : []).toEqual([
+      { name: "Tugas BI.docx", path: "C:/Data/Tugas BI.docx" },
+      { name: "x.zip", path: null },
+    ]);
   });
 });

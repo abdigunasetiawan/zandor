@@ -3,6 +3,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  attachmentsFromNote,
   CHAT_KEY,
   type ChatMessage,
   type FileAttachment,
@@ -752,7 +753,9 @@ function Message({
   if (info.role === "user") {
     const text = messageText(message);
     const files = message.parts.filter((p) => p.type === "file");
-    if (!text && files.length === 0) return null;
+    // Lampiran yang dikirim sebagai path (DOCX/XLSX/…, lihat attachmentParts) tetap tampil sebagai chip.
+    const noted = message.parts.flatMap((p) => (p.type === "text" && p.synthetic ? attachmentsFromNote(p.text) : []));
+    if (!text && files.length === 0 && noted.length === 0) return null;
     const created = new Date(info.time.created);
     const createdAt = created.toLocaleString(locale === "id" ? "id-ID" : "en-US", {
       day: "numeric",
@@ -767,7 +770,7 @@ function Message({
     return (
       <article className="msg msg--user" aria-label={t("chat.you")} id={messageDomId(info.id)}>
         <div className="msg__bubble">
-          {files.length > 0 && (
+          {files.length + noted.length > 0 && (
             <ul className="chips">
               {files.map((f) =>
                 f.type === "file" ? (
@@ -777,6 +780,12 @@ function Message({
                   </li>
                 ) : null,
               )}
+              {noted.map((f) => (
+                <li key={`note-${f.path ?? f.name}`} className="chip" title={f.path ?? undefined}>
+                  <PaperclipIcon size="sm" />
+                  <span>{f.name}</span>
+                </li>
+              ))}
             </ul>
           )}
           {text && <p className="msg__text">{text}</p>}
