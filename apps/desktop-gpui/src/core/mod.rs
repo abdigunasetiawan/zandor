@@ -13,4 +13,5 @@ pub mod profile;
 pub mod projects;
 pub mod settings;
 pub mod services;
+pub mod trajectory;
 pub mod types;

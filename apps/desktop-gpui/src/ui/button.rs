@@ -81,6 +81,10 @@ pub fn icon_button(id: impl Into<ElementId>, icon_name: &'static str, label: imp
 }
 
 impl Button {
+    pub fn tooltip_text(mut self, t: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(t.into());
+        self
+    }
     pub fn variant(mut self, v: ButtonVariant) -> Self {
         self.variant = v;
         self

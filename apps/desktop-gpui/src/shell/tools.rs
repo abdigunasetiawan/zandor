@@ -31,6 +31,7 @@ pub struct ToolsHost {
     terminal: Option<Entity<super::terminal::Terminal>>,
     browser: Option<Entity<super::browser::BrowserPanel>>,
     log_filter: String,
+    trajectory: Option<Entity<super::trajectory_panel::TrajectoryPanel>>,
     log_observed: bool,
 }
 
@@ -67,6 +68,7 @@ impl ToolsHost {
             terminal: None,
             browser: None,
             log_filter: "all".into(),
+            trajectory: None,
             log_observed: false,
         };
         me.sync(cx);
@@ -721,6 +723,10 @@ impl Render for ToolsHost {
         }
         if let Some(b) = &self.browser {
             b.update(cx, |b, _| b.hide_all());
+        }
+        if self.tool == ToolId::Trajectory {
+            let p = self.trajectory.get_or_insert_with(|| cx.new(super::trajectory_panel::TrajectoryPanel::new)).clone();
+            return div().size_full().child(p).into_any_element();
         }
         if self.tool == ToolId::Terminal {
             if self.terminal.is_none() {
