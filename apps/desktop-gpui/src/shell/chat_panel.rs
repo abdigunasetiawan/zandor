@@ -487,6 +487,21 @@ impl Render for ChatPanel {
         });
 
         let busy = state.as_ref().is_some_and(|s| s.busy());
+        let voice_btn = {
+            let ok = crate::voice::supported();
+            icon_button("chat-voice", "mic", if ok { i.t("voice.start") } else { i.t("voice.unsupported") })
+                .size(ControlSize::Sm)
+                .variant(ButtonVariant::Ghost)
+                .disabled(!ok || !engine_ready)
+                .on_click(cx.listener(|s, _, w, cx| {
+                    let fh = gpui::Focusable::focus_handle(s.input.read(cx), cx);
+                    fh.focus(w, cx);
+                    if let Err(e) = crate::voice::toggle_dictation() {
+                        let msg = cx.global::<I18n>().tp("voice.error", &[("error", &e)]);
+                        crate::ui::Toasts::show(crate::ui::ToastInput { title: msg.into(), description: None, tone: crate::ui::ToastTone::Danger, timeout_ms: None, action: None }, cx);
+                    }
+                }))
+        };
         let send_btn = if busy {
             let id = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
             icon_button("chat-stop", "stop", i.t("chat.stop"))
@@ -644,7 +659,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(variant_sel).children(add_btn).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(variant_sel).child(voice_btn).children(add_btn).child(send_btn)),
         );
 
         let Some(st) = state else {
