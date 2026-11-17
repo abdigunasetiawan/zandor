@@ -1,7 +1,7 @@
 //! Menu popup (Menu/ContextMenu base-ui) — daftar entri .z-item di .z-popup, ditambatkan ke pemicu.
 use super::molecules::{menu_item, popup, separator};
 use crate::theme::{rem, Theme};
-use gpui::{anchored, deferred, div, prelude::*, px, AnyElement, Anchor, App, IntoElement, SharedString, Window};
+use gpui::{anchored, deferred, div, AnimationExt, prelude::*, px, AnyElement, Anchor, App, IntoElement, SharedString, Window};
 use std::rc::Rc;
 
 pub type Action = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -122,7 +122,16 @@ pub fn menu_popup(
             div()
                 .when(top, |d| d.mt(t.space(1)))
                 .when(!top, |d| d.mb(t.space(1)))
-                .child(list.occlude().on_mouse_down_out(move |_, w, cx| close(w, cx))),
+                .child(
+                    list.occlude()
+                        .on_mouse_down_out(move |_, w, cx| close(w, cx))
+                        // .z-popup[data-starting-style]: opacity 0 → 1 (durasi cepat)
+                        .with_animation(
+                            SharedString::from(format!("{id}-anim")),
+                            gpui::Animation::new(std::time::Duration::from_millis(crate::theme::DURATION_FAST_MS)).with_easing(gpui::ease_out_quint()),
+                            |el, d| el.opacity(d),
+                        ),
+                ),
         ),
     )
     .with_priority(65)

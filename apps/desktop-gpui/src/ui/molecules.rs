@@ -3,7 +3,7 @@ use super::icon::{icon, IconSize};
 use super::typo::TypeExt;
 use crate::theme::{rem, Theme, BUTTON, H3, H4, LABEL};
 use gpui::{
-    deferred, div, prelude::*, AnyElement, App, ClickEvent, Div, ElementId, FontWeight,
+    deferred, div, prelude::*, AnimationExt, AnyElement, App, ClickEvent, Div, ElementId, FontWeight,
     IntoElement, SharedString, Window,
 };
 
@@ -339,8 +339,16 @@ impl RenderOnce for Dialog {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(backdrop)
-                .child(panel),
+                .child(backdrop.with_animation(
+                    "z-backdrop-anim",
+                    gpui::Animation::new(std::time::Duration::from_millis(crate::theme::DURATION_BASE_MS)),
+                    |el, d| el.opacity(d),
+                ))
+                .child(panel.with_animation(
+                    "z-dialog-anim",
+                    gpui::Animation::new(std::time::Duration::from_millis(crate::theme::DURATION_BASE_MS)).with_easing(gpui::ease_out_quint()),
+                    |el, d| el.opacity(d),
+                )),
         )
         .with_priority(60)
     }
