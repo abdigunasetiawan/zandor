@@ -28,4 +28,4 @@ dan pembaruan), atau memindahkan pemeriksa ke biner aplikasi. Pemilik memilih ya
 
 - Mengubah dan membuat dokumen **masih butuh Python** + pustakanya. Membundel Python tetap terbuka bila nanti perlu.
 - Path biner ditanam di `SKILL.md`; bila aplikasi dipindah, path diperbarui otomatis saat engine dimulai berikutnya.
-- Belum diuji: biner rilis (subsystem `windows`) dipanggil dari shell engine dengan model nyata. Build debug teruji.
+- Teruji: build debug dan rilis (subsystem `windows`) mengeluarkan JSON dan kode keluar yang benar lewat pipa bash/PowerShell. Belum diuji: dipanggil agent dengan model nyata.
