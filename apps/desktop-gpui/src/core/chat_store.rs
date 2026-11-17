@@ -21,6 +21,8 @@ pub struct ChatStore {
     subs: HashMap<String, Arc<AtomicBool>>,
     tx: futures::channel::mpsc::UnboundedSender<Msg>,
     pub model: Option<ModelRef>,
+    /// Log aktivitas: (waktu ms, ringkasan event) terbaru, maks 500.
+    pub activity: std::collections::VecDeque<(f64, String)>,
 }
 
 struct ChatHandle(Entity<ChatStore>);
@@ -29,7 +31,7 @@ impl Global for ChatHandle {}
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None });
+        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default() });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -38,6 +40,14 @@ impl ChatStore {
                 cx.update(|cx| {
                     e.update(cx, |s, cx| match m {
                         Msg::Event(ev) => {
+                            if !matches!(ev, EngineEvent::PartDelta { .. }) {
+                                let label = format!("{:?}", ev).split(['(', ' ', '{']).next().unwrap_or("").to_string();
+                                let sid = ev.session_id().unwrap_or("-").to_string();
+                                s.activity.push_back((super::projects::now_ms(), format!("{label} · {sid}")));
+                                while s.activity.len() > 500 {
+                                    s.activity.pop_front();
+                                }
+                            }
                             let Some(sid) = ev.session_id().map(str::to_string) else {
                                 // galat global: tampilkan di semua sesi yang terbuka
                                 for st in s.sessions.values_mut() {

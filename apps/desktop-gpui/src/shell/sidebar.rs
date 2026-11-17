@@ -37,6 +37,7 @@ pub struct Sidebar {
     workspace_open: bool,
     open_menu: Option<String>,
     dialog: Option<SbDialog>,
+    files: Entity<super::tools::ToolsHost>,
 }
 
 fn user_name() -> String {
@@ -67,6 +68,11 @@ impl Sidebar {
             workspace_open: true,
             open_menu: None,
             dialog: None,
+            files: cx.new(|cx| {
+                let mut h = super::tools::ToolsHost::new(cx);
+                h.tool = super::layout::ToolId::Files;
+                h
+            }),
         }
     }
 
@@ -411,7 +417,7 @@ impl Render for Sidebar {
         // ---- daftar ----
         let mut list = div().id("sb-list").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().px(t.space(3)).pb(t.space(3));
         if self.tab.as_ref() == "files" {
-            list = list.child(note(&t, i.t("sb.chatHint")));
+            list = list.child(self.files.clone());
         } else {
             list = list.child(
                 div()

@@ -605,6 +605,75 @@ impl ToolsHost {
     }
 }
 
+impl ToolsHost {
+    fn render_log(&mut self, t: &Theme, _i: &I18n, cx: &mut Context<Self>) -> AnyElement {
+        let acts = ChatStore::global(cx).read(cx).activity.clone();
+        if acts.is_empty() {
+            return note(t, "—".into());
+        }
+        div()
+            .flex()
+            .flex_col()
+            .p(t.space(2))
+            .code(t)
+            .children(acts.iter().rev().take(300).map(|(ts, s)| {
+                div()
+                    .flex()
+                    .gap(t.space(2))
+                    .child(div().flex_none().text_color(t.colors.fg_subtle).child(crate::core::automation::fmt_time(*ts)))
+                    .child(div().min_w_0().truncate().child(s.clone()))
+            }))
+            .into_any_element()
+    }
+
+    fn render_trajectory(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
+        let st = ProjectStore::global(cx).read(cx);
+        let Some((_, s, _)) = st.selected() else { return note(t, i.t("info.empty")) };
+        let Some(chat) = ChatStore::global(cx).read(cx).sessions.get(&s.id).cloned() else { return note(t, i.t("traj.empty")) };
+        if chat.messages.is_empty() {
+            return note(t, i.t("traj.empty"));
+        }
+        let mut col = div().flex().flex_col().gap(t.space(2)).p(t.space(3));
+        let mut turn = 0;
+        for m in &chat.messages {
+            if m.info.role == Role::User {
+                turn += 1;
+                col = col.child(div().mt(t.space(2)).font_weight(FontWeight::SEMIBOLD).child(i.tp("traj.turn", &[("n", &turn.to_string())])));
+            }
+            for p in &m.parts {
+                let (kind, label, color, dur): (&str, String, gpui::Hsla, Option<f64>) = match &p.kind {
+                    PartKind::Text { text, synthetic } if m.info.role == Role::User => {
+                        (if *synthetic { "context" } else { "user" }, text.lines().next().unwrap_or("").to_string(), t.colors.accent, None)
+                    }
+                    PartKind::Text { text, .. } => ("assistant", text.lines().next().unwrap_or("").to_string(), t.colors.fg, None),
+                    PartKind::Reasoning { text } => ("thinking", text.lines().next().unwrap_or("").to_string(), t.colors.fg_muted, None),
+                    PartKind::Tool { tool, state, .. } => (
+                        if state.status == ToolStatus::Error { "error" } else { "tool" },
+                        format!("{tool} {}", state.title.clone().unwrap_or_default()),
+                        if state.status == ToolStatus::Error { t.colors.danger } else { t.colors.warning },
+                        state.time.and_then(|(a, b)| b.map(|b| b - a)),
+                    ),
+                    PartKind::StepFinish { tokens, .. } => ("step", format!("{} tok", tokens.total as i64), t.colors.fg_subtle, None),
+                    PartKind::File { filename, .. } => ("other", filename.clone().unwrap_or_default(), t.colors.fg_subtle, None),
+                    PartKind::Other { raw_type } => ("other", raw_type.clone(), t.colors.fg_subtle, None),
+                };
+                col = col.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t.space(2))
+                        .small(t)
+                        .child(div().flex_none().w(t.rem(0.25)).h(t.rem(1.)).rounded_full().bg(color))
+                        .child(div().flex_none().w(t.rem(5.)).text_color(t.colors.fg_subtle).child(i.t(&format!("traj.kind.{kind}"))))
+                        .child(div().flex_1().min_w_0().truncate().child(label))
+                        .children(dur.map(|d| div().flex_none().code(t).text_color(t.colors.fg_subtle).child(format!("{:.1}s", d / 1000.)))),
+                );
+            }
+        }
+        col.into_any_element()
+    }
+}
+
 impl Render for ToolsHost {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
@@ -623,6 +692,8 @@ impl Render for ToolsHost {
             ToolId::Jobs => self.render_jobs(&t, &i, cx),
             ToolId::Info => self.render_info(&t, &i, cx, false),
             ToolId::Session => self.render_info(&t, &i, cx, true),
+            ToolId::Trajectory => self.render_trajectory(&t, &i, cx),
+            ToolId::Log => self.render_log(&t, &i, cx),
             other => note(&t, format!("{} — belum tersedia di versi GPUI.", other.key())),
         };
         div().id("tools-body").size_full().overflow_y_scroll().child(body).into_any_element()
