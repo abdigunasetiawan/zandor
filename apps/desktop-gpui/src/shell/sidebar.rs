@@ -19,6 +19,8 @@ use std::collections::HashSet;
 #[derive(Clone)]
 enum SbDialog {
     Trust(String),
+    /// Tambah project dengan pilihan engine (tampil bila ada engine remote): "local" atau id engine remote.
+    AddWithEngine(String),
     RemoveProject(String, String),
     DeleteSession(String, String, String),
     RenameProject(String),
@@ -130,6 +132,12 @@ impl Sidebar {
                 match r {
                     Ok(p) => store.update(cx, |s, cx| s.select(Some(p.id), None, cx)),
                     Err(e) => toast_err(e, cx),
+                }
+            }
+            SbDialog::AddWithEngine(eng) if eng == "local" => self.pick_folder(cx),
+            SbDialog::AddWithEngine(eng) => {
+                if let Err(e) = store.update(cx, |s, cx| s.add_remote_project(&name, &eng, cx)) {
+                    toast_err(e, cx);
                 }
             }
             SbDialog::RemoveProject(id, _) => store.update(cx, |s, cx| s.remove_project(&id, cx)),
@@ -493,7 +501,15 @@ impl Render for Sidebar {
                         icon_button("sb-add", "plus", i.t("sb.addProject"))
                             .variant(ButtonVariant::Ghost)
                             .size(ControlSize::Sm)
-                            .on_click(cx.listener(|s, _, _, cx| s.pick_folder(cx)))
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                if s.store.read(cx).remotes.is_empty() {
+                                    s.pick_folder(cx);
+                                } else {
+                                    s.rename.update(cx, |r, cx| r.set_text("", cx));
+                                    s.dialog = Some(SbDialog::AddWithEngine("local".into()));
+                                    cx.notify();
+                                }
+                            }))
                             .into_any_element(),
                         icon_button(
                             "sb-collapse",
@@ -677,6 +693,8 @@ impl Render for Sidebar {
         let dlg = self.dialog.clone().map(|d| {
             let (title, body, input, danger, ok) = match &d {
                 SbDialog::Trust(p) => (i.t("sb.trustTitle"), Some(i.tp("sb.trustBody", &[("path", p)])), false, false, i.t("sb.trustYes")),
+                SbDialog::AddWithEngine(e) if e == "local" => (i.t("sb.addByPathTitle"), None, false, false, i.t("sb.addProject")),
+                SbDialog::AddWithEngine(_) => (i.t("sb.addByPathTitle"), Some(i.t("remote.pathHint")), true, false, i.t("sb.add")),
                 SbDialog::RemoveProject(_, n) => {
                     (i.tp("sb.confirmRemoveTitle", &[("name", n)]), Some(i.t("sb.confirmRemoveBody")), false, true, i.t("sb.removeProject"))
                 }
@@ -692,6 +710,28 @@ impl Render for Sidebar {
             }));
             if let Some(b) = body {
                 dl = dl.description(b);
+            }
+            if let SbDialog::AddWithEngine(cur) = &d {
+                let mut items: Vec<(SharedString, SharedString)> = vec![("local".into(), i.t("remote.local").into())];
+                items.extend(self.store.read(cx).remotes.iter().map(|r| (SharedString::from(r.id.clone()), SharedString::from(r.name.clone()))));
+                let me = cx.entity();
+                dl = dl.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t.space(2))
+                        .child(div().flex_1().child(i.t("remote.engine")))
+                        .child(crate::ui::select("sb-engine", items, cur.clone()).on_change(move |v, _, cx| {
+                            me.update(cx, |s, cx| {
+                                s.dialog = Some(SbDialog::AddWithEngine(v.to_string()));
+                                cx.notify();
+                            })
+                        })),
+                );
+                if cur != "local" {
+                    let name = self.store.read(cx).remote_by_id(cur).map(|r| r.name.clone()).unwrap_or_default();
+                    dl = dl.child(crate::ui::badge(i.tp("remote.badge", &[("name", &name)]))).child(div().small(&t).text_color(c.fg_muted).child(i.t("remote.noMemory")));
+                }
             }
             if input {
                 dl = dl.child(self.rename.clone());
