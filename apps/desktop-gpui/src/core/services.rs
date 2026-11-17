@@ -88,6 +88,7 @@ pub fn init(cx: &mut App) {
         cx,
     );
 
+    super::profile::Profile::init(cx);
     super::settings::SettingsStore::init(data.join("settings.json"), cx);
     super::automation::AutomationStore::init(data.join("automation.json"), cx);
     super::automation::start_scheduler(cx);

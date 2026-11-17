@@ -4,8 +4,8 @@ use super::state::AppState;
 use crate::core::services::EngineStatus;
 use crate::core::settings::SettingsStore;
 use crate::i18n::I18n;
-use crate::theme::{rem, Theme, H2, H4};
-use crate::ui::{avatar, badge, button, icon, icon_button, BadgeTone, ButtonVariant, ControlSize, IconSize, TypeExt};
+use crate::theme::{rem, Theme, H2};
+use crate::ui::{badge, button, icon, icon_button, BadgeTone, ButtonVariant, ControlSize, IconSize, TypeExt};
 use gpui::{div, prelude::*, ClipboardItem, Context, Entity, FontWeight, IntoElement, SharedString, Window};
 
 const STEPS: [&str; 7] = ["welcome", "profile", "provider", "system", "memory", "import", "thanks"];
@@ -43,12 +43,18 @@ pub struct OnboardingPage {
     step: usize,
     checks: Option<Vec<crate::syscheck::Check>>,
     models: Option<usize>,
+    profile: Entity<super::profile_section::ProfileSection>,
 }
 
 impl OnboardingPage {
     pub fn new(app: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         cx.observe(&EngineStatus::global(cx), |_, _, cx| cx.notify()).detach();
-        Self { app, step: 0, checks: None, models: None }
+        let profile = cx.new(|cx| {
+            let mut p = super::profile_section::ProfileSection::new(cx);
+            p.heading = false;
+            p
+        });
+        Self { app, step: 0, checks: None, models: None, profile }
     }
 
     fn run_checks(&mut self, cx: &mut Context<Self>) {
@@ -152,10 +158,7 @@ impl Render for OnboardingPage {
                     .child(div().text_color(t.colors.fg_muted).child(i.tp("onb.welcome.setup", &[("list", &list)])));
             }
             "profile" => {
-                let name = std::env::var("USERNAME").unwrap_or_else(|_| "Zandor".into());
-                body = body.child(div().text_color(t.colors.fg_muted).child(i.t("onb.profile.body"))).child(
-                    div().flex().items_center().gap(t.space(3)).child(avatar(SharedString::from(name.clone())).size(ControlSize::Lg)).child(div().typo(&t, H4).child(name)),
-                );
+                body = body.child(div().text_color(t.colors.fg_muted).child(i.t("onb.profile.body"))).child(self.profile.clone());
             }
             "provider" => {
                 body = body

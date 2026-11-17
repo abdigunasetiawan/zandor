@@ -6,7 +6,7 @@ use crate::core::projects::{session_title, ProjectStore, CHAT_KEY};
 use crate::core::services::EngineStatus;
 use crate::core::types::*;
 use crate::i18n::I18n;
-use crate::theme::{rem, Theme, H3};
+use crate::theme::{rem, Theme};
 use crate::ui::{
     badge, button, icon, icon_button, markdown, working, BadgeTone, ButtonVariant, ControlSize, IconSize, InputSubmit, TextInput,
     TypeExt,
@@ -54,6 +54,7 @@ impl ChatPanel {
         .detach();
         cx.observe(&chat, |_, _, cx| cx.notify()).detach();
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
+        cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &InputSubmit, cx| this.submit(e.0.to_string(), cx)).detach();
         cx.subscribe(&input, |this, _, e: &crate::ui::InputNav, cx| this.on_nav(*e, cx)).detach();
         cx.subscribe(&input, |this, _, _: &crate::ui::InputChanged, cx| {
@@ -602,7 +603,7 @@ impl Render for ChatPanel {
                                 .flex()
                                 .flex_col()
                                 .items_center()
-                                .child(div().typo(&t, H3).child(i.tp(greet, &[("name", "")])))
+                                .child(div().typo(&t, crate::theme::H2).child(i.tp(greet, &[("name", &format!(", {}", crate::core::profile::Profile::global(cx).read(cx).display_name()))])))
                                 .child(div().text_color(t.colors.fg_muted).child(i.t(if engine_ready { "chat.greet.sub" } else { "chat.engineDown" }))),
                         )
                         .child(div().w_full().max_w(t.rem(rem::CHAT_WIDTH)).child(composer)),

@@ -7,7 +7,7 @@ use crate::core::settings::{group_of, keys, properties, SettingsStore, GROUPS};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme, H4};
 use crate::ui::{
-    avatar, button, icon, icon_button, select, switch, ButtonVariant, ControlSize, IconSize, InputChanged, TextInput,
+    button, icon, icon_button, select, switch, ButtonVariant, ControlSize, IconSize, InputChanged, TextInput,
     ToastInput, ToastTone, Toasts, TypeExt,
 };
 use gpui::{div, prelude::*, AnyElement, App, ClipboardItem, Context, Entity, FontWeight, IntoElement, ScrollHandle, SharedString, Window};
@@ -35,6 +35,7 @@ pub struct SettingsPage {
     scroll: ScrollHandle,
     models: Option<Result<Vec<ModelOption>, String>>,
     providers: Entity<super::providers_section::ProvidersSection>,
+    profile: Entity<super::profile_section::ProfileSection>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -57,7 +58,8 @@ impl SettingsPage {
         })
         .detach();
         let providers = cx.new(super::providers_section::ProvidersSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers };
+        let profile = cx.new(super::profile_section::ProfileSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile };
         me.load_models(cx);
         me
     }
@@ -195,13 +197,7 @@ impl Render for SettingsPage {
             .child(div().small(&t).text_color(t.colors.fg_muted).mb(t.space(4)).child(i.t("settings.schemaNote")));
 
         if show("profile") && matches_q(&q, &[&i.t("settings.profile"), &i.t("profile.name")]) {
-            let name = std::env::var("USERNAME").unwrap_or_else(|_| "Zandor".into());
-            content = content.child(group(
-                &t,
-                i.t("settings.profile"),
-                vec![row(&t, i.t("profile.name"), None, div().flex().items_center().gap(t.space(2)).child(avatar(SharedString::from(name.clone())).size(ControlSize::Sm)).child(name), None)
-                    .into_any_element()],
-            ));
+            content = content.child(group(&t, i.t("settings.profile"), vec![div().py(t.space(2)).child(self.profile.clone()).into_any_element()]));
         }
 
         for g in GROUPS {

@@ -150,14 +150,14 @@ pub fn initials(name: &str) -> String {
 #[derive(IntoElement)]
 pub struct Avatar {
     name: SharedString,
-    src: Option<SharedString>,
+    src: Option<gpui::ImageSource>,
     size: ControlSize,
 }
 pub fn avatar(name: impl Into<SharedString>) -> Avatar {
     Avatar { name: name.into(), src: None, size: ControlSize::Md }
 }
 impl Avatar {
-    pub fn src(mut self, src: impl Into<SharedString>) -> Self {
+    pub fn src(mut self, src: impl Into<gpui::ImageSource>) -> Self {
         self.src = Some(src.into());
         self
     }

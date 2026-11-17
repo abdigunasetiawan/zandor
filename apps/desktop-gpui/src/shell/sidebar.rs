@@ -7,7 +7,7 @@ use crate::core::services::EngineStatus;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme, H4};
 use crate::ui::{
-    avatar, badge, button, dialog, entry, icon, icon_button, kbd, menu_popup, tabs, BadgeTone, ButtonVariant, ControlSize,
+    badge, button, dialog, entry, icon, icon_button, kbd, menu_popup, tabs, BadgeTone, ButtonVariant, ControlSize,
     IconSize, MenuEntry, TabItem, TextInput, ToastInput, ToastTone, Toasts, TypeExt,
 };
 use gpui::{
@@ -40,9 +40,6 @@ pub struct Sidebar {
     files: Entity<super::tools::ToolsHost>,
 }
 
-fn user_name() -> String {
-    std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_else(|_| "Zandor".into())
-}
 
 impl Sidebar {
     pub fn new(app: Entity<AppState>, cx: &mut Context<Self>) -> Self {
@@ -53,6 +50,7 @@ impl Sidebar {
         let search = cx.new(|cx| TextInput::new(cx, ph));
         let rename = cx.new(|cx| TextInput::new(cx, ph2));
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
+        cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&search, |_, _, _: &crate::ui::InputChanged, cx| cx.notify()).detach();
@@ -534,7 +532,7 @@ impl Render for Sidebar {
             "error" | "stopped" => (c.danger, true),
             _ => (c.warning, false),
         };
-        let name = user_name();
+        let name = crate::core::profile::Profile::global(cx).read(cx).display_name();
         let menu_open = self.open_menu.as_deref() == Some("user");
         let nav = |route: &'static str| {
             let me = me.clone();
@@ -575,7 +573,7 @@ impl Render for Sidebar {
                         s.open_menu = if s.open_menu.as_deref() == Some("user") { None } else { Some("user".into()) };
                         cx.notify();
                     }))
-                    .child(avatar(SharedString::from(name.clone())).size(ControlSize::Sm))
+                    .child(crate::core::profile::profile_avatar(cx).size(ControlSize::Sm))
                     .child(
                         div()
                             .flex()
