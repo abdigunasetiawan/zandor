@@ -342,10 +342,21 @@ pub fn code_colors_for(selected: &str, installed: &[EditorTheme]) -> Vec<(&'stat
     installed.iter().find(|t| t.id == selected).map(code_colors_from_theme).unwrap_or_default()
 }
 
-/// Terapkan warna kode ke palet. `bg`/`fg` belum punya slot di Colors (blok kode memakai token permukaan).
+/// Terapkan warna kode ke palet (termasuk latar/teks blok kode).
 pub fn apply_code_colors(c: &mut Colors, list: &[(&'static str, String)]) {
     for (k, v) in list {
         let Some(col) = parse_color(v) else { continue };
+        match *k {
+            "bg" => {
+                c.code_bg = Some(col);
+                continue;
+            }
+            "fg" => {
+                c.code_fg = Some(col);
+                continue;
+            }
+            _ => {}
+        }
         let slot = match *k {
             "keyword" => &mut c.code_keyword,
             "string" => &mut c.code_string,

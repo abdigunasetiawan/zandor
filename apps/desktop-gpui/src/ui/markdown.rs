@@ -156,7 +156,8 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                             .rounded(t.rem(rem::RADIUS_MD))
                             .border_1()
                             .border_color(t.colors.border_soft)
-                            .bg(t.colors.raised)
+                            .bg(t.colors.code_bg.unwrap_or(t.colors.raised))
+                            .when_some(t.colors.code_fg, |d, c| d.text_color(c))
                             .overflow_hidden()
                             .when(!lang.is_empty(), |d| {
                                 d.child(

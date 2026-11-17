@@ -59,6 +59,9 @@ pub struct Colors {
     pub code_attr: Hsla,
     pub code_add: Hsla,
     pub code_del: Hsla,
+    /// Latar/teks blok kode dari tema editor (None = token permukaan).
+    pub code_bg: Option<Hsla>,
+    pub code_fg: Option<Hsla>,
 }
 
 fn c(hex: u32) -> Hsla {
@@ -120,6 +123,8 @@ impl Colors {
             code_attr: c(0x85e89d),
             code_add: c(0x9ecb7a),
             code_del: c(0xff7b72),
+            code_bg: None,
+            code_fg: None,
         }
     }
 
@@ -162,6 +167,8 @@ impl Colors {
             code_attr: c(0x116329),
             code_add: c(0x1a7f37),
             code_del: c(0xc62828),
+            code_bg: None,
+            code_fg: None,
         }
     }
 }
