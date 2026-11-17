@@ -4,10 +4,12 @@ import { mockEngine } from "./mock-engine";
 test("lima tombol tampil/sembunyi panel: Chat dan Rel bisa disembunyikan, jarak antarpanel sama", async ({ page }) => {
   await mockEngine(page);
   await page.goto("/");
-  const toggles = page.getByRole("group", { name: "Tampilkan/sembunyikan panel" }).getByRole("button");
-  await expect(toggles).toHaveCount(5);
+  const group = page.getByRole("group", { name: "Tampilkan/sembunyikan panel" });
+  // lima tombol tampil/sembunyi (ber-aria-pressed) + satu tombol smart resize (ADR-066)
+  await expect(group.locator("button[aria-pressed]")).toHaveCount(5);
+  await expect(group.getByRole("button", { name: /Atur ukuran panel/ })).toHaveCount(1);
 
-  const chat = page.getByRole("button", { name: "Chat", exact: true });
+  const chat = group.getByRole("button", { name: "Chat (Ctrl+2)", exact: true });
   await chat.click();
   await expect(chat).toHaveAttribute("aria-pressed", "false");
   await expect
@@ -16,7 +18,7 @@ test("lima tombol tampil/sembunyi panel: Chat dan Rel bisa disembunyikan, jarak 
   await chat.click();
   await expect(chat).toHaveAttribute("aria-pressed", "true");
 
-  const rail = page.getByRole("button", { name: "Rel alat", exact: true });
+  const rail = group.getByRole("button", { name: "Rel alat (Ctrl+5)", exact: true });
   await rail.click();
   await expect(page.locator(".shell-rail")).toHaveCount(0);
   await rail.click();

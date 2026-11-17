@@ -32,6 +32,8 @@
   gap: var(--z-space-3);
   width: calc(var(--z-space-7) * 9);
   max-width: calc(100vw - var(--z-space-6));
+  /* Isi tinggi tidak boleh mendorong footer keluar layar: dialog dibatasi tinggi layar, bagian isi yang menggulir. */
+  max-height: calc(100vh - var(--z-space-6));
   padding: var(--z-space-5);
   border: var(--z-border-width) solid var(--z-color-border);
   border-radius: var(--z-radius-lg);
@@ -50,6 +52,14 @@
 }
 .z-dialog__description {
   color: var(--z-color-fg-muted);
+}
+.z-dialog__body {
+  min-height: 0;
+  /* ruang kecil agar cincin fokus kontrol di tepi tidak terpotong oleh area gulir */
+  margin: calc(var(--z-space-1) * -1);
+  padding: var(--z-space-1);
+  overflow: auto;
+  overscroll-behavior: contain;
 }
 .z-dialog__footer {
   display: flex;
