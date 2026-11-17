@@ -1,5 +1,5 @@
 //! Panel alat — port GitPanel, FilesTree, JobsPanel, ChangesPanel, SessionInfo, rencana sesi. Memakai git.rs/jobs.rs
-//! bersama dan API engine. Terminal, Browser, Trajektori, dan Log belum diport (ditampilkan apa adanya).
+//! bersama dan API engine; Terminal (terminal.rs) dan Browser (browser.rs, webview native) sebagai entity terpisah.
 use super::layout::ToolId;
 use crate::core::chat_store::ChatStore;
 use crate::core::engine::{FileNode, SessionFileDiff};
@@ -29,6 +29,7 @@ pub struct ToolsHost {
     jobs: Vec<serde_json::Value>,
     job_log: Option<(String, String)>,
     terminal: Option<Entity<super::terminal::Terminal>>,
+    browser: Option<Entity<super::browser::BrowserPanel>>,
 }
 
 fn jobs_dir() -> PathBuf {
@@ -62,6 +63,7 @@ impl ToolsHost {
             jobs: vec![],
             job_log: None,
             terminal: None,
+            browser: None,
         };
         me.sync(cx);
         me
@@ -678,6 +680,13 @@ impl Render for ToolsHost {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
+        if self.tool == ToolId::Browser {
+            let b = self.browser.get_or_insert_with(|| cx.new(super::browser::BrowserPanel::new)).clone();
+            return div().size_full().child(b).into_any_element();
+        }
+        if let Some(b) = &self.browser {
+            b.update(cx, |b, _| b.hide_all());
+        }
         if self.tool == ToolId::Terminal {
             if self.terminal.is_none() {
                 let dir = self.dir(cx);

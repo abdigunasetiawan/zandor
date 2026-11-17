@@ -20,6 +20,7 @@ ureq = { version = "3", features = ["json", "native-tls"] }
 # Backend bersama dengan apps/desktop/src-tauri (modul dipakai langsung lewat #[path], bukan salinan).
 zandor-engine-supervisor = { path = "../../crates/engine-supervisor" }
 keyring = "=4.2.0"
+wry = "0.57"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 roxmltree = "0.20"
 futures = "0.3"
