@@ -794,6 +794,8 @@ export const en: Messages = {
   "tour.keys.search": "Search all sessions",
   "tour.keys.panels": "Show/hide panels 1–5 (Ctrl+1 to Ctrl+5)",
   "tour.keys.settings": "Settings",
+  "sb.trustMemory": "Enable memory for this project",
+  "sb.trustMemoryHint": "The agent remembers this project's decisions and conventions across sessions (stored locally). Change it any time on the Memory page.",
   "doc.zoomIn": "Zoom in",
   "doc.zoomOut": "Zoom out",
   "doc.open": "Open {name} in the Documents panel",

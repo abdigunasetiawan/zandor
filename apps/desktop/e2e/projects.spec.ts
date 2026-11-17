@@ -108,7 +108,7 @@ test("folder baru meminta konfirmasi trust; menolak tidak menambah project", asy
   await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
   await page.getByLabel("Path folder").fill("C:/tidak-dipercaya");
   await page.getByRole("button", { name: "Tambah", exact: true }).click();
-  await expect(page.getByRole("alertdialog", { name: "Percayai folder ini?" })).toContainText("C:/tidak-dipercaya");
+  await expect(page.getByRole("dialog", { name: "Percayai folder ini?" })).toContainText("C:/tidak-dipercaya");
   await page.keyboard.press("Escape");
   await expect(page.getByText("tidak-dipercaya")).toHaveCount(0);
 });

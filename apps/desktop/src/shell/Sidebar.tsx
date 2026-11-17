@@ -5,6 +5,7 @@ import {
   type ProjectKey,
   type ProjectStyle,
   pathKey,
+  projectKey,
   type SessionInfo,
   type SessionsState,
   sessionTitle,
@@ -47,6 +48,7 @@ import {
   SearchIcon,
   SettingsIcon,
   Spinner,
+  Switch,
   Tabs,
   TrashIcon,
   UserIcon,
@@ -62,7 +64,15 @@ import { type FilesScope, FilesTree } from "./FilesTree";
 import { ProjectStyleDialog, projectBackground } from "./ProjectStyleDialog";
 import { useProfile } from "./profile";
 import { SessionDot, SessionDotFor } from "./SessionDot";
-import { useAppearance, useEngineState, useProjects, useServices, useSettings, useSidebarPrefs } from "./services";
+import {
+  useAppearance,
+  useEngineState,
+  useMemory,
+  useProjects,
+  useServices,
+  useSettings,
+  useSidebarPrefs,
+} from "./services";
 
 type RenameTarget =
   | { kind: "project"; id: string; value: string }
@@ -276,26 +286,33 @@ export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; 
   const fail = useErrorToast();
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState("");
-  const confirm = useConfirm();
   const state = useProjects();
+  const mem = useMemory();
+  const { memory } = useServices();
+  // Folder baru menunggu persetujuan "percayai" (dialog yang sama memuat pilihan memori project).
+  const [trust, setTrust] = useState<string | null>(null);
+  const [memOn, setMemOn] = useState(false);
 
-  const add = async (p: string) => {
+  const commit = async (p: string, memoryChoice: boolean | null) => {
     try {
-      // Folder baru harus dipercaya dulu: agent bisa membaca, mengubah, dan menjalankan perintah di dalamnya.
-      const known = state.projects.some((x) => pathKey(x.path) === pathKey(p));
-      if (!known) {
-        const ok = await confirm({
-          title: t("sb.trustTitle"),
-          description: t("sb.trustBody", { path: p }),
-          confirmLabel: t("sb.trustYes"),
-        });
-        if (!ok) return;
-      }
       await projects.addProject(p);
+      // Simpan pilihan memori hanya bila berbeda dari bawaan, agar project tetap "ikuti bawaan" bila tidak diubah.
+      if (memoryChoice !== null && memoryChoice !== mem.settings.defaultEnabled) {
+        await memory.setProjectEnabled(await projectKey(p), memoryChoice);
+      }
       onAdded?.();
     } catch (e) {
       fail(e);
     }
+  };
+  const add = async (p: string) => {
+    // Folder baru harus dipercaya dulu: agent bisa membaca, mengubah, dan menjalankan perintah di dalamnya.
+    const known = state.projects.some((x) => pathKey(x.path) === pathKey(p));
+    if (known) return commit(p, null);
+    setMemOn(mem.settings.defaultEnabled);
+    setTrust(p);
+    // Pengaturan memori dimuat malas; baca sekarang agar sakelar mengikuti bawaan yang sebenarnya.
+    void memory.loadSettings().then(() => setMemOn(memory.state().settings.defaultEnabled));
   };
   const onClick = async () => {
     if (host.native) {
@@ -317,6 +334,33 @@ export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; 
   };
   return (
     <>
+      <Dialog
+        open={trust !== null}
+        onOpenChange={(o) => !o && setTrust(null)}
+        title={t("sb.trustTitle")}
+        description={t("sb.trustBody", { path: trust ?? "" })}
+        footer={
+          <>
+            <Button onClick={() => setTrust(null)}>{t("ui.cancel")}</Button>
+            <Button
+              variant="solid"
+              autoFocus
+              onClick={() => {
+                const p = trust;
+                setTrust(null);
+                if (p) void commit(p, memOn);
+              }}
+            >
+              {t("sb.trustYes")}
+            </Button>
+          </>
+        }
+      >
+        <div className="trust__memory">
+          <Switch label={t("sb.trustMemory")} checked={memOn} onCheckedChange={setMemOn} />
+          <p className="z-small trust__hint">{t("sb.trustMemoryHint")}</p>
+        </div>
+      </Dialog>
       {labelled ? (
         <Button variant="solid" onClick={() => void onClick()}>
           <PlusIcon size="sm" /> {t("sb.addProject")}

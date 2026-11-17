@@ -6206,3 +6206,14 @@ fieldset.pstyle__templates {
   margin-inline-end: auto;
   color: var(--z-color-fg-subtle);
 }
+
+/* Dialog percayai folder: pilihan memori project */
+.trust__memory {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+}
+.trust__hint {
+  margin: 0;
+  color: var(--z-color-fg-muted);
+}

@@ -795,6 +795,8 @@ export const id = {
   "tour.keys.search": "Cari di semua sesi",
   "tour.keys.panels": "Tampil/sembunyi panel 1–5 (Ctrl+1 sampai Ctrl+5)",
   "tour.keys.settings": "Pengaturan",
+  "sb.trustMemory": "Aktifkan memori untuk project ini",
+  "sb.trustMemoryHint": "Agent mengingat keputusan dan konvensi project ini lintas sesi (disimpan lokal). Bisa diubah kapan saja di halaman Memori.",
   "doc.zoomIn": "Perbesar",
   "doc.zoomOut": "Perkecil",
   "doc.open": "Buka {name} di panel Dokumen",

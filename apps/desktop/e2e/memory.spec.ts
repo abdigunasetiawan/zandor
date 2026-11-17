@@ -103,3 +103,21 @@ test("toggle di composer: sesi project berbagi pengaturan project; sesi Chat dia
   await newIn("Sesi baru di Chat (tanpa project)");
   await expect(mem()).toHaveAttribute("aria-pressed", "false");
 });
+
+test("dialog percayai folder: memori project bisa diaktifkan saat menambah project", async ({ page }) => {
+  await mockEngine(page);
+  await page.goto("/");
+  await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
+  await page.getByRole("button", { name: "Tambah project (pilih folder)" }).click();
+  await page.getByLabel("Path folder").fill("C:/Work/beta");
+  await page.getByRole("button", { name: "Tambah", exact: true }).click();
+  const sw = page.getByRole("switch", { name: "Aktifkan memori untuk project ini" });
+  await expect(sw).toHaveAttribute("aria-checked", "false"); // mengikuti bawaan (mati)
+  await sw.click();
+  await page.getByRole("button", { name: "Ya, saya percaya folder ini" }).click();
+  await expect(page.getByRole("button", { name: "beta", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Menu pengguna" }).click();
+  await page.getByRole("menuitem", { name: "Memori & skill" }).click();
+  await page.getByRole("tab", { name: "Pengaturan" }).click();
+  await expect(page.getByRole("combobox", { name: "Project: beta", exact: true })).toContainText("Aktif");
+});
