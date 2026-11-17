@@ -173,14 +173,51 @@ fn mime_of(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-/// Berkas gambar → data URL (galat bila bukan png/jpeg/webp/gif atau terlalu besar).
-/// Catatan: aplikasi TS memperkecil gambar dulu; port ini menolak gambar yang melebihi batas.
-pub fn data_url_from_file(path: &std::path::Path, max_chars: usize) -> Result<String, String> {
+/// Format keluaran perkecilan gambar (port opsi mime/quality imageToDataUrl).
+#[derive(Clone, Copy)]
+pub enum OutFmt {
+    Jpeg(u8),
+    Png,
+}
+
+/// Port imageToDataUrl: dekode png/jpeg/webp/gif, perkecil agar sisi terpanjang <= max_side, lalu enkode.
+pub fn resize_image_bytes(bytes: &[u8], max_side: u32, fmt: OutFmt) -> Result<(Vec<u8>, &'static str), String> {
+    if mime_of(bytes).is_none() {
+        return Err("hanya png, jpeg, webp, atau gif".into());
+    }
+    let img = image::load_from_memory(bytes).map_err(|e| format!("gambar tidak bisa dibaca: {e}"))?;
+    let (w, h) = (img.width().max(1), img.height().max(1));
+    let scale = (max_side as f64 / w.max(h) as f64).min(1.);
+    let (nw, nh) = (((w as f64 * scale).round() as u32).max(1), ((h as f64 * scale).round() as u32).max(1));
+    let img = if (nw, nh) == (w, h) { img } else { img.resize_exact(nw, nh, image::imageops::FilterType::Triangle) };
+    let mut out = Vec::new();
+    match fmt {
+        OutFmt::Jpeg(q) => {
+            // JPEG tanpa alfa: komposit di atas putih (seperti canvas → toDataURL jpeg yang mengisi hitam/putih)
+            let rgba = img.to_rgba8();
+            let mut rgb = image::RgbImage::new(nw, nh);
+            for (x, y, p) in rgba.enumerate_pixels() {
+                let a = p[3] as u32;
+                let c = |v: u8| ((v as u32 * a + 255 * (255 - a)) / 255) as u8;
+                rgb.put_pixel(x, y, image::Rgb([c(p[0]), c(p[1]), c(p[2])]));
+            }
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, q).encode_image(&rgb).map_err(|e| e.to_string())?;
+            Ok((out, "jpeg"))
+        }
+        OutFmt::Png => {
+            img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).map_err(|e| e.to_string())?;
+            Ok((out, "png"))
+        }
+    }
+}
+
+/// Berkas gambar → data URL kecil (diperkecil dulu seperti aplikasi TS).
+pub fn image_to_data_url(path: &std::path::Path, max_side: u32, fmt: OutFmt, max_chars: usize) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let Some(m) = mime_of(&bytes) else { return Err("gambar harus berupa png/jpeg/webp/gif".into()) };
-    let url = format!("data:image/{m};base64,{}", b64_encode(&bytes));
+    let (out, m) = resize_image_bytes(&bytes, max_side, fmt)?;
+    let url = format!("data:image/{m};base64,{}", b64_encode(&out));
     if url.len() > max_chars {
-        return Err("gambar terlalu besar".into());
+        return Err("gambar terlalu besar setelah diperkecil; pilih gambar lain".into());
     }
     Ok(url)
 }
@@ -250,5 +287,25 @@ mod tests {
         assert_eq!(b64_encode(b"hi"), "aGk=");
         assert_eq!(validate_image_data_url("data:image/png;base64,aGk=", 100), None);
         assert!(validate_image_data_url("data:text/html;base64,aGk=", 100).is_some());
+    }
+}
+
+#[cfg(test)]
+mod resize_tests {
+    use super::*;
+
+    #[test]
+    fn downscales_large_png() {
+        let img = image::RgbaImage::from_pixel(3000, 1500, image::Rgba([10, 200, 30, 128]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(img).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        let (out, m) = resize_image_bytes(&png, 1280, OutFmt::Jpeg(80)).unwrap();
+        assert_eq!(m, "jpeg");
+        let d = image::load_from_memory(&out).unwrap();
+        assert_eq!((d.width(), d.height()), (1280, 640));
+        let (out, _) = resize_image_bytes(&png, 64, OutFmt::Png).unwrap();
+        let d = image::load_from_memory(&out).unwrap();
+        assert_eq!((d.width(), d.height()), (64, 32));
+        assert!(resize_image_bytes(b"<svg/>", 64, OutFmt::Png).is_err());
     }
 }

@@ -7513,6 +7513,7 @@ dependencies = [
  "getrandom 0.3.4",
  "gpui",
  "gpui_platform",
+ "image",
  "keyring",
  "portable-pty",
  "pulldown-cmark",

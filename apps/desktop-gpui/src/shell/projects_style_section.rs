@@ -109,8 +109,12 @@ impl ProjectsStyleSection {
         cx.spawn(async move |this, cx| {
             let Ok(Ok(Some(paths))) = rx.await else { return };
             let Some(p) = paths.into_iter().next() else { return };
-            let max = if key == "logoImage" { gradient::MAX_LOGO_IMAGE_CHARS } else { gradient::MAX_STYLE_IMAGE_CHARS };
-            this.update(cx, |s, cx| match gradient::data_url_from_file(&p, max) {
+            let r = if key == "logoImage" {
+                gradient::image_to_data_url(&p, 64, gradient::OutFmt::Png, gradient::MAX_LOGO_IMAGE_CHARS)
+            } else {
+                gradient::image_to_data_url(&p, 1280, gradient::OutFmt::Jpeg(80), gradient::MAX_STYLE_IMAGE_CHARS)
+            };
+            this.update(cx, |s, cx| match r {
                 Ok(url) => s.put(&pid, key, Some(url), cx),
                 Err(e) => {
                     Toasts::show(ToastInput { title: e.into(), description: None, tone: ToastTone::Danger, timeout_ms: None, action: None }, cx);

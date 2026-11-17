@@ -22,6 +22,7 @@ zandor-engine-supervisor = { path = "../../crates/engine-supervisor" }
 keyring = "=4.2.0"
 wry = "0.57"
 rquickjs = "0.9"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 roxmltree = "0.20"
 futures = "0.3"

@@ -65,8 +65,11 @@ impl Profile {
         }
         let dir = super::services::app_data_dir();
         // nama unik agar cache gambar GPUI tidak menampilkan avatar lama
-        let dest = dir.join(format!("avatar-{}.{ext}", super::projects::new_id()));
-        std::fs::copy(src, &dest).map_err(|e| e.to_string())?;
+        // diperkecil ke 256 px JPEG seperti ProfileSettings.tsx (maxSide 256)
+        let bytes = std::fs::read(src).map_err(|e| e.to_string())?;
+        let (out, _) = super::gradient::resize_image_bytes(&bytes, 256, super::gradient::OutFmt::Jpeg(85))?;
+        let dest = dir.join(format!("avatar-{}.jpg", super::projects::new_id()));
+        std::fs::write(&dest, out).map_err(|e| e.to_string())?;
         if let Some(old) = self.avatar.take() {
             let _ = std::fs::remove_file(old);
         }
