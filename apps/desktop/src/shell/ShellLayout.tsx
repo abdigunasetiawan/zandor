@@ -508,6 +508,8 @@ export function ShellLayout() {
           id="sidebar"
           panelRef={refs.sidebar}
           collapsible
+          // panel tersembunyi tidak boleh terbuka akibat seret separator di sebelahnya
+          disabled={panelState.collapsed.sidebar}
           minSize={`${MIN_REM.sidebar}rem`}
           defaultSize={PANEL_DEFS[0]?.defaultSize}
           className="shell-panel"
@@ -523,6 +525,8 @@ export function ShellLayout() {
           id="chat"
           panelRef={refs.chat}
           collapsible
+          // panel tersembunyi tidak boleh terbuka akibat seret separator di sebelahnya
+          disabled={panelState.collapsed.chat}
           minSize={`${MIN_REM.chat}rem`}
           defaultSize={PANEL_DEFS[1]?.defaultSize}
           className="shell-panel"
@@ -538,6 +542,8 @@ export function ShellLayout() {
           id="docs"
           panelRef={refs.docs}
           collapsible
+          // panel tersembunyi tidak boleh terbuka akibat seret separator di sebelahnya
+          disabled={panelState.collapsed.docs}
           minSize={`${MIN_REM.docs}rem`}
           defaultSize={PANEL_DEFS[2]?.defaultSize}
           className="shell-panel"
@@ -557,6 +563,8 @@ export function ShellLayout() {
           id="tools"
           panelRef={refs.tools}
           collapsible
+          // panel tersembunyi tidak boleh terbuka akibat seret separator di sebelahnya
+          disabled={panelState.collapsed.tools}
           minSize={`${MIN_REM.tools}rem`}
           defaultSize={PANEL_DEFS[3]?.defaultSize}
           className="shell-panel"

@@ -514,9 +514,15 @@ export const VIRTUALIZE_FROM = 40;
 /** Apakah posisi gulir berada di dekat dasar (ambang 48 px). */
 const nearBottom = (el: HTMLElement) => el.scrollHeight - el.scrollTop - el.clientHeight < 48;
 
-function useStickToBottom(dep: unknown, follow = true) {
+function useStickToBottom(dep: unknown, follow = true, forceKey?: unknown) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(follow);
+  // pengguna mengirim pesan baru → selalu kembali ke dasar, walau sebelumnya sedang membaca ke atas
+  const lastForce = useRef(forceKey);
+  if (follow && forceKey !== lastForce.current) {
+    lastForce.current = forceKey;
+    stick.current = true;
+  }
   // biome-ignore lint/correctness/useExhaustiveDependencies: `dep` adalah pemicu (isi transcript berubah), bukan nilai yang dibaca
   useLayoutEffect(() => {
     const el = ref.current;
@@ -626,6 +632,7 @@ export function Transcript({ session, follow = true }: { session: SessionChat; f
   const { ref, onScroll } = useStickToBottom(
     [session.messages, total, session.permissions.length, session.questions.length, busy],
     follow,
+    allMessages.filter((m) => m.info.role === "user").length,
   );
   // gulir ke pesan yang diminta (tautan pesan / daftar sematan); menunggu sampai elemennya ada
   const visibleCount = rows.getVirtualItems().length;
