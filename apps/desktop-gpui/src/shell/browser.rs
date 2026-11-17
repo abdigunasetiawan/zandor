@@ -1,8 +1,7 @@
 //! Panel alat Browser — port BrowserPanel.tsx + browser.ts: webview native (WebView2 lewat wry) sebagai jendela anak
 //! di atas UI GPUI, satu webview per tab (maks 8). Hanya tab aktif yang tampil, diposisikan mengikuti area panel tiap
 //! frame; disembunyikan bila panel lain dipilih atau area terlalu kecil. Konten remote tidak punya IPC ke aplikasi.
-//! Batasan (sama dengan "airspace" di versi Tauri): webview anak digambar di atas UI, jadi menu/dialog yang beririsan
-//! dengan area browser tertutup webview.
+//! Webview anak digambar di atas UI ("airspace"), jadi disembunyikan selama ada menu/dialog/palet (penanda overlay_deferred).
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{icon, icon_button, ButtonVariant, ControlSize, IconSize, InputSubmit, TextInput, TypeExt};
@@ -255,7 +254,12 @@ impl Render for BrowserPanel {
         let err2 = err_slot.clone();
         let host = canvas(
             move |bounds: Bounds<Pixels>, window, _cx| {
-                let big = f32::from(bounds.size.width) >= MIN_SIZE && f32::from(bounds.size.height) >= MIN_SIZE;
+                let overlay = crate::ui::take_overlay();
+                if overlay {
+                    // periksa lagi tiap frame sampai overlay tertutup (view bisa di-cache)
+                    window.request_animation_frame();
+                }
+                let big = !overlay && f32::from(bounds.size.width) >= MIN_SIZE && f32::from(bounds.size.height) >= MIN_SIZE;
                 let mut map = views.borrow_mut();
                 if big && !url.is_empty() && !map.contains_key(&active) {
                     match create_view(window, &active, &url, tx.clone()) {

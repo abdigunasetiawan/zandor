@@ -117,7 +117,7 @@ pub fn menu_popup(
     }
     let close = on_close.clone();
     let top = matches!(anchor, Anchor::TopLeft | Anchor::TopRight);
-    deferred(
+    crate::ui::overlay_deferred(
         anchored().anchor(anchor).snap_to_window_with_margin(px(8.)).child(
             div()
                 .when(top, |d| d.mt(t.space(1)))

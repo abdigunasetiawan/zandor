@@ -330,7 +330,7 @@ impl RenderOnce for Dialog {
             .when(!self.footer.is_empty(), |d| {
                 d.child(div().flex().justify_end().gap(t.space(2)).mt(t.space(2)).children(self.footer))
             });
-        deferred(
+        crate::ui::overlay_deferred(
             div()
                 .absolute()
                 .top_0()

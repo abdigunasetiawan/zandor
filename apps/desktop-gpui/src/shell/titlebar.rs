@@ -4,7 +4,7 @@ use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{button, icon, icon_button, kbd, menu_item, popup, separator, ButtonVariant, ControlSize, IconSize};
 use gpui::{
-    anchored, deferred, div, prelude::*, px, App, Context, Anchor, Entity, IntoElement, MouseButton,
+    anchored, div, prelude::*, px, App, Context, Anchor, Entity, IntoElement, MouseButton,
     SharedString, Window, WindowControlArea,
 };
 
@@ -106,7 +106,7 @@ impl TitleBar {
                     }
                     list = list.child(item);
                 }
-                wrap = wrap.child(deferred(
+                wrap = wrap.child(crate::ui::overlay_deferred(
                     anchored().anchor(Anchor::TopLeft).snap_to_window_with_margin(px(8.)).child(
                         div().mt(t.space(1)).child(list.on_mouse_down_out(cx.listener(|this, _, _, cx| {
                             this.open_menu = None;

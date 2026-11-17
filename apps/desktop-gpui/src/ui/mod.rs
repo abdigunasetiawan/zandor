@@ -26,3 +26,19 @@ pub use typo::TypeExt;
 pub use menu::{entry, menu_popup, MenuEntry};
 pub use markdown::markdown;
 pub use select::{select, Select};
+
+thread_local! {
+    static OVERLAY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// `deferred` untuk lapisan UI (menu, dialog, palet) yang juga menandai bahwa ada overlay di frame ini, sehingga
+/// webview native (Browser) disembunyikan agar tidak menutupinya (airspace, sama dengan versi Tauri).
+pub fn overlay_deferred(child: impl gpui::IntoElement) -> gpui::Deferred {
+    OVERLAY.with(|o| o.set(true));
+    gpui::deferred(child)
+}
+
+/// Baca lalu reset penanda overlay (dipanggil sekali per frame oleh host Browser).
+pub fn take_overlay() -> bool {
+    OVERLAY.with(|o| o.replace(false))
+}

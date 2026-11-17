@@ -5,7 +5,7 @@ use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{icon, kbd, popup, IconSize, InputChanged, InputSubmit, TextInput, TypeExt};
 use gpui::{
-    actions, deferred, div, prelude::*, px, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
+    actions, div, prelude::*, px, App, Context, Entity, EventEmitter, FocusHandle, Focusable, FontWeight,
     IntoElement, KeyBinding, Window,
 };
 
@@ -184,7 +184,7 @@ impl Render for CommandCenter {
             list = list.child(div().p(t.space(3)).text_color(t.colors.fg_muted).child(empty));
         }
         let count = rows.len();
-        deferred(
+        crate::ui::overlay_deferred(
             div()
                 .absolute()
                 .inset_0()
