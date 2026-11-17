@@ -834,6 +834,13 @@ export const id = {
   "remote.badge": "Remote: {name}",
   "remote.noMemory": "Memori project hanya tersedia untuk engine lokal.",
   "sb.pickFolder": "Pilih folder…",
+  "ms.small": "Model kecil",
+  "ms.smallBody":
+    "Dipakai engine untuk tugas ringan: judul sesi dan ringkasan. Otomatis = engine memilih sendiri. Berlaku setelah engine dimulai ulang.",
+  "ms.smallWeb": "Hanya bisa diatur di aplikasi desktop (disimpan bersama konfigurasi engine).",
+  "ms.smallAuto": "Otomatis (engine memilih)",
+  "ms.smallMissing": "{id} (tidak tersedia)",
+  "ms.smallRestart": "Mulai ulang engine sekarang",
   "doc.zoomIn": "Perbesar",
   "doc.zoomOut": "Perkecil",
   "doc.open": "Buka {name} di panel Dokumen",

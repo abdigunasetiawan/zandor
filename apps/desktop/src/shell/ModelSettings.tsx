@@ -34,7 +34,7 @@ import {
   useConfirm,
   useToast,
 } from "@zandor/ui";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { ConnectionPanel, pingLabel } from "./ConnectionPanel";
 import { LogoDialog } from "./LogoDialog";
 import { useChat, useEngineState, useModelPrefs, useProviders, useServices } from "./services";
@@ -65,6 +65,78 @@ function Row({
 }
 
 // ---------------- model bawaan ----------------
+
+/**
+ * Model kecil engine (opencode `small_model`: judul sesi dan ringkasan). Disimpan oleh Rust di `model-roles.json` dan
+ * dimasukkan ke config engine saat engine dimulai, jadi perubahan berlaku setelah engine dimulai ulang.
+ */
+function SmallModelRow() {
+  const { t } = useI18n();
+  const { host } = useServices();
+  const chat = useChat();
+  const [value, setValue] = useState<string | null | undefined>(undefined);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    host.smallModel().then(
+      (v) => alive && setValue(v),
+      (e) => alive && setError(e instanceof Error ? e.message : String(e)),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [host]);
+  const items = useMemo(() => {
+    const list = [
+      { value: AUTO, label: t("ms.smallAuto") },
+      ...chat.models.map((m) => ({ value: modelKey(m), label: `${m.providerName} · ${m.name}` })),
+    ];
+    // Model tersimpan yang tidak lagi tersedia tetap ditampilkan apa adanya (bukan diam-diam dianggap Otomatis).
+    if (value && !list.some((i) => i.value === value)) list.push({ value, label: t("ms.smallMissing", { id: value }) });
+    return list;
+  }, [chat.models, t, value]);
+  const change = (v: string) => {
+    const next = v === AUTO ? null : v;
+    setError(null);
+    host.setSmallModel(next).then(
+      () => {
+        setValue(next);
+        setPending(true);
+      },
+      (e) => setError(e instanceof Error ? e.message : String(e)),
+    );
+  };
+  return (
+    <Row title={t("ms.small")} body={host.native ? t("ms.smallBody") : t("ms.smallWeb")} testId="smallModel">
+      <div className="ms__small">
+        <Select
+          aria-label={t("ms.small")}
+          value={value ?? AUTO}
+          items={items}
+          disabled={!host.native || value === undefined}
+          onValueChange={change}
+        />
+        {pending && (
+          <Button
+            size="sm"
+            onClick={() => {
+              setPending(false);
+              void host.restart();
+            }}
+          >
+            {t("ms.smallRestart")}
+          </Button>
+        )}
+        {error && (
+          <span className="z-small ms__error" role="alert">
+            {error}
+          </span>
+        )}
+      </div>
+    </Row>
+  );
+}
 
 function DefaultsSection() {
   const { t } = useI18n();
@@ -97,6 +169,7 @@ function DefaultsSection() {
           onValueChange={(v) => modelPrefs.setDefaultChat(v === AUTO ? null : refOf(v))}
         />
       </Row>
+      <SmallModelRow />
       <Row title={t("ms.defaultImage")} body={t("ms.defaultImageBody")} testId="defaultImageModel">
         <Select
           aria-label={t("ms.defaultImage")}

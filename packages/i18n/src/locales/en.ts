@@ -833,6 +833,13 @@ export const en: Messages = {
   "remote.badge": "Remote: {name}",
   "remote.noMemory": "Project memory is only available for the local engine.",
   "sb.pickFolder": "Choose folder…",
+  "ms.small": "Small model",
+  "ms.smallBody":
+    "Used by the engine for light tasks: session titles and summaries. Automatic = the engine picks one. Takes effect after the engine restarts.",
+  "ms.smallWeb": "Only configurable in the desktop app (stored with the engine configuration).",
+  "ms.smallAuto": "Automatic (engine picks)",
+  "ms.smallMissing": "{id} (unavailable)",
+  "ms.smallRestart": "Restart engine now",
   "doc.zoomIn": "Zoom in",
   "doc.zoomOut": "Zoom out",
   "doc.open": "Open {name} in the Documents panel",

@@ -64,6 +64,8 @@ pub struct EnginePaths {
     pub memory: PathBuf,
     /// Daftar provider model kustom (berisi kunci API; di luar repo).
     pub providers: PathBuf,
+    /// Model peran untuk engine (`{"small":"provider/model"}`), dibaca saat engine dimulai.
+    pub model_roles: PathBuf,
 }
 
 impl EnginePaths {
@@ -77,6 +79,7 @@ impl EnginePaths {
             engine_root,
             chats: app_data.join("chats"),
             providers: app_data.join("providers.json"),
+            model_roles: app_data.join("model-roles.json"),
         }
     }
 }
@@ -117,6 +120,25 @@ pub fn percent_encode(s: &str) -> String {
         .collect()
 }
 
+/// Rujukan model `provider/model` yang aman ditaruh di config engine: tanpa spasi/kontrol, panjang wajar.
+pub fn valid_model_ref(v: &str) -> bool {
+    let Some((p, m)) = v.split_once('/') else {
+        return false;
+    };
+    v.len() <= 200
+        && !p.is_empty()
+        && !m.is_empty()
+        && !v.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// Model kecil dari `model-roles.json`; berkas tidak ada/rusak/tidak valid = None (engine memilih sendiri).
+pub fn read_small_model(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let small = v.get("small")?.as_str()?;
+    valid_model_ref(small).then(|| small.to_string())
+}
+
 /// Isi `OPENCODE_CONFIG_CONTENT`: plugin guard + provider kustom. Tidak pernah memuat nilai secret: kunci API
 /// hanya berupa rujukan `{env:...}` yang nilainya dikirim lewat environment proses engine.
 pub fn config_content(
@@ -125,18 +147,23 @@ pub fn config_content(
     memory: &Path,
     providers: &[Provider],
     with_key: &dyn Fn(&str) -> bool,
+    small_model: Option<&str>,
 ) -> String {
     // Background job (ADR-072) tinggal di sebelah memori: `<app_data>/jobs`.
     let jobs = memory.parent().unwrap_or(memory).join("jobs");
-    serde_json::json!({
+    let mut cfg = serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
         "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy(), "memoryDir": memory.to_string_lossy(), "jobsDir": jobs.to_string_lossy() }]],
         // Bawaan aman: opencode mengizinkan edit/shell tanpa bertanya. Zandor meminta persetujuan (kartu izin di chat).
         "permission": { "edit": "ask", "bash": "ask", "webfetch": "ask", "external_directory": "ask" },
         "provider": providers::config_section(providers, with_key),
-    })
-    .to_string()
+    });
+    // Model kecil (judul sesi, ringkasan) — "model peran" dari Pengaturan → Provider dan model.
+    if let Some(m) = small_model.filter(|m| valid_model_ref(m)) {
+        cfg["small_model"] = serde_json::Value::String(m.to_string());
+    }
+    cfg.to_string()
 }
 
 fn engine_config(paths: &EnginePaths) -> EngineConfig {
@@ -173,6 +200,7 @@ fn engine_config(paths: &EnginePaths) -> EngineConfig {
         &paths.memory,
         &providers,
         &has_key,
+        read_small_model(&paths.model_roles).as_deref(),
     );
     cfg.env.extend(secret_env.iter().cloned());
     cfg.env.push(("OPENCODE_CONFIG_CONTENT".into(), content));
@@ -435,6 +463,32 @@ mod tests {
     }
 
     #[test]
+    fn small_model_dari_berkas_peran_divalidasi() {
+        let dir = std::env::temp_dir().join(format!("zandor-roles-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("model-roles.json");
+        assert_eq!(read_small_model(&f), None);
+        std::fs::write(&f, r#"{"small":"openai/gpt-mini"}"#).unwrap();
+        assert_eq!(read_small_model(&f).as_deref(), Some("openai/gpt-mini"));
+        std::fs::write(&f, r#"{"small":"tanpa garis miring"}"#).unwrap();
+        assert_eq!(read_small_model(&f), None);
+        std::fs::write(&f, "rusak").unwrap();
+        assert_eq!(read_small_model(&f), None);
+        let c = config_content(
+            Path::new(r"C:\app\p.js"),
+            Path::new(r"C:\m"),
+            Path::new(r"C:\mem"),
+            &[],
+            &|_| false,
+            Some("openai/gpt-mini"),
+        );
+        let v: serde_json::Value = serde_json::from_str(&c).unwrap();
+        assert_eq!(v["small_model"], "openai/gpt-mini");
+        assert!(!valid_model_ref("a/b c") && !valid_model_ref("/b") && !valid_model_ref("a/"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn config_has_plugin_and_marker_but_no_secret() {
         let c = config_content(
             Path::new(r"C:\app\zandor-plugin.js"),
@@ -442,8 +496,10 @@ mod tests {
             Path::new(r"C:\data\memory"),
             &[],
             &|_| false,
+            None,
         );
         let v: serde_json::Value = serde_json::from_str(&c).unwrap();
+        assert!(v.get("small_model").is_none());
         assert_eq!(v["plugin"][0][0], "file:///C:/app/zandor-plugin.js");
         assert_eq!(v["plugin"][0][1]["markerFile"], r"C:\data\guard-loaded");
         assert_eq!(v["plugin"][0][1]["memoryDir"], r"C:\data\memory");

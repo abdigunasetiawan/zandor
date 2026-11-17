@@ -25,6 +25,10 @@ export type EngineHost = {
   pickAttachments(kind: "files" | "folder"): Promise<{ items: FileAttachment[]; skipped: string[] } | null>;
   /** Ubah file browser (paste/drop) menjadi lampiran data URL; batasnya sama dengan pemilih berkas browser. */
   attachmentsFromFiles(files: File[]): Promise<{ items: FileAttachment[]; skipped: string[] }>;
+  /** Model kecil engine (`provider/model`, untuk judul sesi dan ringkasan); null = engine memilih sendiri. */
+  smallModel(): Promise<string | null>;
+  /** Simpan model kecil; berlaku setelah engine dimulai ulang. Hanya di aplikasi desktop. */
+  setSmallModel(model: string | null): Promise<void>;
 };
 
 const OVERRIDE_KEY = "zandor.engine.override";
@@ -132,6 +136,12 @@ export function createBrowserHost(): EngineHost {
       });
     },
     attachmentsFromFiles,
+    async smallModel() {
+      return null;
+    },
+    async setSmallModel() {
+      throw new Error("model kecil hanya bisa diatur di aplikasi desktop");
+    },
   };
 }
 
@@ -191,5 +201,7 @@ export async function loadEngineHost(): Promise<EngineHost> {
       return { items: paths.map((p) => attachmentFromPath(p, kind === "folder")), skipped: [] };
     },
     attachmentsFromFiles,
+    smallModel: () => invoke<string | null>("model_roles_get"),
+    setSmallModel: (small) => invoke("model_roles_set", { small }),
   };
 }

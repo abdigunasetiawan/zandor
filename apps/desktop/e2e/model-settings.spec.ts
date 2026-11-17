@@ -48,3 +48,12 @@ test("tambah provider kustom lengkap: id, protokol, base URL", async ({ page }) 
   await dialog.getByRole("button", { name: "Simpan" }).click();
   await expect(page.getByRole("listitem", { name: "Gateway Saya" })).toBeVisible();
 });
+
+test("model kecil: di build web nonaktif dengan alasan jujur (hanya desktop)", async ({ page }) => {
+  await mockEngine(page, { models: MODELS });
+  await page.goto("/#/settings/models");
+  const small = page.getByRole("combobox", { name: "Model kecil" });
+  await expect(small).toBeDisabled();
+  await expect(small).toContainText("Otomatis (engine memilih)");
+  await expect(page.getByText("Hanya bisa diatur di aplikasi desktop")).toBeVisible();
+});

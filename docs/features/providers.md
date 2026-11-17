@@ -62,6 +62,15 @@ tab Endpoint kustom, Lokal, Katalog provider, dan Masuk (OAuth lewat engine; plu
 ## Pengaturan › Provider dan model (ADR-054)
 
 - Model bawaan chat dan generate gambar (gambar: preferensi saja, fiturnya belum ada).
+- **Model peran — model kecil** (17-11-2026): opencode `small_model` untuk tugas ringan (judul sesi, ringkasan).
+  Disimpan Rust di `<app_data>/model-roles.json` (`{"small":"provider/model"}`, divalidasi), dimasukkan ke
+  `OPENCODE_CONFIG_CONTENT` saat engine dimulai; UI menawarkan **Mulai ulang engine sekarang** setelah diubah. Otomatis =
+  kunci tidak ditulis (engine memilih sendiri). Model tersimpan yang hilang dari daftar ditampilkan "(tidak tersedia)".
+  Di build web kontrolnya nonaktif dengan alasan. Tidak memakai `PATCH /config` engine karena itu menulis berkas config
+  ke folder project pengguna.
+- **Model memori: tidak dibuat.** Plugin memori tidak memanggil model sendiri; catatan memori dan draf skill ditulis oleh
+  agent sesi dengan model aktifnya, jadi pengaturan "model memori" tidak akan berpengaruh (UI palsu, ADR-018). Baru masuk
+  akal bila kelak ada ekstraksi memori otomatis di latar.
 - Provider: id, nama tampilan, protokol API, base URL, kunci (keychain), ambil model; edit/hapus.
 - Pengelola model: pencarian, kelompokkan (tanpa/keluarga/kemampuan), pilih semua/batalkan semua, saklar tampil di
   pemilih composer, lencana kemampuan (konteks, keluaran, reasoning, alat, lampiran, varian), ubah kemampuan model kustom.

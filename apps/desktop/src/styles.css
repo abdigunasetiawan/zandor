@@ -6282,3 +6282,14 @@ fieldset.pstyle__templates {
 .tree__remote[data-status="error"] {
   color: var(--z-color-danger);
 }
+
+/* Model kecil (ModelSettings.tsx) */
+.ms__small {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--z-space-2);
+}
+.ms__error {
+  color: var(--z-color-danger);
+}

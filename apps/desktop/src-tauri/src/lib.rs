@@ -53,6 +53,31 @@ fn open_devtools(window: tauri::WebviewWindow) {
     window.open_devtools();
 }
 
+/// Model kecil engine (`provider/model`) dari `model-roles.json`; None = engine memilih sendiri.
+#[tauri::command]
+fn model_roles_get(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    Ok(engine::read_small_model(
+        &app_data(&app)?.join("model-roles.json"),
+    ))
+}
+
+/// Simpan model kecil engine. Berlaku saat engine dimulai (ulang); UI menawarkan mulai ulang.
+#[tauri::command]
+fn model_roles_set(app: tauri::AppHandle, small: Option<String>) -> Result<(), String> {
+    if let Some(s) = small.as_deref() {
+        if !engine::valid_model_ref(s) {
+            return Err(format!("rujukan model tidak valid: {s}"));
+        }
+    }
+    let dir = app_data(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join("model-roles.json");
+    let tmp = dir.join("model-roles.json.tmp");
+    let text = serde_json::json!({ "small": small }).to_string();
+    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+}
+
 /// Direktori kerja untuk sesi tanpa project ("Chat").
 #[tauri::command]
 fn chats_dir(app: tauri::AppHandle) -> Result<String, String> {
@@ -950,6 +975,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             engine_state,
             engine_restart,
+            model_roles_get,
+            model_roles_set,
             chats_dir,
             open_devtools,
             os_user,
