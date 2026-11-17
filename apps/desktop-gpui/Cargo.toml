@@ -11,7 +11,17 @@ publish = false
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed" }
 unicode-segmentation = "1"
-ureq = { version = "3", features = ["json"] }
+ureq = { version = "3", features = ["json", "native-tls"] }
+# Backend bersama dengan apps/desktop/src-tauri (modul dipakai langsung lewat #[path], bukan salinan).
+zandor-engine-supervisor = { path = "../../crates/engine-supervisor" }
+keyring = "=4.2.0"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+roxmltree = "0.20"
+futures = "0.3"
+getrandom = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rust-embed = { version = "8", features = ["include-exclude"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Console"] }
