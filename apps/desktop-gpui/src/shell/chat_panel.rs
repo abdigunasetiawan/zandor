@@ -105,7 +105,11 @@ impl ChatPanel {
             let list = task.await;
             this.update(cx, |s, cx| {
                 if s.chat.read(cx).model.is_none() {
-                    if let Some(m) = list.first() {
+                    let saved = crate::core::chat_store::read_pref("zandor.model");
+                    let pick = saved
+                        .and_then(|k| list.iter().find(|m| format!("{}/{}", m.provider_id, m.model_id) == k))
+                        .or(list.first());
+                    if let Some(m) = pick {
                         let r = crate::core::engine::ModelRef { provider_id: m.provider_id.clone(), model_id: m.model_id.clone() };
                         s.chat.update(cx, |c, _| c.model = Some(r));
                     }
@@ -497,6 +501,21 @@ impl Render for ChatPanel {
                     s.submit(text, cx);
                 }))
         };
+        let variant_sel = {
+            let c = self.chat.read(cx);
+            let cur_m = c.model.clone();
+            let vars = cur_m
+                .and_then(|r| self.models.iter().find(|m| m.provider_id == r.provider_id && m.model_id == r.model_id))
+                .map(|m| m.variants.clone())
+                .unwrap_or_default();
+            (!vars.is_empty()).then(|| {
+                let mut items = vec![(SharedString::from(""), SharedString::from(i.t("chat.variant.default")))];
+                items.extend(vars.iter().map(|v| (SharedString::from(v.clone()), SharedString::from(v.clone()))));
+                let chat = self.chat.clone();
+                crate::ui::select("chat-variant", items, c.variant.clone().unwrap_or_default())
+                    .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_variant((!v.is_empty()).then(|| v.to_string()), cx)))
+            })
+        };
         let can_queue = busy && !self.input.read(cx).text().trim().is_empty();
         let add_btn = can_queue.then(|| {
             icon_button("chat-queue", "arrow_up", i.t("queue.add")).variant(ButtonVariant::Solid).on_click(cx.listener(|s, _, _, cx| {
@@ -511,10 +530,7 @@ impl Render for ChatPanel {
             crate::ui::select("chat-model", items, cur).on_change(move |v, _, cx| {
                 if let Some((p, m)) = v.split_once('/') {
                     let r = crate::core::engine::ModelRef { provider_id: p.to_string(), model_id: m.to_string() };
-                    chat.update(cx, |c, cx| {
-                        c.model = Some(r);
-                        cx.notify();
-                    });
+                    chat.update(cx, |c, cx| c.select_model(r, cx));
                 }
             })
         });
@@ -628,7 +644,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(add_btn).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(variant_sel).children(add_btn).child(send_btn)),
         );
 
         let Some(st) = state else {

@@ -25,6 +25,8 @@ pub struct ChatStore {
     pub activity: std::collections::VecDeque<(f64, String)>,
     /// Mode izin: ask | auto-edit | auto-safe | auto-all (disimpan di prefs.json).
     pub permission_mode: String,
+    /// Varian model (mis. tingkat penalaran); None = bawaan.
+    pub variant: Option<String>,
     /// Antrean pesan per sesi (port queues/queuePaused di store.ts).
     pub queues: HashMap<String, Vec<QueuedMessage>>,
     pub queue_paused: std::collections::HashSet<String>,
@@ -68,7 +70,7 @@ impl Global for ChatHandle {}
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0 });
+        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0 });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -246,6 +248,19 @@ impl ChatStore {
         true
     }
 
+    pub fn set_variant(&mut self, v: Option<String>, cx: &mut Context<Self>) {
+        write_pref("zandor.variant", v.as_deref().unwrap_or(""));
+        self.variant = v;
+        cx.notify();
+    }
+
+    /// Pilih model dan simpan sebagai preferensi.
+    pub fn select_model(&mut self, m: ModelRef, cx: &mut Context<Self>) {
+        write_pref("zandor.model", &format!("{}/{}", m.provider_id, m.model_id));
+        self.model = Some(m);
+        cx.notify();
+    }
+
     pub fn set_permission_mode(&mut self, mode: &str, cx: &mut Context<Self>) {
         if mode == self.permission_mode {
             return;
@@ -301,8 +316,8 @@ impl ChatStore {
             st.error = None;
             st.status = super::types::SessionRunStatus::Busy;
         }
-        let (sid, model) = (id.to_string(), self.model.clone());
-        self.bg(id, cx, move |api, dir| api.run_command(dir, &sid, &name, &args, model.as_ref(), None, &files));
+        let (sid, model, variant) = (id.to_string(), self.model.clone(), self.variant.clone());
+        self.bg(id, cx, move |api, dir| api.run_command(dir, &sid, &name, &args, model.as_ref(), variant.as_deref(), &files));
         cx.notify();
     }
 
@@ -347,7 +362,8 @@ impl ChatStore {
         }
         let sid = id.to_string();
         let model = self.model.clone();
-        self.bg(id, cx, move |api, dir| api.send_prompt(dir, &sid, &text, model.as_ref(), None, &files));
+        let variant = self.variant.clone();
+        self.bg(id, cx, move |api, dir| api.send_prompt(dir, &sid, &text, model.as_ref(), variant.as_deref(), &files));
         cx.notify();
     }
 
