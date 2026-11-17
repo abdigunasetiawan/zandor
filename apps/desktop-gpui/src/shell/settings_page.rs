@@ -13,7 +13,7 @@ use crate::ui::{
 use gpui::{div, prelude::*, AnyElement, App, ClipboardItem, Context, Entity, FontWeight, IntoElement, ScrollHandle, SharedString, Window};
 use serde_json::Value;
 
-const SECTIONS: [(&str, &str, &str); 11] = [
+const SECTIONS: [(&str, &str, &str); 12] = [
     ("profile", "settings.profile", "user"),
     ("general", "settings.general", "settings"),
     ("appearance", "settings.appearance", "eye"),
@@ -22,6 +22,7 @@ const SECTIONS: [(&str, &str, &str); 11] = [
     ("tools", "settings.tools", "wrench"),
     ("layout", "settings.layout", "layout"),
     ("models", "settings.models", "brain"),
+    ("engines", "settings.engines", "globe"),
     ("memory", "settings.more.memory", "bookmark"),
     ("automation", "settings.more.automation", "clock"),
     ("data", "settings.data", "database"),
@@ -42,6 +43,7 @@ pub struct SettingsPage {
     keys: Entity<super::keys_section::KeysSection>,
     pstyles: Entity<super::projects_style_section::ProjectsStyleSection>,
     editor: Entity<super::editor_section::EditorSection>,
+    remote: Entity<super::remote_section::RemoteSection>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -71,7 +73,8 @@ impl SettingsPage {
         let keys = cx.new(super::keys_section::KeysSection::new);
         let pstyles = cx.new(super::projects_style_section::ProjectsStyleSection::new);
         let editor = cx.new(super::editor_section::EditorSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes, typography, chat_style, keys, pstyles, editor };
+        let remote = cx.new(super::remote_section::RemoteSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes, typography, chat_style, keys, pstyles, editor, remote };
         me.load_models(cx);
         me
     }
@@ -339,6 +342,10 @@ impl Render for SettingsPage {
             let mut rows = rows;
             rows.insert(0, div().py(t.space(2)).child(self.providers.clone()).into_any_element());
             content = content.child(group(&t, i.t("settings.models"), rows));
+        }
+
+        if show("engines") && matches_q(&q, &[&i.t("settings.engines"), &i.t("remote.intro"), &i.t("remote.add")]) {
+            content = content.child(group(&t, i.t("settings.engines"), vec![div().py(t.space(2)).child(self.remote.clone()).into_any_element()]));
         }
 
         for (sec, route, key, body) in [

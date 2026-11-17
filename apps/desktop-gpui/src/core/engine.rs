@@ -154,25 +154,72 @@ fn arr(v: Value) -> Vec<Value> {
     }
 }
 
+/// Rute engine remote: kunci path project → (URL dasar, header Authorization). Port klien gabungan (remote.ts):
+/// permintaan untuk directory project yang memakai engine remote dikirim ke engine itu, sisanya ke engine lokal.
+pub type Routes = Arc<std::sync::RwLock<Vec<(String, String, String)>>>;
+
+fn tls_agent(timeout: Option<Duration>, status_err: bool) -> ureq::Agent {
+    // Hanya fitur native-tls yang aktif: penyedia TLS harus dipilih eksplisit agar https (engine remote) berfungsi.
+    ureq::Agent::config_builder()
+        .timeout_global(timeout)
+        .http_status_as_error(status_err)
+        .tls_config(ureq::tls::TlsConfig::builder().provider(ureq::tls::TlsProvider::NativeTls).root_certs(ureq::tls::RootCerts::PlatformVerifier).build())
+        .build()
+        .into()
+}
+
 #[derive(Clone)]
 pub struct EngineApi {
     info: ConnectionInfo,
     auth: String,
     agent: ureq::Agent,
+    routes: Routes,
 }
 
 impl EngineApi {
     pub fn new(info: ConnectionInfo) -> Self {
-        let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(120)))
-            .http_status_as_error(false)
-            .build()
-            .into();
-        Self { auth: basic_auth_header(&info), info, agent }
+        Self { auth: basic_auth_header(&info), info, agent: tls_agent(Some(Duration::from_secs(120)), false), routes: Default::default() }
+    }
+
+    /// Klien untuk satu engine saja (tanpa rute), mis. untuk cek health engine remote.
+    pub fn single(info: ConnectionInfo) -> Self {
+        let mut a = Self::new(info);
+        a.agent = tls_agent(Some(Duration::from_secs(15)), false);
+        a
+    }
+
+    /// Ganti tabel rute (dibagi antar klon).
+    pub fn set_routes(&self, list: Vec<(String, ConnectionInfo)>) {
+        let v = list.into_iter().map(|(k, i)| (k, i.url.trim_end_matches('/').to_string(), basic_auth_header(&i))).collect();
+        if let Ok(mut r) = self.routes.write() {
+            *r = v;
+        }
+    }
+
+    /// (URL dasar, auth) untuk directory.
+    fn target(&self, dir: Option<&str>) -> (String, String) {
+        if let Some(d) = dir {
+            let k = super::projects::path_key(d);
+            if let Ok(r) = self.routes.read() {
+                if let Some((_, u, a)) = r.iter().find(|(p, _, _)| *p == k) {
+                    return (u.clone(), a.clone());
+                }
+            }
+        }
+        (self.info.url.trim_end_matches('/').to_string(), self.auth.clone())
+    }
+
+    fn auth_for(&self, url: &str) -> String {
+        if let Ok(r) = self.routes.read() {
+            if let Some((_, _, a)) = r.iter().find(|(_, u, _)| url.starts_with(&format!("{u}/"))) {
+                return a.clone();
+            }
+        }
+        self.auth.clone()
     }
 
     fn url(&self, path: &str, dir: Option<&str>, extra: &[(&str, String)]) -> String {
-        let mut u = format!("{}{}", self.info.url.trim_end_matches('/'), path);
+        let mut u = format!("{}{}", self.target(dir).0, path);
         let mut qs: Vec<String> = Vec::new();
         if let Some(d) = dir {
             qs.push(format!("directory={}", q(d)));
@@ -189,16 +236,17 @@ impl EngineApi {
 
     fn call(&self, method: &str, url: &str, body: Option<Value>) -> Result<Value> {
         let e = |x: ureq::Error| EngineError(format!("{method} {url}: {x}"));
+        let auth = self.auth_for(url);
         let mut resp = match (method, body) {
-            ("GET", _) => self.agent.get(url).header("Authorization", &self.auth).call().map_err(e)?,
-            ("DELETE", _) => self.agent.delete(url).header("Authorization", &self.auth).call().map_err(e)?,
+            ("GET", _) => self.agent.get(url).header("Authorization", &auth).call().map_err(e)?,
+            ("DELETE", _) => self.agent.delete(url).header("Authorization", &auth).call().map_err(e)?,
             (m, b) => {
                 let req = match m {
                     "PATCH" => self.agent.patch(url),
                     "PUT" => self.agent.put(url),
                     _ => self.agent.post(url),
                 };
-                req.header("Authorization", &self.auth).send_json(b.unwrap_or(json!({}))).map_err(e)?
+                req.header("Authorization", &auth).send_json(b.unwrap_or(json!({}))).map_err(e)?
             }
         };
         let status = resp.status().as_u16();
@@ -446,11 +494,11 @@ impl EngineApi {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
         let url = self.url("/event", Some(dir), &[]);
-        let auth = self.auth.clone();
+        let auth = self.target(Some(dir)).1;
         std::thread::Builder::new()
             .name("zandor-sse".into())
             .spawn(move || {
-                let agent: ureq::Agent = ureq::Agent::config_builder().http_status_as_error(true).build().into();
+                let agent = tls_agent(None, true);
                 let mut delay = 500u64;
                 while !stop2.load(Ordering::Relaxed) {
                     if let Ok(resp) = agent.get(&url).header("Authorization", &auth).header("Accept", "text/event-stream").call() {

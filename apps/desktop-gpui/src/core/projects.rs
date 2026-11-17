@@ -152,6 +152,71 @@ pub fn new_id() -> String {
     format!("{}-{}-{}-{}-{}", &h[0..8], &h[8..12], &h[12..16], &h[16..20], &h[20..32])
 }
 
+/// Engine opencode remote (port remote.ts). Kata sandi disimpan di registry (tidak terenkripsi), sama dengan TS.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RemoteEngine {
+    pub id: String,
+    pub name: String,
+    pub url: String,
+    pub username: String,
+    pub password: String,
+}
+
+impl RemoteEngine {
+    pub fn info(&self) -> super::engine::ConnectionInfo {
+        super::engine::ConnectionInfo { url: self.url.clone(), username: self.username.clone(), password: self.password.clone() }
+    }
+}
+
+/// Status cek health engine remote.
+#[derive(Clone, Debug, PartialEq)]
+pub enum RemoteStatus {
+    Checking,
+    Ready(String),
+    Error(String),
+}
+
+/// Port remoteUrlProblem: None = boleh; "invalid" / "insecure" (HTTP hanya untuk loopback).
+pub fn remote_url_problem(url: &str) -> Option<&'static str> {
+    let u = url.trim();
+    let Some((scheme, rest)) = u.split_once("://") else { return Some("invalid") };
+    let scheme = scheme.to_ascii_lowercase();
+    let auth = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if auth.is_empty() || auth.contains('@') || rest.contains('?') || rest.contains('#') || u.chars().any(char::is_whitespace) {
+        return Some("invalid");
+    }
+    let host = if auth.starts_with('[') { auth.split(']').next().map(|h| format!("{h}]")).unwrap_or_default() } else { auth.split(':').next().unwrap_or("").to_string() };
+    let host = host.to_ascii_lowercase();
+    match scheme.as_str() {
+        "https" => None,
+        "http" => (!["localhost", "127.0.0.1", "[::1]"].contains(&host.as_str())).then_some("insecure"),
+        _ => Some("invalid"),
+    }
+    .or(if host.is_empty() { Some("invalid") } else { None })
+}
+
+pub fn normalize_remote_url(url: &str) -> String {
+    url.trim().trim_end_matches('/').to_string()
+}
+
+fn parse_remotes(v: &Value) -> Vec<RemoteEngine> {
+    let mut out: Vec<RemoteEngine> = vec![];
+    for r in v.as_array().into_iter().flatten() {
+        let (Some(id), Some(url)) = (r["id"].as_str(), r["url"].as_str()) else { continue };
+        if out.iter().any(|x| x.id == id) {
+            continue;
+        }
+        out.push(RemoteEngine {
+            id: id.into(),
+            name: r["name"].as_str().filter(|s| !s.trim().is_empty()).unwrap_or(url).into(),
+            url: normalize_remote_url(url),
+            username: r["username"].as_str().unwrap_or("opencode").into(),
+            password: r["password"].as_str().unwrap_or("").into(),
+        });
+    }
+    out
+}
+
 /// Penyimpanan registry + folder Chat (pengganti host Tauri).
 #[derive(Clone)]
 pub struct ProjectHost {
@@ -167,8 +232,8 @@ pub struct ProjectStore {
     pub sessions: HashMap<String, SessionsState>,
     pub selection: Selection,
     pub tabs: Vec<SessionTab>,
-    /// Engine remote disimpan apa adanya (belum diport ke GPUI).
-    remotes: Value,
+    pub remotes: Vec<RemoteEngine>,
+    pub remote_status: HashMap<String, RemoteStatus>,
     api: Option<EngineApi>,
     host: ProjectHost,
     request_seq: HashMap<String, u64>,
@@ -250,7 +315,8 @@ impl ProjectStore {
             sessions: HashMap::new(),
             selection,
             tabs,
-            remotes,
+            remotes: parse_remotes(&remotes),
+            remote_status: HashMap::new(),
             api: None,
             host,
             request_seq: HashMap::new(),
@@ -292,8 +358,10 @@ impl ProjectStore {
             "selection": { "key": self.selection.key, "sessionId": self.selection.session_id },
             "tabs": self.tabs.iter().map(|t| json!({ "key": t.key, "sessionId": t.session_id })).collect::<Vec<_>>(),
         });
-        if self.remotes.as_array().is_some_and(|a| !a.is_empty()) {
-            data["remotes"] = self.remotes.clone();
+        if !self.remotes.is_empty() {
+            data["remotes"] = Value::Array(
+                self.remotes.iter().map(|r| json!({ "id": r.id, "name": r.name, "url": r.url, "username": r.username, "password": r.password })).collect(),
+            );
         }
         if let Err(e) = crate::registry::save(&self.host.registry, &data.to_string()) {
             eprintln!("[zandor] {e}");
@@ -304,6 +372,8 @@ impl ProjectStore {
     pub fn set_api(&mut self, api: Option<EngineApi>, cx: &mut Context<Self>) {
         self.engine_ready = api.is_some();
         self.api = api;
+        self.sync_routes();
+        self.check_all_remotes(cx);
         self.changed(cx);
         if self.api.is_some() {
             self.refresh_all(cx);
@@ -430,6 +500,129 @@ impl ProjectStore {
     }
 
     /// Tambah folder sebagai project; folder yang sudah ada dikembalikan & dipilih.
+    /// Perbarui rute klien gabungan: project dengan engine remote → engine itu.
+    fn sync_routes(&self) {
+        let Some(api) = &self.api else { return };
+        let list = self
+            .projects
+            .iter()
+            .filter_map(|p| {
+                let r = self.remotes.iter().find(|r| Some(&r.id) == p.engine.as_ref())?;
+                Some((path_key(&p.path), r.info()))
+            })
+            .collect();
+        api.set_routes(list);
+    }
+
+    pub fn remote_by_id(&self, id: &str) -> Option<&RemoteEngine> {
+        self.remotes.iter().find(|r| r.id == id)
+    }
+
+    pub fn projects_using(&self, id: &str) -> usize {
+        self.projects.iter().filter(|p| p.engine.as_deref() == Some(id)).count()
+    }
+
+    fn validate_remote(name: &str, url: &str) -> Result<(), String> {
+        if name.trim().is_empty() {
+            return Err("nama engine kosong".into());
+        }
+        match remote_url_problem(url) {
+            Some("insecure") => Err("insecure".into()),
+            Some(_) => Err("invalid".into()),
+            None => Ok(()),
+        }
+    }
+
+    /// Tambah (id None) atau ubah engine remote. Galat "invalid"/"insecure" = masalah URL.
+    pub fn save_remote(&mut self, id: Option<String>, name: &str, url: &str, username: &str, password: &str, cx: &mut Context<Self>) -> Result<String, String> {
+        Self::validate_remote(name, url)?;
+        let r = RemoteEngine {
+            id: id.clone().unwrap_or_else(new_id),
+            name: name.trim().chars().take(60).collect(),
+            url: normalize_remote_url(url),
+            username: if username.trim().is_empty() { "opencode".into() } else { username.trim().into() },
+            password: password.into(),
+        };
+        let rid = r.id.clone();
+        match self.remotes.iter().position(|x| Some(&x.id) == id.as_ref()) {
+            Some(i) => self.remotes[i] = r,
+            None => self.remotes.push(r),
+        }
+        self.persist();
+        self.sync_routes();
+        self.check_remote(&rid, cx);
+        self.changed(cx);
+        for p in self.projects.iter().filter(|p| p.engine.as_deref() == Some(&rid)).map(|p| p.id.clone()).collect::<Vec<_>>() {
+            self.refresh(&p, cx);
+        }
+        Ok(rid)
+    }
+
+    /// Hapus engine remote; ditolak bila masih dipakai project.
+    pub fn remove_remote(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        let n = self.projects_using(id);
+        if n > 0 {
+            return Err(format!("engine masih dipakai {n} project"));
+        }
+        self.remotes.retain(|r| r.id != id);
+        self.remote_status.remove(id);
+        self.persist();
+        self.sync_routes();
+        self.changed(cx);
+        Ok(())
+    }
+
+    /// Cek health nyata engine remote (status tampil di daftar).
+    pub fn check_remote(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(r) = self.remote_by_id(id).cloned() else { return };
+        self.remote_status.insert(id.into(), RemoteStatus::Checking);
+        cx.notify();
+        let task = cx.background_spawn(async move { EngineApi::single(r.info()).health().map_err(|e| e.0) });
+        let id = id.to_string();
+        cx.spawn(async move |this, cx| {
+            let res = task.await;
+            this.update(cx, |s, cx| {
+                s.remote_status.insert(id, match res {
+                    Ok(v) => RemoteStatus::Ready(v),
+                    Err(e) => RemoteStatus::Error(e),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    pub fn check_all_remotes(&mut self, cx: &mut Context<Self>) {
+        for id in self.remotes.iter().map(|r| r.id.clone()).collect::<Vec<_>>() {
+            if !self.remote_status.contains_key(&id) {
+                self.check_remote(&id, cx);
+            }
+        }
+    }
+
+    /// Tambah project di engine remote: path adalah folder di mesin remote (tidak dicek di disk lokal).
+    pub fn add_remote_project(&mut self, path: &str, engine: &str, cx: &mut Context<Self>) -> Result<Project, String> {
+        if self.remote_by_id(engine).is_none() {
+            return Err("engine remote tidak dikenal".into());
+        }
+        let norm = normalize_path(path);
+        if norm.is_empty() {
+            return Err("path project kosong".into());
+        }
+        if self.projects.iter().any(|p| path_key(&p.path) == path_key(&norm)) {
+            return Err("project dengan path ini sudah ada".into());
+        }
+        let project = Project { id: new_id(), name: base_name(&norm), path: norm, color: None, added_at: now_ms(), engine: Some(engine.into()) };
+        self.projects.push(project.clone());
+        self.selection = Selection { key: Some(project.id.clone()), session_id: None };
+        self.persist();
+        self.sync_routes();
+        self.changed(cx);
+        self.refresh(&project.id.clone(), cx);
+        Ok(project)
+    }
+
     pub fn add_project(&mut self, path: &str, cx: &mut Context<Self>) -> Result<Project, String> {
         let norm = normalize_path(path);
         if norm.is_empty() {
@@ -457,6 +650,7 @@ impl ProjectStore {
             return;
         }
         self.projects.retain(|p| p.id != id);
+        self.sync_routes();
         self.sessions.remove(id);
         self.tabs.retain(|t| t.key != id);
         if self.selection.key.as_deref() == Some(id) {
@@ -674,6 +868,18 @@ impl ProjectStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_urls() {
+        assert_eq!(remote_url_problem("https://engine.contoh.id"), None);
+        assert_eq!(remote_url_problem("http://127.0.0.1:4096"), None);
+        assert_eq!(remote_url_problem("http://localhost:4096/"), None);
+        assert_eq!(remote_url_problem("http://contoh.id"), Some("insecure"));
+        assert_eq!(remote_url_problem("https://a:b@contoh.id"), Some("invalid"));
+        assert_eq!(remote_url_problem("ftp://contoh.id"), Some("invalid"));
+        assert_eq!(remote_url_problem("bukan url"), Some("invalid"));
+        assert_eq!(remote_url_problem("https://x.id/?a=1"), Some("invalid"));
+    }
     #[test]
     fn path_dan_nama() {
         assert_eq!(normalize_path("C:/a/b/"), r"C:\a\b");

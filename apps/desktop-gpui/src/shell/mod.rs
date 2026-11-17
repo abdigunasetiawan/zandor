@@ -19,6 +19,7 @@ pub mod state;
 pub mod terminal;
 pub mod themes_section;
 pub mod editor_section;
+pub mod remote_section;
 pub mod type_section;
 pub mod titlebar;
 pub mod tools;
