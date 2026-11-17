@@ -25,7 +25,10 @@ impl Root {
         let app = AppState::global(cx);
         let toasts = Toasts::init(cx);
         let layout = cx.new(|cx| {
-            ShellLayout::new(app.clone(), PanelContent { sidebar: Some(cx.new(|cx| super::sidebar::Sidebar::new(app.clone(), cx)).into()), chat: Some(cx.new(|cx| super::chat_panel::ChatPanel::new(app.clone(), cx)).into()), docs: None, tool: {
+            ShellLayout::new(app.clone(), PanelContent { sidebar: Some(cx.new(|cx| super::sidebar::Sidebar::new(app.clone(), cx)).into()), chat: Some(cx.new(|cx| super::chat_panel::ChatPanel::new(app.clone(), cx)).into()), docs: {
+                super::docs_panel::DocsState::init(cx);
+                Some(cx.new(|cx| super::docs_panel::DocsPanel::new(cx)).into())
+            }, tool: {
                 let host = cx.new(|cx| super::tools::ToolsHost::new(cx));
                 Some(Box::new(move |id, _w: &mut Window, cx: &mut App| {
                     host.update(cx, |h, _| h.tool = id);

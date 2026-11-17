@@ -27,6 +27,8 @@ pub struct ChatPanel {
     expanded: HashSet<String>,
     last_count: usize,
     pending_new: bool,
+    models: Vec<crate::core::engine::ModelOption>,
+    models_loaded: bool,
 }
 
 impl ChatPanel {
@@ -54,6 +56,8 @@ impl ChatPanel {
             expanded: HashSet::new(),
             last_count: 0,
             pending_new: false,
+            models: vec![],
+            models_loaded: false,
         };
         me.sync(cx);
         me
@@ -67,7 +71,33 @@ impl ChatPanel {
         Some((key, s.id, dir, title))
     }
 
+    fn load_models(&mut self, cx: &mut Context<Self>) {
+        if self.models_loaded {
+            return;
+        }
+        let Some(api) = self.store.read(cx).api() else { return };
+        self.models_loaded = true;
+        let task = cx.background_spawn(async move { api.list_models().unwrap_or_default() });
+        cx.spawn(async move |this, cx| {
+            let list = task.await;
+            this.update(cx, |s, cx| {
+                if s.chat.read(cx).model.is_none() {
+                    if let Some(m) = list.first() {
+                        let r = crate::core::engine::ModelRef { provider_id: m.provider_id.clone(), model_id: m.model_id.clone() };
+                        s.chat.update(cx, |c, _| c.model = Some(r));
+                    }
+                }
+                s.models_loaded = !list.is_empty();
+                s.models = list;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn sync(&mut self, cx: &mut Context<Self>) {
+        self.load_models(cx);
         if let Some((_, id, dir, _)) = self.current(cx) {
             if !dir.is_empty() {
                 self.chat.update(cx, |c, cx| c.open(&dir, &id, cx));
@@ -391,6 +421,20 @@ impl Render for ChatPanel {
                     s.submit(text, cx);
                 }))
         };
+        let model_sel = (!self.models.is_empty()).then(|| {
+            let cur = self.chat.read(cx).model.clone().map(|m| format!("{}/{}", m.provider_id, m.model_id)).unwrap_or_default();
+            let items = self.models.iter().map(|m| (SharedString::from(format!("{}/{}", m.provider_id, m.model_id)), SharedString::from(format!("{} · {}", m.name, m.provider_name)))).collect();
+            let chat = self.chat.clone();
+            crate::ui::select("chat-model", items, cur).on_change(move |v, _, cx| {
+                if let Some((p, m)) = v.split_once('/') {
+                    let r = crate::core::engine::ModelRef { provider_id: p.to_string(), model_id: m.to_string() };
+                    chat.update(cx, |c, cx| {
+                        c.model = Some(r);
+                        cx.notify();
+                    });
+                }
+            })
+        });
         let composer = div().w_full().px(t.space(3)).pb(t.space(3)).child(
             div()
                 .flex()
@@ -403,7 +447,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(div().flex_1()).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(div().flex_1()).children(model_sel).child(send_btn)),
         );
 
         let Some(st) = state else {

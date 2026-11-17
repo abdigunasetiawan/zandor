@@ -357,6 +357,7 @@ impl ToolsHost {
         for n in nodes {
             let open = self.open_dirs.contains(&n.path);
             let p = n.path.clone();
+            let abs = if n.absolute.is_empty() { format!("{}/{}", self.files_root.clone().unwrap_or_default(), n.path) } else { n.absolute.clone() };
             let is_dir = n.is_dir;
             out.push(
                 div()
@@ -373,6 +374,8 @@ impl ToolsHost {
                     .hover(|s| s.bg(t.colors.hover))
                     .on_click(cx.listener(move |s, _, _, cx| {
                         if !is_dir {
+                            let abs = abs.clone();
+                            super::docs_panel::DocsState::global(cx).update(cx, |d, cx| d.open_file(abs, cx));
                             return;
                         }
                         if !s.open_dirs.remove(&p) {

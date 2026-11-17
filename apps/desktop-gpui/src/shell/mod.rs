@@ -3,6 +3,7 @@ pub mod automation_page;
 pub mod chat_panel;
 pub mod command_center;
 pub mod commands;
+pub mod docs_panel;
 pub mod layout;
 pub mod memory_page;
 pub mod onboarding_page;
