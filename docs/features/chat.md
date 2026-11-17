@@ -118,3 +118,13 @@ Popup `ComposerSuggest` di atas kartu composer. `/` = perintah bawaan aplikasi +
 dijalankan via `session.command`); `@` = cari berkas (`GET /find/file`), dilampirkan sebagai `file://`. `/btw` memakai
 `ChatStore.aside` (fork tanpa `messageID` + kirim di cabang). ↑ di composer kosong memanggil ulang pesan terakhir.
 Tes: `composer-input.test.ts` (unit + store), `e2e/composer-slash.spec.ts`.
+
+## Pencarian global lintas sesi (17-11-2026)
+
+**Ctrl+Shift+F** atau palet → "Cari di semua sesi" membuka dialog `GlobalSearch`: mencari judul (judul bawaan engine
+diabaikan) dan teks pesan pengguna/asisten (bukan berpikir/tool/teks sintetis) di semua project dan Chat. Pesan dimuat
+dari engine per sesi (4 paralel) lewat `SessionSearch` (`packages/core/src/chat/session-search.ts`) dan di-cache selama
+`time.updated` sesi sama; hasil tampil bertahap ("Mencari… n dari N sesi"), sesi yang gagal dimuat disebut. Urutan:
+judul cocok, jumlah kecocokan, terbaru. Klik hasil (atau Enter = hasil pertama) membuka sesi dan menggulir ke pesannya.
+Tes: core `session-search.test.ts`, e2e `global-search.spec.ts`. Batasan: tanpa indeks di disk (sesi banyak = pemuatan
+pertama lebih lama); daftar sesi project yang belum dibuka dimuat saat dialog dibuka.

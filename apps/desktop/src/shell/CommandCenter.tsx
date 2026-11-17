@@ -15,6 +15,7 @@ import {
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { build } from "../build";
 import { buildPanelDump } from "./dev-dump";
+import { GlobalSearch } from "./GlobalSearch";
 import { requestMessageFocus } from "./message-focus";
 import { useAppearance, useCommandList, useServices, useWindowApi } from "./services";
 
@@ -69,6 +70,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const registry = useShortcutRegistry();
   const bindings = useShortcutList(); // render ulang saat pintasan diubah (palet menampilkan combo efektif)
   const appearance = useAppearance();
@@ -121,6 +123,13 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         run: () => void nav.forward(),
       },
       { id: "app.palette", titleKey: "cmd.palette", group: "app", shortcut: "Ctrl+K", run: openPalette },
+      {
+        id: "app.searchSessions",
+        titleKey: "cmd.searchSessions",
+        group: "app",
+        shortcut: "Ctrl+Shift+F",
+        run: () => setSearchOpen(true),
+      },
       {
         id: "view.zoomIn",
         titleKey: "cmd.zoomIn",
@@ -290,6 +299,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
           void commands.run(id);
         }}
       />
+      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
       <Dialog
         open={aboutOpen}
         onOpenChange={setAboutOpen}

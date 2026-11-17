@@ -55,3 +55,8 @@ Minta agent menjalankan perintah yang tidak selesai sendiri (mis. "jalankan dev 
 Panel 4 → **Background jobs**: status, port yang terdeteksi (ikon globe membuka di Browser), log, dan tombol
 Stop / Jalankan ulang / Hapus. Job berhenti bila aplikasi ditutup; setelah engine dimulai ulang job lama
 ditandai "Terputus".
+
+## Mencari di semua sesi
+
+Tekan **Ctrl+Shift+F** (atau cari "Cari di semua sesi" di palet Ctrl+K). Ketik kata; hasil muncul per sesi dengan
+potongan pesan yang cocok. Klik potongan untuk membuka sesi tepat di pesan itu, atau tekan Enter untuk hasil pertama.
