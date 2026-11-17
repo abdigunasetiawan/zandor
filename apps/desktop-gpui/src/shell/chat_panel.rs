@@ -29,6 +29,7 @@ pub struct ChatPanel {
     engine: Entity<EngineStatus>,
     input: Entity<TextInput>,
     scroll: ScrollHandle,
+    focused_msg: Option<String>,
     expanded: HashSet<String>,
     last_count: usize,
     pending_new: bool,
@@ -41,6 +42,8 @@ pub struct ChatPanel {
 
 impl ChatPanel {
     pub fn new(app: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+        cx.set_global(MessageFocus(None));
+        cx.observe_global::<MessageFocus>(|_, cx| cx.notify()).detach();
         let store = ProjectStore::global(cx);
         let chat = ChatStore::global(cx);
         let engine = EngineStatus::global(cx);
@@ -73,6 +76,7 @@ impl ChatPanel {
             engine,
             input,
             scroll: ScrollHandle::new(),
+            focused_msg: None,
             expanded: HashSet::new(),
             last_count: 0,
             pending_new: false,
@@ -719,12 +723,33 @@ impl Render for ChatPanel {
             inner = inner.child(div().text_color(t.colors.fg_muted).child(i.t("chat.empty")));
         }
         let mut count = 0;
-        for m in st.visible() {
+        // Pesan menjadi anak langsung area gulir agar bisa dituju (ScrollHandle::scroll_to_top_of_item) dari
+        // Trajectory "Ke pesan" (port requestMessageFocus).
+        let gap = t.rem(t.chat.gap.unwrap_or(0.75));
+        let focus = cx.try_global::<MessageFocus>().and_then(|f| f.0.clone());
+        for (ix, m) in st.visible().into_iter().enumerate() {
             count += m.parts.len() + 1;
-            inner = inner.child(match m.info.role {
+            let el = match m.info.role {
                 Role::User => user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), i),
                 Role::Assistant => assistant_msg(&t, i, &me, m, &self.expanded),
-            });
+            };
+            if focus.as_deref() == Some(m.info.id.as_str()) {
+                self.scroll.scroll_to_top_of_item(ix);
+                self.focused_msg = Some(m.info.id.clone());
+                cx.set_global(MessageFocus(None));
+            }
+            let hl = self.focused_msg.as_deref() == Some(m.info.id.as_str());
+            body = body.child(
+                div()
+                    .w_full()
+                    .max_w(t.rem(cw))
+                    .mx_auto()
+                    .mb(gap)
+                    .rounded(t.rem(crate::theme::rem::RADIUS_LG))
+                    .when(hl, |d| d.border_1().border_color(t.colors.focus))
+                    .when_some(t.chat.font.clone(), |d, f| d.font_family(f))
+                    .child(el),
+            );
         }
         if let SessionRunStatus::Retry { attempt, message } = &st.status {
             inner = inner.child(div().text_color(t.colors.warning).child(i.tp("chat.retry", &[("attempt", &attempt.to_string()), ("message", message)])));
@@ -828,8 +853,9 @@ impl Render for ChatPanel {
             inner = inner.child(c);
         }
         body = body.child(inner);
-        if count != self.last_count {
+        if count != self.last_count && focus.is_none() {
             self.last_count = count;
+            self.focused_msg = None;
             self.scroll.scroll_to_bottom();
         }
         let _ = &self.app;
@@ -844,3 +870,8 @@ impl Render for ChatPanel {
             .into_any_element()
     }
 }
+
+
+/// Permintaan fokus ke satu pesan (id) — diisi panel Trajectory "Ke pesan", dibaca ChatPanel.
+pub struct MessageFocus(pub Option<String>);
+impl gpui::Global for MessageFocus {}

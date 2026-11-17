@@ -141,6 +141,13 @@ impl TrajectoryPanel {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(i.t(&format!("traj.kind.{}", r.kind.key()))))
                     .children(r.name.clone().map(|n| div().font_family(t.font_code.clone()).code(t).child(n)))
                     .child(div().flex_1())
+                    .child({
+                        let mid = r.message_id.clone();
+                        button("traj-jump").label(i.t("sact.jump")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(move |_, w, cx| {
+                            cx.set_global(super::chat_panel::MessageFocus(Some(mid.clone())));
+                            w.refresh();
+                        })
+                    })
                     .child(icon_button("traj-close", "close", i.t("traj.close")).size(ControlSize::Sm).on_click(cx.listener(|s, _, _, cx| {
                         s.selected = None;
                         cx.notify();
