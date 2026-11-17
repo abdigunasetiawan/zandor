@@ -191,30 +191,26 @@ impl Render for ThemesSection {
                 s.confirm_reset = true;
                 cx.notify();
             })));
-        // konfirmasi reset (useConfirm di TS) ditampilkan sebaris
+        // konfirmasi reset (useConfirm di TS): dialog modal
         let confirm = self.confirm_reset.then(|| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(t.space(2))
-                .p(t.space(3))
-                .rounded(t.rem(rem::RADIUS_LG))
-                .border_1()
-                .border_color(t.colors.danger)
-                .bg(t.colors.raised)
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(i.t("ap.resetTitle")))
-                .child(div().small(&t).text_color(t.colors.fg_muted).child(i.t("ap.resetBody")))
-                .child(
+            crate::ui::dialog(i.t("ap.resetTitle"))
+                .description(i.t("ap.resetBody"))
+                .on_dismiss(cx.listener(|s, _, _, cx| {
+                    s.confirm_reset = false;
+                    cx.notify();
+                }))
+                .footer(
                     div()
                         .flex()
+                        .justify_end()
                         .gap(t.space(2))
+                        .child(button("ap-reset-no").label(i.t("ui.cancel")).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| {
+                            s.confirm_reset = false;
+                            cx.notify();
+                        })))
                         .child(button("ap-reset-ok").label(i.t("ap.reset")).variant(ButtonVariant::Danger).on_click(cx.listener(|s, _, _, cx| {
                             s.confirm_reset = false;
                             s.store.update(cx, |st, cx| st.reset_all(cx));
-                        })))
-                        .child(button("ap-reset-no").label(i.t("ap.editor.cancel")).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| {
-                            s.confirm_reset = false;
-                            cx.notify();
                         }))),
                 )
         });
