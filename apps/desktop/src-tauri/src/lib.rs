@@ -10,6 +10,7 @@ mod jobs;
 mod liveserver;
 mod memory;
 mod netprobe;
+pub mod office_check;
 mod openvsx;
 mod openwith;
 mod openwork;

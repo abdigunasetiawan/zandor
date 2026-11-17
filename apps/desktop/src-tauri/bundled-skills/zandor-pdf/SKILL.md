@@ -1,5 +1,4 @@
 ---
-
 name: zandor-pdf
 description: "Membaca, mengekstrak teks/tabel, menggabung, memisah, memutar, memberi watermark, mengisi formulir, atau membuat PDF. Pakai setiap kali user menyebut berkas .pdf atau meminta hasil dalam format PDF."
 ---
@@ -17,7 +16,12 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
 
 ## Lingkungan
 
-1. Cari Python: `python --version`, `py -3 --version`, `python3 --version`. Bila tidak ada, berhenti dan katakan jujur.
+Membaca struktur/isi dan memverifikasi hasil **tidak butuh Python**: pakai pemeriksa bawaan Zandor
+`{{OFFICE_CHECK}} <berkas> [--text] [--expect "teks"]` (laporan JSON). Python hanya dibutuhkan untuk mengubah atau
+membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
+
+1. Cari Python: `python --version`, `py -3 --version`, `python3 --version`. Bila tidak ada, berhenti dan katakan jujur bahwa
+   mengubah berkas butuh Python 3 (membaca dan verifikasi tetap bisa).
 2. Pustaka sesuai tugas (minta izin sebelum memasang dengan `python -m pip install --user ...`):
    - `pypdf` — gabung, pisah, putar, metadata, formulir, ekstrak teks sederhana.
    - `pdfplumber` — ekstrak teks dengan tata letak dan tabel.
@@ -48,6 +52,6 @@ Tabel: `pdfplumber.open("in.pdf").pages[0].extract_tables()`.
 
 ## Verifikasi wajib
 
-1. `python "{{SKILL_DIR}}/office_check.py" hasil.pdf` → `valid: true` (header, trailer, perkiraan halaman).
+1. `{{OFFICE_CHECK}} hasil.pdf` → `valid: true` (header, trailer, perkiraan halaman).
 2. Buka dengan `pypdf` dan cocokkan jumlah halaman serta teks kunci yang diharapkan.
 3. Laporkan path hasil, jumlah halaman, dan batasan (mis. tampilan visual belum diperiksa).

@@ -240,7 +240,9 @@ impl EngineManager {
         }
         // Skill bawaan dokumen (ADR-070) harus ada sebelum engine memindai folder skill.
         if let Ok(root) = crate::memory::skills_root("global", None, &paths.engine_root) {
-            if let Err(e) = crate::bundled_skills::install(&root) {
+            if let Err(e) =
+                crate::bundled_skills::install(&root, &crate::bundled_skills::checker_command())
+            {
                 eprintln!("[zandor] gagal memasang skill bawaan: {e}");
             }
         }

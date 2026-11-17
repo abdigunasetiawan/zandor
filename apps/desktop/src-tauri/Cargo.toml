@@ -25,6 +25,9 @@ keyring = "=4.2.0"
 ureq = { version = "3", default-features = false, features = ["native-tls"] }
 zandor-engine-supervisor = { path = "../../../crates/engine-supervisor" }
 tauri-plugin-single-instance = "=2.5.5"
+# Pemeriksa dokumen bawaan `Zandor office-check` (ADR-074): baca DOCX/XLSX/PPTX tanpa Python.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+roxmltree = "0.20"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Console"] }

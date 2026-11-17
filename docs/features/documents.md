@@ -67,9 +67,10 @@ skala UI tidak berubah. Tes: `e2e/docs.spec.ts` ("kustomisasi Panel 3"), `packag
 Agent memakai **skill bawaan** `zandor-docx`, `zandor-xlsx`, `zandor-pptx`, `zandor-pdf` (sumber:
 `apps/desktop/src-tauri/bundled-skills/`, dipasang oleh `bundled_skills.rs` ke folder skill global engine setiap engine
 dimulai). Alurnya: baca struktur → buat cadangan → ubah dengan python-docx/openpyxl/python-pptx/pypdf → verifikasi dengan
-`office_check.py` (`--expect "teks"`) → laporkan hasil beserta batasannya.
+pemeriksa bawaan `"<Zandor.exe>" office-check` (ADR-074, `--text`, `--expect "teks"`) → laporkan hasil beserta batasannya.
 
-- **Syarat:** Python 3 terpasang. Pustaka dipasang `pip --user` setelah user memberi izin.
+- **Syarat:** membaca dan verifikasi tidak butuh apa-apa. Mengubah/membuat berkas butuh Python 3; pustaka dipasang
+  `pip --user` setelah user memberi izin.
 - **Batasan:** tampilan visual dan hitung ulang rumus hanya diperiksa bila LibreOffice tersedia. PDF tidak diedit teksnya
   di tempat. Panel 3 belum memuat ulang otomatis setelah berkas Office diubah.
 - **Tes:** `cargo test -p zandor-desktop bundled_skills` (nama/frontmatter, instalasi idempoten, pemulihan berkas rusak),

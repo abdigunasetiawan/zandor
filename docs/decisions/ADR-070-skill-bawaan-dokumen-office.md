@@ -1,7 +1,7 @@
 # ADR-070 — Skill bawaan dokumen: DOCX, XLSX, PPTX, PDF
 
 - **Tanggal:** 16-11-2026
-- **Status:** diterima
+- **Status:** diterima; pemeriksa `office_check.py` digantikan ADR-074
 
 ## Konteks
 

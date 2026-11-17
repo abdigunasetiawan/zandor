@@ -1,5 +1,4 @@
 ---
-
 name: zandor-xlsx
 description: "Membuat, membaca, atau mengubah spreadsheet Excel (.xlsx/.xlsm) dan CSV: isi sel, rumus, lembar, format, membersihkan data, merangkum tabel. Pakai setiap kali user menyebut Excel, .xlsx, spreadsheet, atau lembar kerja."
 ---
@@ -20,13 +19,18 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
 
 ## Lingkungan
 
-1. Cari Python: `python --version`, `py -3 --version`, `python3 --version`. Bila tidak ada, berhenti dan katakan jujur.
+Membaca struktur/isi dan memverifikasi hasil **tidak butuh Python**: pakai pemeriksa bawaan Zandor
+`{{OFFICE_CHECK}} <berkas> [--text] [--expect "teks"]` (laporan JSON). Python hanya dibutuhkan untuk mengubah atau
+membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
+
+1. Cari Python: `python --version`, `py -3 --version`, `python3 --version`. Bila tidak ada, berhenti dan katakan jujur bahwa
+   mengubah berkas butuh Python 3 (membaca dan verifikasi tetap bisa).
 2. `python -c "import openpyxl"`; bila gagal, minta izin lalu `python -m pip install --user openpyxl`
    (tambahkan `pandas` hanya bila perlu analisis besar).
 
 ## Alur
 
-1. **Baca dulu**: `python "{{SKILL_DIR}}/office_check.py" data.xlsx --text` (lembar, jumlah sel, jumlah rumus).
+1. **Baca dulu**: `{{OFFICE_CHECK}} data.xlsx --text` (lembar, jumlah sel, jumlah rumus).
    Untuk melihat isi terstruktur:
 
    ```python
@@ -45,7 +49,7 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
    ```
 
    Saat menambah baris, perbarui juga rentang rumus agregat (mis. `=SUM(D2:D10)` → `D2:D11`).
-3. **Verifikasi wajib**: `python "{{SKILL_DIR}}/office_check.py" data.xlsx --expect "Baru"` → `valid: true`.
+3. **Verifikasi wajib**: `{{OFFICE_CHECK}} data.xlsx --expect "Baru"` → `valid: true`.
    Bila LibreOffice tersedia, hitung ulang untuk memeriksa galat rumus:
    `soffice --headless --convert-to xlsx --outdir <temp> data.xlsx`, lalu muat hasilnya dengan `data_only=True`
    dan pastikan tidak ada `#REF!`, `#DIV/0!`, `#NAME?`, `#VALUE!`.

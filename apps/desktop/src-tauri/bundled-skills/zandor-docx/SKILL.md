@@ -1,5 +1,4 @@
 ---
-
 name: zandor-docx
 description: "Membuat, membaca, atau mengubah dokumen Word (.docx): ganti teks, tambah/ubah paragraf, tabel, gambar, header/footer, gaya. Pakai setiap kali user menyebut .docx, dokumen Word, atau meminta laporan/surat dalam format Word."
 ---
@@ -17,14 +16,18 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
 
 ## Lingkungan
 
+Membaca struktur/isi dan memverifikasi hasil **tidak butuh Python**: pakai pemeriksa bawaan Zandor
+`{{OFFICE_CHECK}} <berkas> [--text] [--expect "teks"]` (laporan JSON). Python hanya dibutuhkan untuk mengubah atau
+membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
+
 1. Cari Python: `python --version`, lalu `py -3 --version` (Windows), lalu `python3 --version`.
-   Bila tidak ada, berhenti dan katakan jujur bahwa Python 3 belum terpasang (sarankan python.org atau
-   `winget install Python.Python.3.12`). Jangan memasang tanpa persetujuan user.
+   Bila tidak ada, berhenti dan katakan jujur bahwa mengubah berkas butuh Python 3 (membaca dan verifikasi tetap
+   bisa); sarankan python.org atau `winget install Python.Python.3.12`. Jangan memasang tanpa persetujuan user.
 2. Cek pustaka: `python -c "import docx"`. Bila gagal, minta izin lalu `python -m pip install --user python-docx`.
 
 ## Alur
 
-1. **Baca dulu**: `python "{{SKILL_DIR}}/office_check.py" berkas.docx --text` untuk melihat struktur dan isi.
+1. **Baca dulu**: `{{OFFICE_CHECK}} berkas.docx --text` untuk melihat struktur dan isi.
 2. **Ubah** dengan skrip Python sementara (simpan di folder temp, bukan di project), memakai `python-docx`:
 
    ```python
@@ -40,7 +43,7 @@ Skill bawaan Zandor. Folder skill: `{{SKILL_DIR}}`.
 
    Teks yang terpecah di beberapa _run_ tidak tertangkap penggantian per run: gabungkan run paragraf itu dengan
    hati-hati (pertahankan format run pertama) bila perlu. Header/footer: `d.sections[i].header.paragraphs`.
-3. **Verifikasi wajib**: `python "{{SKILL_DIR}}/office_check.py" out.docx --expect "BARU"`. Hasil harus
+3. **Verifikasi wajib**: `{{OFFICE_CHECK}} out.docx --expect "BARU"`. Hasil harus
    `"valid": true` dan `expect_missing` kosong. Bila gagal, perbaiki; jangan menyerahkan berkas rusak.
 4. **Laporkan**: path berkas hasil, apa yang berubah, path cadangan, dan batasan yang belum diverifikasi
    (tampilan visual tidak diperiksa kecuali dibuka di Word/LibreOffice).
