@@ -13,6 +13,7 @@ pub struct Root {
     titlebar: Entity<TitleBar>,
     layout: Entity<ShellLayout>,
     toasts: Entity<Toasts>,
+    palette: Option<Entity<super::command_center::CommandCenter>>,
 }
 
 impl Root {
@@ -32,8 +33,16 @@ impl Root {
             tb
         });
         cx.observe(&app, |_, _, cx| cx.notify()).detach();
+        cx.observe_keystrokes(move |r, ev, w, cx| {
+            let combo = super::command_center::combo(&ev.keystroke);
+            if let Some(c) = super::commands::COMMANDS.iter().find(|c| c.shortcut == Some(combo.as_str())) {
+                let id = c.id;
+                r.run_command(id, w, cx);
+            }
+        })
+        .detach();
         let _ = window;
-        Self { app, titlebar, layout, toasts }
+        Self { app, titlebar, layout, toasts, palette: None }
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -41,6 +50,32 @@ impl Root {
         let app = self.app.clone();
         let toggle = |p: PanelId, cx: &mut Context<Self>| app.update(cx, |a, cx| a.toggle(p, cx));
         match id {
+            "app.palette" | "app.searchSessions" => {
+                if self.palette.take().is_none() {
+                    let p = cx.new(|cx| super::command_center::CommandCenter::new(window, cx));
+                    cx.subscribe_in(&p, window, |r, _, e: &super::command_center::PaletteEvent, w, cx| {
+                        use super::command_center::{PaletteAction, PaletteEvent};
+                        r.palette = None;
+                        match e {
+                            PaletteEvent::Close => {}
+                            PaletteEvent::Run(PaletteAction::Command(id)) => r.run_command(id, w, cx),
+                            PaletteEvent::Run(PaletteAction::Session(k, s)) => {
+                                let (k, s) = (k.clone(), s.clone());
+                                crate::core::projects::ProjectStore::global(cx).update(cx, |st, cx| st.select(Some(k), Some(s), cx));
+                                r.app.update(cx, |a, cx| a.push("/", cx));
+                            }
+                        }
+                        cx.notify();
+                    })
+                    .detach();
+                    self.palette = Some(p);
+                }
+            }
+            "chat.new" => {
+                let store = crate::core::projects::ProjectStore::global(cx);
+                store.update(cx, |s, cx| s.create_session(crate::core::projects::CHAT_KEY, None, true, cx)).detach();
+                app.update(cx, |a, cx| a.push("/", cx));
+            }
             "app.openSettings" => app.update(cx, |a, cx| a.push("/settings", cx)),
             "app.providers" => app.update(cx, |a, cx| a.push("/settings/models", cx)),
             "app.memory" => app.update(cx, |a, cx| a.push("/memory", cx)),
@@ -112,6 +147,7 @@ impl Render for Root {
             .text_size(t.rem(crate::theme::P.size))
             .child(self.titlebar.clone())
             .child(div().flex().flex_1().min_h_0().child(content))
+            .children(self.palette.clone())
             .child(self.toasts.clone())
     }
 }
