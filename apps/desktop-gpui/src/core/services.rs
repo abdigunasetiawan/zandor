@@ -89,6 +89,8 @@ pub fn init(cx: &mut App) {
     );
 
     super::settings::SettingsStore::init(data.join("settings.json"), cx);
+    super::automation::AutomationStore::init(data.join("automation.json"), cx);
+    super::automation::start_scheduler(cx);
     let chat = super::chat_store::ChatStore::init(cx);
     let manager = Arc::new(EngineManager::default());
     let initial = to_state(&manager.snapshot());
