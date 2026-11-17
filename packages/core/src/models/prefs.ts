@@ -7,7 +7,7 @@ export type ModelPrefsStorage = { get(key: string): string | null; set(key: stri
 export type ModelPrefsState = {
   /** Model bawaan untuk chat baru. */
   defaultChat: ModelRef | null;
-  /** Model bawaan untuk generate gambar (disimpan; fitur gambar belum ada). */
+  /** Model bawaan untuk generate gambar (Generate gambar dan tool agent `zandor_image`, ADR-077). */
   defaultImage: ModelRef | null;
   /** Kunci `providerID/modelID` yang disembunyikan dari pemilih model. */
   hidden: string[];

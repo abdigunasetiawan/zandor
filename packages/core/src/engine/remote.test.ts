@@ -7,7 +7,13 @@ import { createRoutedApi, remoteUrlProblem } from "./remote";
 const flush = () => new Promise((r) => setTimeout(r, 0));
 const memStorage = (initial: string | null = null) => {
   let v = initial;
-  return { load: async () => v, save: async (t: string) => void (v = t), raw: () => v } satisfies RegistryStorage & {
+  return {
+    load: async () => v,
+    save: async (t: string) => {
+      v = t;
+    },
+    raw: () => v,
+  } satisfies RegistryStorage & {
     raw: () => string | null;
   };
 };

@@ -16,6 +16,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { build } from "../build";
 import { buildPanelDump } from "./dev-dump";
 import { GlobalSearch } from "./GlobalSearch";
+import { ImageGenerateDialog } from "./ImageGenerateDialog";
 import { requestMessageFocus } from "./message-focus";
 import { Onboarding } from "./Onboarding";
 import { useAppearance, useCommandList, useProjects, useServices, useSettings, useWindowApi } from "./services";
@@ -73,6 +74,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
   const projectsState = useProjects();
   const tourWanted = useSettings().onboarding;
   // Tur pengenalan muncul sekali saat aplikasi dibuka tanpa project (registry sudah dimuat).
@@ -227,6 +229,13 @@ export function CommandCenter({ children }: { children: ReactNode }) {
       },
       { id: "help.about", titleKey: "cmd.about", group: "help", run: () => setAboutOpen(true) },
       { id: "help.tour", titleKey: "cmd.tour", group: "help", run: () => setTourOpen(true) },
+      {
+        id: "image.generate",
+        titleKey: "cmd.generateImage",
+        group: "app",
+        keywords: ["image", "gambar", "generate", "dall-e", "gemini"],
+        run: () => setImageOpen(true),
+      },
     ];
     if (windowApi) {
       defs.push({
@@ -318,6 +327,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
       />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
       <Onboarding open={tourOpen} onOpenChange={setTourOpen} />
+      <ImageGenerateDialog open={imageOpen} onOpenChange={setImageOpen} />
       <Dialog
         open={aboutOpen}
         onOpenChange={setAboutOpen}

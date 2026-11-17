@@ -12,6 +12,7 @@ import {
 } from "@zandor/ui";
 import { useEffect } from "react";
 import { DesignSystemPage } from "./design-system/DesignSystemPage";
+import { AgentControlDriver } from "./shell/AgentControlDriver";
 import { AutomationDriver } from "./shell/AutomationDriver";
 import { CommandCenter } from "./shell/CommandCenter";
 import { NotificationDriver } from "./shell/NotificationDriver";
@@ -56,7 +57,7 @@ export function hashToPath(hash: string): string {
 
 /** Terapkan pengaturan ke DOM (tema, skala, bahasa) dan sinkronkan riwayat navigasi dengan hash URL. */
 function Effects() {
-  const { nav, host, connection, projects, chat, providers, docs, terminals, activity, logger } = useServices();
+  const { nav, host, connection, projects, providers, docs, activity, logger } = useServices();
   const settings = useSettings();
   const { current } = useNavState();
 
@@ -137,7 +138,7 @@ function Effects() {
       alive = false;
       stop?.();
     };
-  }, [host, connection, projects, chat, providers, docs, terminals, activity, logger]);
+  }, [host, connection, projects, providers, docs, activity, logger]);
 
   useEffect(() => {
     const onHash = () => nav.push(hashToPath(window.location.hash));
@@ -181,6 +182,7 @@ function Root() {
               <CommandCenter>
                 <Effects />
                 <AutomationDriver />
+                <AgentControlDriver />
                 <NotificationDriver />
                 <div className="app">
                   <TitleBar />

@@ -71,6 +71,14 @@ export const SETTINGS_SCHEMA = {
       default: true,
       "x-zandor": { titleKey: "settings.onboarding", group: "general" },
     },
+    agentControl: {
+      type: "boolean",
+      title: "Agent boleh mengoperasikan Zandor",
+      description:
+        "Izinkan agent memakai tool `zandor_app` dan `zandor_image`: membuka/menutup panel dan alat, membuka URL di browser Panel 4 dan berkas di Panel 3, menutup terminal, mengubah pengaturan (kecuali pengaturan ini), dan membuat gambar dengan model gambar bawaan. Agent tidak bisa mengubah pengaturan ini sendiri.",
+      default: true,
+      "x-zandor": { titleKey: "settings.agentControl", group: "general" },
+    },
     theme: {
       type: "string",
       title: "Tema",
@@ -295,6 +303,7 @@ export type SettingKey = keyof typeof SETTINGS_SCHEMA.properties;
 export type Settings = {
   language: "id" | "en";
   onboarding: boolean;
+  agentControl: boolean;
   theme: "dark" | "light" | "system";
   uiScale: (typeof UI_SCALE_VALUES)[number];
   rememberLayout: boolean;

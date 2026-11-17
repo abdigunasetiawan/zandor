@@ -18,4 +18,22 @@ Di **Pengaturan › Provider dan model**, klik **Tambah koneksi**: formulir tamp
 
 **Beberapa akun**: di tab Katalog, provider yang sudah berkunci menampilkan daftar **Akun** — **Tambah akun** (nama + kunci), **Gunakan** untuk mengganti akun aktif, ganti nama, atau hapus. Di tab **Sign-in** ada kartu **OpenWork Cloud**: masuk lewat kode perangkat (setiap login menambah satu akun). Login OAuth lewat engine hanya satu per provider.
 
+## Generate gambar
+
+Pilih **Model generate gambar bawaan** di Pengaturan › Provider dan model (mis. `openai/gpt-image-1`,
+`google/gemini-2.5-flash-image`, atau model gambar di OpenRouter). Lalu buka palet perintah → **Generate gambar…**, tulis
+deskripsi, pilih ukuran, **Generate**. Gambar disimpan di `images/` folder project/sesi aktif (tidak menimpa berkas lama)
+dan dibuka di Panel 3. Agent juga bisa membuat gambar lewat tool `zandor_image`. Didukung: OpenAI, Google Gemini,
+OpenRouter, dan endpoint kompatibel OpenAI yang kuncinya tersimpan di Zandor; provider tanpa API gambar (Anthropic)
+menampilkan galat. Setiap gambar memakai kuota provider Anda.
+
+## Agent mengoperasikan Zandor
+
+Agent bisa membuka/menutup panel, membuka alat Panel 4, membuka URL di browser dan berkas di Panel 3, menutup terminal,
+menjalankan perintah palet, dan mengubah pengaturan (skill bawaan `zandor-app`). Setiap aksi yang mengubah tampilan
+memunculkan pemberitahuan "Agent: …". Matikan seluruhnya di **Pengaturan › Umum › Agent boleh mengoperasikan Zandor**
+(agent tidak bisa mengubah pengaturan ini).
+
+## Model dari server
+
 Setelah **Ambil daftar model**, tiap model menampilkan info yang disediakan server (konteks, keluaran, reasoning, alat, lampiran) bila ada; gunakan **Pilih semua / Batalkan semua** untuk memilih sekaligus. Info yang tidak disediakan server bisa diisi lewat **Kelola model › Ubah model**. Di pemilih model, **Kelola provider…** membuka Pengaturan › Provider dan model.

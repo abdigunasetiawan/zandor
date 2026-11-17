@@ -1107,11 +1107,17 @@
   content-visibility: auto;
   contain-intrinsic-size: auto 5rem;
 }
+/* Jarak simetris: footer (waktu + aksi) tetap di alur di bawah gelembung (tidak boleh absolute — `.msg` memakai
+   content-visibility yang memotong isi di luar kotak), jadi ruang setinggi footer + gap juga dicadangkan di atas. */
 .msg--user {
   align-self: flex-end;
   align-items: flex-end;
   width: fit-content;
   max-width: 85%;
+  margin-top: calc(var(--z-control-sm) + var(--z-space-2));
+}
+.msg--user:first-child {
+  margin-top: 0;
 }
 .msg__bubble {
   max-width: 100%;
@@ -1124,7 +1130,8 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--z-space-2);
-  width: 100%;
+  min-height: var(--z-control-sm);
+  white-space: nowrap;
   opacity: 0;
 }
 .msg--user:hover .msg__user-foot,
@@ -2110,6 +2117,7 @@
 .pdfbar {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--z-space-2);
   padding: var(--z-space-1) var(--z-space-3);
@@ -2117,7 +2125,6 @@
 }
 .pdfpages {
   position: relative;
-  flex-wrap: wrap;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -2135,13 +2142,6 @@
 .pdfpage canvas {
   display: block;
 }
-.docview__imgbtn {
-  display: inline-flex;
-  max-width: 100%;
-  max-height: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
 /* Lapisan teks pdf.js (TextLayer): span transparan tepat di atas glyph kanvas agar teks bisa dipilih/dicari.
    Diadaptasi dari web/pdf_viewer.css (Apache-2.0); ukuran glyph dihitung pdf.js dari --total-scale-factor. */
 .pdfpage {
@@ -2259,6 +2259,13 @@
   color: var(--z-color-fg-muted);
   white-space: nowrap;
 }
+.docview__imgbtn {
+  display: inline-flex;
+  max-width: 100%;
+  max-height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
   cursor: zoom-in;
 }
 
@@ -6291,5 +6298,21 @@ fieldset.pstyle__templates {
   gap: var(--z-space-2);
 }
 .ms__error {
+  color: var(--z-color-danger);
+}
+
+/* Generate gambar (ADR-077) */
+.imggen__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-3);
+}
+.imggen__model,
+.imggen__note {
+  margin: 0;
+  color: var(--z-color-fg-muted);
+}
+.imggen__error {
+  margin: 0;
   color: var(--z-color-danger);
 }

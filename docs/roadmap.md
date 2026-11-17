@@ -162,7 +162,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Model peran (memori, image generator).
 - Manual "agent bisa mengonfigurasi Zandor": skema pengaturan + skill bawaan.
 
-**Status: Fase 11 sebagian selesai di lokal (14-11-2026)** — edit file di Monaco, DOCX/XLSX/PPTX/ipynb, saran prompt dinamis, automasi terjadwal + notifikasi. Input suara (dikte), notifikasi, dan save-as pesan menyusul (ADR-045, ADR-050). Engine remote lewat URL per project (ADR-076) dan model kecil (`small_model`) selesai 17-11-2026. **Belum:** generate gambar (model gambar baru preferensi), model memori (belum ada pemanggilan model oleh plugin memori), skill bawaan "agent mengonfigurasi Zandor".
+**Status: Fase 11 sebagian selesai di lokal (14-11-2026)** — edit file di Monaco, DOCX/XLSX/PPTX/ipynb, saran prompt dinamis, automasi terjadwal + notifikasi. Input suara (dikte), notifikasi, dan save-as pesan menyusul (ADR-045, ADR-050). Engine remote lewat URL per project (ADR-076) dan model kecil (`small_model`) selesai 17-11-2026. Generate gambar (model gambar bawaan, dialog + tool `zandor_image`) dan skill bawaan `zandor-app` + tool `zandor_app` agar agent mengoperasikan/mengonfigurasi Zandor (ADR-077) selesai 17-11-2026. **Belum:** model memori (belum ada pemanggilan model oleh plugin memori); uji fitur ADR-076/077 dengan model, API, dan build native sungguhan.
 
 ## Fase 12 — Rilis Publik (Windows)
 

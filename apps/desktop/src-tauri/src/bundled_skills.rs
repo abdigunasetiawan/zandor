@@ -1,4 +1,5 @@
-//! Skill bawaan dokumen (ADR-070): `zandor-docx`, `zandor-xlsx`, `zandor-pptx`, `zandor-pdf`.
+//! Skill bawaan dokumen (ADR-070): `zandor-docx`, `zandor-xlsx`, `zandor-pptx`, `zandor-pdf`; plus `zandor-app`
+//! (mengoperasikan/mengonfigurasi Zandor, ADR-077).
 //! Isinya ditanam di biner (`include_str!`) dan disinkronkan ke folder skill global engine
 //! (`<engine_root>/config/opencode/skills/<nama>/`) setiap engine dimulai. Berkas hanya ditulis bila isinya berbeda,
 //! jadi pembaruan aplikasi otomatis memperbarui skill. `{{SKILL_DIR}}` diganti path folder skill sebenarnya,
@@ -17,7 +18,7 @@ pub fn checker_command() -> String {
     format!("\"{exe}\" office-check")
 }
 
-pub const SKILLS: [(&str, &str); 4] = [
+pub const SKILLS: [(&str, &str); 5] = [
     (
         "zandor-docx",
         include_str!("../bundled-skills/zandor-docx/SKILL.md"),
@@ -33,6 +34,10 @@ pub const SKILLS: [(&str, &str); 4] = [
     (
         "zandor-pdf",
         include_str!("../bundled-skills/zandor-pdf/SKILL.md"),
+    ),
+    (
+        "zandor-app",
+        include_str!("../bundled-skills/zandor-app/SKILL.md"),
     ),
 ];
 
@@ -83,7 +88,11 @@ mod tests {
                 body.starts_with(&format!("---\nname: {name}\ndescription: \"")),
                 "{name}"
             );
-            assert!(body.contains("{{OFFICE_CHECK}}"), "{name}");
+            // Skill dokumen memakai pemeriksa bawaan; skill aplikasi (zandor-app) tidak.
+            assert!(
+                name == "zandor-app" || body.contains("{{OFFICE_CHECK}}"),
+                "{name}"
+            );
             assert!(!body.contains("office_check.py"), "{name}");
             assert!(body.len() <= crate::memory::MAX_SKILL_BYTES, "{name}");
         }
@@ -97,7 +106,7 @@ mod tests {
         std::fs::create_dir_all(tmp.join("zandor-pdf")).unwrap();
         std::fs::write(tmp.join("zandor-pdf").join(LEGACY_CHECKER), "lama").unwrap();
         let cmd = "\"C:/Apps/Zandor.exe\" office-check";
-        assert_eq!(install(&tmp, cmd).unwrap(), 4);
+        assert_eq!(install(&tmp, cmd).unwrap(), SKILLS.len());
         let md = std::fs::read_to_string(tmp.join("zandor-docx").join("SKILL.md")).unwrap();
         assert!(!md.contains("{{SKILL_DIR}}") && !md.contains("{{OFFICE_CHECK}}"));
         assert!(md.contains("`\"C:/Apps/Zandor.exe\" office-check berkas.docx --text`"));

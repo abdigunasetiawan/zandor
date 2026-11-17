@@ -4,6 +4,7 @@ import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
 import { tool } from "@opencode-ai/plugin";
+import { createControlTools } from "./control";
 import { scrubEnv } from "./env-guard";
 import { createJobHooks } from "./jobs-tools";
 import { projectKey } from "./keys";
@@ -98,14 +99,17 @@ export const ZandorPlugin: Plugin = async (input, options) => {
   // Background job (ADR-072): aktif bila opsi `jobsDir` diberikan.
   const jobsDir = typeof options?.jobsDir === "string" ? options.jobsDir : "";
   const jobHooks = jobsDir ? createJobHooks(jobsDir) : null;
+  // Kontrol aplikasi oleh agent (ADR-077): aktif bila opsi `controlDir` diberikan (hanya engine lokal Zandor).
+  const controlDir = typeof options?.controlDir === "string" ? options.controlDir : "";
+  const controlTools = controlDir ? createControlTools(controlDir) : {};
 
   const dir = typeof options?.memoryDir === "string" ? options.memoryDir : "";
   if (!dir) {
-    if (!jobHooks) return guard;
+    if (!jobHooks) return controlDir ? { ...guard, tool: controlTools } : guard;
     return {
       ...guard,
       "experimental.chat.system.transform": async (i, output) => jobHooks.system(i.sessionID, output.system),
-      tool: jobHooks.tool,
+      tool: { ...jobHooks.tool, ...controlTools },
     };
   }
 
@@ -174,6 +178,7 @@ export const ZandorPlugin: Plugin = async (input, options) => {
 
     tool: {
       ...(jobHooks?.tool ?? {}),
+      ...controlTools,
       memory_write: tool({
         description:
           "Simpan fakta penting ke memori Zandor agar diingat di sesi berikutnya. Gunakan untuk preferensi user, keputusan project, dan fakta yang stabil. Jangan menyimpan secret.",

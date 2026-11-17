@@ -9,6 +9,7 @@ Pengaturan disimpan sebagai satu objek JSON. Properti yang tidak ada memakai def
 | --- | --- | --- | --- | --- |
 | `language` | string | `id`, `en` | `"id"` | Bahasa antarmuka. Pada pemakaian pertama mengikuti bahasa sistem bila didukung. |
 | `onboarding` | boolean | boolean | `true` | Tampilkan tur pengenalan (nama, model, project, pintasan) saat aplikasi dibuka tanpa project. Mati otomatis setelah tur selesai atau dilewati; bisa dibuka lagi dari palet perintah. |
+| `agentControl` | boolean | boolean | `true` | Izinkan agent memakai tool `zandor_app` dan `zandor_image`: membuka/menutup panel dan alat, membuka URL di browser Panel 4 dan berkas di Panel 3, menutup terminal, mengubah pengaturan (kecuali pengaturan ini), dan membuat gambar dengan model gambar bawaan. Agent tidak bisa mengubah pengaturan ini sendiri. |
 | `theme` | string | `dark`, `light`, `system` | `"system"` | Tema warna. `system` mengikuti preferensi sistem operasi. |
 | `uiScale` | number | `0.75`, `0.875`, `1`, `1.125`, `1.25`, `1.375`, `1.5` | `1` | Skala antarmuka (token --ui-scale). Tidak memengaruhi isi browser bawaan. |
 | `rememberLayout` | boolean | boolean | `true` | Menyimpan ukuran dan keadaan lipat panel antar sesi aplikasi. |

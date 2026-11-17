@@ -2,10 +2,12 @@
 
 mod browser;
 mod bundled_skills;
+mod control;
 mod engine;
 mod files;
 mod fonts;
 mod git;
+mod images;
 mod jobs;
 mod liveserver;
 mod memory;
@@ -548,6 +550,77 @@ fn job_forget(app: tauri::AppHandle, id: String) -> Result<(), String> {
     jobs::forget(&jobs_dir(&app)?, &id)
 }
 
+// ---------- Kontrol aplikasi oleh agent + generate gambar (ADR-077) ----------
+
+fn control_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(app_data(app)?.join("control"))
+}
+
+#[tauri::command]
+fn control_take(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    Ok(control::take(&control_dir(&app)?))
+}
+
+#[tauri::command]
+fn control_reply(
+    app: tauri::AppHandle,
+    id: String,
+    response: serde_json::Value,
+) -> Result<(), String> {
+    control::reply(&control_dir(&app)?, &id, &response)
+}
+
+const IMAGE_SIZES: [&str; 3] = ["1024x1024", "1536x1024", "1024x1536"];
+
+/// Generate gambar dengan model `provider_id/model` lalu simpan di `root/rel` (ekstensi mengikuti isi, tidak menimpa).
+/// Mengembalikan path relatif yang ditulis.
+#[tauri::command]
+async fn image_generate(
+    app: tauri::AppHandle,
+    provider_id: String,
+    model: String,
+    prompt: String,
+    size: String,
+    root: String,
+    rel: String,
+) -> Result<String, String> {
+    if prompt.trim().is_empty() || prompt.len() > 4000 {
+        return Err("prompt gambar kosong atau terlalu panjang (maks 4000 karakter)".into());
+    }
+    if !IMAGE_SIZES.contains(&size.as_str()) {
+        return Err(format!("ukuran gambar tidak didukung: {size}"));
+    }
+    if model.is_empty() || model.len() > 200 {
+        return Err("model gambar tidak valid".into());
+    }
+    let root = PathBuf::from(root);
+    if !root.is_dir() {
+        return Err(format!("folder tujuan tidak ada: {}", root.display()));
+    }
+    let store = provider_store(&app)?;
+    let (list, _) = store.load();
+    let provider = list
+        .into_iter()
+        .find(|p| p.id == provider_id)
+        .ok_or_else(|| format!("provider \"{provider_id}\" tidak terdaftar di Zandor (tambahkan kuncinya di Pengaturan → Provider dan model)"))?;
+    let key = store.api_key(&provider_id)?;
+    if key.is_none() && provider.base_url.is_none() {
+        return Err(format!("kunci API {} belum tersimpan", provider.name));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = images::generate(&provider, key.as_deref(), &model, &prompt, &size)?;
+        let ext = images::sniff_ext(&bytes).ok_or("respons provider bukan gambar PNG/JPEG/WebP")?;
+        let (full, written) = images::target_path(&root, &rel, ext)?;
+        if let Some(parent) = full.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&full, bytes).map_err(|e| e.to_string())?;
+        Ok(written)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn memory_delete(app: tauri::AppHandle, rel: String) -> Result<(), String> {
     memory::delete_memory(&memory_dir(&app)?, &rel)
@@ -1006,6 +1079,9 @@ pub fn run() {
             job_log,
             job_control,
             job_forget,
+            control_take,
+            control_reply,
+            image_generate,
             memory_read,
             memory_write,
             memory_delete,
