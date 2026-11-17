@@ -5,6 +5,7 @@ pub mod chat_style_section;
 pub mod command_center;
 pub mod commands;
 pub mod docs_panel;
+pub mod keys_section;
 pub mod layout;
 pub mod memory_page;
 pub mod onboarding_page;

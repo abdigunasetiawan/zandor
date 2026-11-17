@@ -74,3 +74,28 @@ mod tests {
         }
     }
 }
+
+
+/// Pintasan efektif satu perintah (override Tampilan → Shortcut, atau bawaan).
+pub fn shortcut_of(id: &str, cx: &gpui::App) -> Option<String> {
+    let ov = crate::core::appearance::AppearanceStore::global(cx).read(cx).shortcuts.get(id).cloned();
+    ov.or_else(|| find(id).and_then(|c| c.shortcut).map(String::from))
+}
+
+/// Perintah yang memakai combo ini (memperhitungkan override).
+pub fn command_for_combo(combo: &str, cx: &gpui::App) -> Option<&'static CommandDef> {
+    COMMANDS.iter().find(|c| shortcut_of(c.id, cx).as_deref() == Some(combo))
+}
+
+/// Ubah pintasan; galat bila bentrok dengan perintah lain.
+pub fn set_shortcut(id: &str, combo: Option<&str>, cx: &mut gpui::App) -> Result<(), String> {
+    if let Some(c) = combo {
+        if let Some(other) = COMMANDS.iter().find(|o| o.id != id && shortcut_of(o.id, cx).as_deref() == Some(c)) {
+            return Err(format!("bentrok: {c} sudah dipakai {}", other.id));
+        }
+    }
+    let def = find(id).and_then(|c| c.shortcut);
+    let value = combo.filter(|c| Some(*c) != def);
+    crate::core::appearance::AppearanceStore::global(cx).update(cx, |s, cx| s.set_shortcut(id, value, cx));
+    Ok(())
+}

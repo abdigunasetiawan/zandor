@@ -101,8 +101,8 @@ impl TitleBar {
                             }
                         },
                     ));
-                    if let Some(s) = super::commands::find(id).and_then(|c| c.shortcut) {
-                        item = item.shortcut(format_combo(s));
+                    if let Some(s) = super::commands::shortcut_of(id, cx) {
+                        item = item.shortcut(format_combo(&s));
                     }
                     list = list.child(item);
                 }

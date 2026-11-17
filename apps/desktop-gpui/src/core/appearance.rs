@@ -318,6 +318,8 @@ pub struct AppearanceStore {
     pub typography: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     pub fonts: std::collections::BTreeMap<String, String>,
     pub chat: Map<String, Value>,
+    /// Override pintasan: id perintah → combo ("Ctrl+Shift+K").
+    pub shortcuts: std::collections::BTreeMap<String, String>,
 }
 struct Handle(Entity<AppearanceStore>);
 impl Global for Handle {}
@@ -363,7 +365,12 @@ impl AppearanceStore {
             .and_then(Value::as_object)
             .map(|o| o.iter().filter(|(k, v)| CHAT_STYLE_KEYS.contains(&k.as_str()) && validate_chat(k, v).is_none()).map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
-        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat });
+        let shortcuts = raw
+            .get("shortcuts")
+            .and_then(Value::as_object)
+            .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+            .unwrap_or_default();
+        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat, shortcuts });
         cx.set_global(Handle(e.clone()));
         e
     }
@@ -428,6 +435,19 @@ impl AppearanceStore {
         };
     }
 
+    /// Simpan override pintasan (None = bawaan). Validasi bentrok dilakukan pemanggil.
+    pub fn set_shortcut(&mut self, id: &str, combo: Option<&str>, cx: &mut Context<Self>) {
+        match combo {
+            Some(c) => {
+                self.shortcuts.insert(id.into(), c.into());
+            }
+            None => {
+                self.shortcuts.remove(id);
+            }
+        }
+        self.save(cx);
+    }
+
     /// None = kembali ke bawaan.
     pub fn set_chat(&mut self, key: &str, value: Option<Value>, cx: &mut Context<Self>) -> Option<&'static str> {
         match value {
@@ -488,6 +508,7 @@ impl AppearanceStore {
         self.raw.insert("typography".into(), serde_json::to_value(&self.typography).unwrap_or(json!({})));
         self.raw.insert("fonts".into(), serde_json::to_value(&self.fonts).unwrap_or(json!({})));
         self.raw.insert("chat".into(), Value::Object(self.chat.clone()));
+        self.raw.insert("shortcuts".into(), serde_json::to_value(&self.shortcuts).unwrap_or(json!({})));
         self.raw.insert("version".into(), json!(1));
         self.raw.insert("preset".into(), json!(self.preset));
         self.raw.insert("customThemes".into(), Value::Array(self.custom.iter().map(ThemeDef::to_json).collect()));
@@ -556,6 +577,7 @@ impl AppearanceStore {
         self.typography.clear();
         self.fonts.clear();
         self.chat.clear();
+        self.shortcuts.clear();
         self.save(cx);
     }
 }

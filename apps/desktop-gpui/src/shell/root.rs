@@ -48,7 +48,10 @@ impl Root {
         cx.observe(&app, |_, _, cx| cx.notify()).detach();
         cx.observe_keystrokes(move |r, ev, w, cx| {
             let combo = super::command_center::combo(&ev.keystroke);
-            if let Some(c) = super::commands::COMMANDS.iter().find(|c| c.shortcut == Some(combo.as_str())) {
+            if cx.try_global::<super::keys_section::KeyCapture>().is_some_and(|k| k.0) {
+                return; // sedang merekam pintasan baru di Tampilan → Shortcut
+            }
+            if let Some(c) = super::commands::command_for_combo(&combo, cx) {
                 let id = c.id;
                 r.run_command(id, w, cx);
             }

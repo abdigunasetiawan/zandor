@@ -88,7 +88,7 @@ impl CommandCenter {
             out.push(Row {
                 group,
                 title,
-                hint: c.shortcut.map(|s| s.replace("ArrowLeft", "←").replace("ArrowRight", "→")),
+                hint: super::commands::shortcut_of(c.id, cx).map(|s| s.replace("ArrowLeft", "←").replace("ArrowRight", "→")),
                 icon: "sparkles",
                 action: PaletteAction::Command(c.id),
             });
