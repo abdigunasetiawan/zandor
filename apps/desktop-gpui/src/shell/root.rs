@@ -20,7 +20,7 @@ impl Root {
         let app = AppState::global(cx);
         let toasts = Toasts::init(cx);
         let layout = cx.new(|cx| {
-            ShellLayout::new(app.clone(), PanelContent { sidebar: None, chat: None, docs: None, tool: None }, cx)
+            ShellLayout::new(app.clone(), PanelContent { sidebar: Some(cx.new(|cx| super::sidebar::Sidebar::new(app.clone(), cx)).into()), chat: None, docs: None, tool: None }, cx)
         });
         let me = cx.entity().downgrade();
         let titlebar = cx.new(|cx| {
