@@ -2117,6 +2117,7 @@
 }
 .pdfpages {
   position: relative;
+  flex-wrap: wrap;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -2141,6 +2142,95 @@
   padding: 0;
   border: 0;
   background: transparent;
+/* Lapisan teks pdf.js (TextLayer): span transparan tepat di atas glyph kanvas agar teks bisa dipilih/dicari.
+   Diadaptasi dari web/pdf_viewer.css (Apache-2.0); ukuran glyph dihitung pdf.js dari --total-scale-factor. */
+.pdfpage {
+  position: relative;
+}
+.pdfpage .textLayer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  transform-origin: 0 0;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+}
+.pdfpage .textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.pdfpage .textLayer > :not(.markedContent),
+.pdfpage .textLayer .markedContent span:not(.markedContent) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  z-index: 1;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdfpage .textLayer .markedContent {
+  display: contents;
+}
+.pdfpage .textLayer ::selection {
+  background: color-mix(in srgb, var(--z-color-focus) 35%, transparent);
+  color: transparent;
+}
+.pdfpage .textLayer br::selection {
+  background: transparent;
+}
+.pdfpage .textLayer .endOfContent {
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  display: block;
+  cursor: default;
+  user-select: none;
+}
+.pdfpage .textLayer.selecting .endOfContent {
+  top: 0;
+}
+.pdfpage .textLayer mark.pdfhit {
+  position: static;
+  border-radius: var(--z-radius-sm);
+  background: color-mix(in srgb, var(--z-color-warning) 40%, transparent);
+  color: transparent;
+}
+.pdfpage .textLayer mark.pdfhit--active {
+  background: color-mix(in srgb, var(--z-color-warning) 75%, transparent);
+}
+.pdfbar > .z-small {
+  white-space: nowrap;
+}
+.pdfbar__find {
+  display: flex;
+  flex: 1 1 14rem;
+  max-width: 22rem;
+  align-items: center;
+  gap: var(--z-space-1);
+  min-width: 0;
+  margin-left: auto;
+}
+.pdfbar__find .z-search {
+  flex: 1;
+  min-width: 0;
+}
+.pdfbar__count {
+  flex: none;
+  color: var(--z-color-fg-muted);
+  white-space: nowrap;
+}
   cursor: zoom-in;
 }
 

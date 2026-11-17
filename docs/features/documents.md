@@ -8,7 +8,7 @@
 
 - **Tab dokumen** (maks 16; tersimpan dan dipulihkan), path berkas, dan toolbar: render/mentah, cari, bungkus baris,
   salin isi, salin path, simpan salinan, buka di aplikasi lain, muat ulang, tutup.
-- **Format:** kode (Monaco), Markdown (GFM + KaTeX + Mermaid), SVG, gambar (PNG/JPG/GIF/WebP/…), PDF (zoom, render malas),
+- **Format:** kode (Monaco), Markdown (GFM + KaTeX + Mermaid), SVG, gambar (PNG/JPG/GIF/WebP/…), PDF (zoom, render malas, teks bisa dipilih lewat lapisan teks pdf.js, cari dengan sorotan + Enter/Shift+Enter),
   CSV/TSV (tabel tervirtualisasi), JSON (pohon), HTML (sandbox), audio, video. Format lain: pesan "tidak punya penampil"
   dan tombol buka di aplikasi lain.
 - **Cara membuka:** klik berkas di tab **Files**, atau tombol **Buka** pada kartu tool di chat. Panel Dokumen terbuka
@@ -27,7 +27,8 @@
 
 ## Belum / terbatas
 
-Seleksi/cari teks di PDF, pewarnaan blok kode di Markdown, video streaming; DOCX/XLSX/PPTX tidak bisa diedit dan hanya
+Cari teks PDF yang terpecah di dua potongan teks (kata yang dipisah PDF) tidak ditemukan; PDF hasil pindaian tanpa lapisan teks
+hanya diberi catatan (tanpa OCR); pewarnaan blok kode di Markdown, video streaming; DOCX/XLSX/PPTX tidak bisa diedit dan hanya
 menampilkan isi/struktur (PPTX tanpa tata letak/animasi/catatan; XLSX tanpa grafik/gambar/format angka kustom selain tanggal);
 notebook: output HTML/JS tidak ditampilkan; edit hanya UTF-8; fidelitas visual terhadap Office asli belum diukur manusia.
 

@@ -1,7 +1,7 @@
 # Dokumen (Panel 3)
 
 - **Buka:** klik berkas di tab Files atau tombol **Buka** pada kartu tool di chat.
-- **Format:** kode, Markdown (dengan rumus KaTeX dan diagram Mermaid), gambar, SVG, PDF, CSV/TSV, JSON, HTML (sandbox),
+- **Format:** kode, Markdown (dengan rumus KaTeX dan diagram Mermaid), gambar, SVG, PDF (teks bisa dipilih, disalin, dan dicari: klik ikon cari atau Ctrl+F, Enter untuk hasil berikutnya), CSV/TSV, JSON, HTML (sandbox),
   audio, video, **DOCX, XLSX, PPTX, notebook (.ipynb)** (pratinjau best-effort: isi dan struktur, bukan tampilan Office asli).
   Format lain (mis. `.doc` lama) menampilkan pesan dan tombol **Buka di aplikasi lain**.
 - **Toolbar:** render/mentah, cari (tampilan teks), bungkus baris, salin isi, salin path, simpan salinan, buka di aplikasi

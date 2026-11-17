@@ -118,7 +118,7 @@ Tujuan: membuktikan hal yang paling mungkin gagal. Hasil setiap spike dicatat se
 - Klik file di chat atau di Files akan membuka file itu di Panel 3.
 
 **Kriteria keluar:** semua format "Penuh" di PRD ter-render dan ada test snapshot-nya.
-**Status: selesai di lokal (14-11-2026)** — semua format "Penuh" ter-render dan teruji (snapshot ARIA + verifikasi piksel/DOM, e2e, smoke native); belum: edit, teks PDF, DOCX/XLSX/PPTX. Lihat ADR-035 dan `docs/features/documents.md`.
+**Status: selesai di lokal (14-11-2026)** — semua format "Penuh" ter-render dan teruji (snapshot ARIA + verifikasi piksel/DOM, e2e, smoke native); belum: edit, DOCX/XLSX/PPTX. (Teks PDF bisa dipilih/dicari sejak 17-11-2026.) Lihat ADR-035 dan `docs/features/documents.md`.
 
 ## Fase 8 — Panel 4: Tools
 

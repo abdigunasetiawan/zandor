@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  ChevronUp,
   Clock,
   Code,
   Columns3Cog,
@@ -105,6 +106,7 @@ function icon(Glyph: LucideIcon, name: string) {
 
 export const CheckIcon = icon(Check, "CheckIcon");
 export const ChevronDownIcon = icon(ChevronDown, "ChevronDownIcon");
+export const ChevronUpIcon = icon(ChevronUp, "ChevronUpIcon");
 export const ChevronRightIcon = icon(ChevronRight, "ChevronRightIcon");
 export const CloseIcon = icon(X, "CloseIcon");
 export const SearchIcon = icon(Search, "SearchIcon");

@@ -722,6 +722,12 @@ export const id = {
   "doc.jsonInvalid": "JSON tidak valid: {error}",
   "doc.pdfError": "PDF tidak bisa dibuka: {error}",
   "doc.pdfPage": "Halaman {n} dari {total}",
+  "doc.pdfFindPrev": "Hasil sebelumnya (Shift+Enter)",
+  "doc.pdfFindNext": "Hasil berikutnya (Enter)",
+  "doc.pdfFindCount": "{i} dari {n}",
+  "doc.pdfFindSearching": "Mencari…",
+  "doc.pdfNoText":
+    "PDF ini tidak punya lapisan teks (mungkin hasil pindaian); teks tidak bisa dipilih atau dicari tanpa OCR.",
   "doc.zoomIn": "Perbesar",
   "doc.zoomOut": "Perkecil",
   "doc.open": "Buka {name} di panel Dokumen",

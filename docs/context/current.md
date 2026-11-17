@@ -2,7 +2,11 @@
 
 > Snapshot, selalu ditimpa. Terakhir diperbarui: 16-11-2026.
 
-## Terbaru (16-11-2026)
+## Terbaru (17-11-2026)
+
+- **Teks PDF bisa dipilih dan dicari:** `PdfViewer` memasang `TextLayer` pdf.js di atas kanvas tiap halaman (CSS diadaptasi dari `pdf_viewer.css`, token desain); kolom cari di bilah PDF (tombol cari toolbar dokumen / Ctrl+F memfokuskannya), hitungan "i dari n", sorotan semua hasil + hasil aktif, Enter/Shift+Enter dan tombol ↑/↓, tidak peka huruf besar; PDF tanpa lapisan teks diberi catatan jujur. Bilah PDF membungkus di panel sempit. Tes: e2e `docs.spec.ts` 19/19 (termasuk posisi span sejajar glyph). Batasan: kata yang terpecah di dua potongan teks PDF tidak ditemukan; belum dicek di build native.
+
+## Sebelumnya (16-11-2026)
 - **Trajectory sesi (ADR-073):** alat baru di Panel 4 (ikon Rel): buku besar per giliran (pengguna, konteks, panggilan model + token/biaya, berpikir, tool call input/output/durasi, langkah, galat), ikhtisar waktu 3 jalur, pencarian, filter jenis, inspektur Input/Output/Raw, salin JSON. Unit `trajectory.test.ts` lulus. Belum: system prompt/daftar tool (tak tersedia dari engine), subcall `task`, virtualisasi.
 
 - **Background job agent (ADR-072):** tool plugin `job_start/job_output/job_list/job_stop/job_restart` (proses anak env tersaring, izin lewat `ctx.ask` bash, deteksi port, blok `<zandor-jobs>` tiap giliran), status di `<app_data>/jobs`, perintah Tauri `jobs_list/job_log/job_control/job_forget`, alat **Background jobs** di Panel 4 (status, log, buka port di Browser, Stop/Jalankan ulang/Hapus). Tes: plugin 7, komponen 4, Rust 2, e2e shell/tools/panel4 hijau. **Engine asli teruji** (`packages/plugin/e2e/jobs.e2e.test.ts`, opencode 1.19.5 + model tiruan: izin bash diminta, server HTTP sungguhan hidup, port terdeteksi, blok `<zandor-jobs>`, cwd luar project ditolak, stop dari berkas kontrol mematikan server) 5/5; e2e engine lama 20/20. Belum: klik panel di aplikasi Tauri hasil build (jalur Rust→berkas hanya teruji unit).

@@ -173,6 +173,70 @@ test("PDF: halaman dirender ke canvas (tidak kosong), jumlah halaman, zoom", asy
   await expect(docs(page).getByTestId("pdf-pages")).toHaveText("Halaman 3 dari 3");
 });
 
+test("PDF: teks bisa dipilih dan dicari (lapisan teks, Enter/Shift+Enter, tombol cari toolbar)", async ({ page }) => {
+  await openFiles(page, { "t.pdf": makePdf(["HALAMAN SATU apel", "HALAMAN DUA", "HALAMAN TIGA apel"]) });
+  await openDoc(page, "t.pdf");
+  await expect(docs(page).getByTestId("pdf-pages")).toHaveText("Halaman 1 dari 3", { timeout: 30_000 });
+
+  // Lapisan teks ada di atas kanvas dan teksnya bisa diseleksi/disalin.
+  const layer = docs(page).locator('.pdfpage[data-page="1"] .textLayer');
+  await expect(layer).toContainText("HALAMAN SATU apel", { timeout: 15_000 });
+  const selected = await layer.evaluate((el) => {
+    const span = [...el.querySelectorAll("span")].find((s) => s.textContent?.includes("SATU"));
+    if (!span) return "";
+    const r = document.createRange();
+    r.selectNodeContents(span);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+    return sel?.toString() ?? "";
+  });
+  expect(selected).toContain("HALAMAN SATU");
+  await expect(layer.locator("span").first()).toHaveCSS("user-select", "text");
+  // Span sejajar dengan glyph di kanvas: teks digambar di x=20pt, baseline y=100pt, ukuran 24pt (halaman 300×200pt).
+  const box = await layer.evaluate((el) => {
+    const s = [...el.querySelectorAll("span")].find((x) => x.textContent?.includes("SATU"));
+    const p = el.getBoundingClientRect();
+    const r = s?.getBoundingClientRect();
+    return r ? { x: r.left - p.left, bottom: r.bottom - p.top, h: r.height, pw: p.width } : null;
+  });
+  expect(box).not.toBeNull();
+  const k = (box?.pw ?? 300) / 300;
+  expect(Math.abs((box?.x ?? 0) - 20 * k)).toBeLessThan(3);
+  expect(Math.abs((box?.bottom ?? 0) - 100 * k)).toBeLessThan(10 * k);
+  expect(box?.h ?? 0).toBeGreaterThan(18 * k);
+
+  // Tombol "Cari di dokumen" di toolbar dokumen memfokuskan kolom cari PDF.
+  await docs(page).getByRole("button", { name: "Cari di dokumen" }).click();
+  const find = docs(page).getByRole("searchbox", { name: "Cari di dokumen" });
+  await expect(find).toBeFocused();
+
+  const status = docs(page).locator(".pdfbar__count");
+  await find.fill("apel");
+  await expect(status).toHaveText("1 dari 2", { timeout: 15_000 });
+  await expect(docs(page).locator('.pdfpage[data-page="1"] mark.pdfhit--active')).toHaveText("apel");
+
+  await find.press("Enter");
+  await expect(status).toHaveText("2 dari 2");
+  await expect(docs(page).locator('.pdfpage[data-page="3"] mark.pdfhit--active')).toHaveText("apel", {
+    timeout: 15_000,
+  });
+  await expect(docs(page).getByTestId("pdf-pages")).toHaveText("Halaman 3 dari 3");
+
+  await find.press("Shift+Enter");
+  await expect(status).toHaveText("1 dari 2");
+  await docs(page).getByRole("button", { name: /Hasil berikutnya/ }).click();
+  await expect(status).toHaveText("2 dari 2");
+
+  // Tidak peka huruf besar; tanpa hasil → status jujur dan tombol navigasi nonaktif.
+  await find.fill("halaman");
+  await expect(status).toHaveText("1 dari 3");
+  await find.fill("tidak-ada");
+  await expect(status).toHaveText("Tidak ada hasil");
+  await expect(docs(page).getByRole("button", { name: /Hasil berikutnya/ })).toBeDisabled();
+  await expect(docs(page).locator("mark.pdfhit")).toHaveCount(0);
+});
+
 test("PDF rusak menampilkan galat, bukan layar kosong", async ({ page }) => {
   await openFiles(page, { "rusak.pdf": "bukan pdf sungguhan" });
   await openDoc(page, "rusak.pdf");
