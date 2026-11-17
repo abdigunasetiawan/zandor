@@ -20,4 +20,6 @@ if (typeof window !== "undefined") {
   })) as unknown as typeof window.matchMedia;
   Element.prototype.scrollIntoView ??= () => {};
   Element.prototype.getAnimations ??= () => [];
+  // Lingkungan tes = otomatis (seperti Playwright): tur pengenalan tidak terbuka sendiri dan menutupi halaman.
+  Object.defineProperty(window.navigator, "webdriver", { value: true, configurable: true });
 }
