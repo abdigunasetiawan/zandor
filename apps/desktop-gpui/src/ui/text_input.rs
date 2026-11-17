@@ -32,6 +32,8 @@ actions!(
         Quit,
         Submit,
         Newline,
+        Tab,
+        Escape,
         Up,
         Down,
     ]
@@ -57,7 +59,20 @@ pub struct TextInput {
     /// Bila multiline: Enter juga menyisipkan baris baru (editor), bukan mengirim.
     pub enter_newline: bool,
     last_lines: Vec<(usize, ShapedLine)>,
+    /// Bila true, ↑ ↓ Enter Tab Esc dipancarkan sebagai `InputNav` (mis. popup saran terbuka).
+    pub intercept: bool,
 }
+
+/// Tombol navigasi yang disalurkan ke pemilik input saat `intercept` aktif.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputNav {
+    Up,
+    Down,
+    Enter,
+    Tab,
+    Escape,
+}
+impl gpui::EventEmitter<InputNav> for TextInput {}
 
 impl TextInput {
     fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {
@@ -233,12 +248,24 @@ impl TextInput {
     }
 
     fn up(&mut self, _: &Up, window: &mut Window, cx: &mut Context<Self>) {
+        if self.intercept {
+            return cx.emit(InputNav::Up);
+        }
+        if !self.multiline {
+            return cx.propagate();
+        }
         let (r, c) = self.row_col(self.cursor_offset());
         let o = if r == 0 { 0 } else { self.offset_of(r - 1, c) };
         self.move_to(o, window, cx);
     }
 
     fn down(&mut self, _: &Down, window: &mut Window, cx: &mut Context<Self>) {
+        if self.intercept {
+            return cx.emit(InputNav::Down);
+        }
+        if !self.multiline {
+            return cx.propagate();
+        }
         let (r, c) = self.row_col(self.cursor_offset());
         let o = self.offset_of(r + 1, c);
         self.move_to(o, window, cx);
@@ -810,13 +837,17 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
             .on_action(cx.listener(|this, _: &Submit, w, cx| {
-                if this.multiline && this.enter_newline {
+                if this.intercept {
+                    cx.emit(InputNav::Enter);
+                } else if this.multiline && this.enter_newline {
                     this.replace_text_in_range(None, "\n", w, cx);
                 } else {
                     cx.emit(InputSubmit(this.content.clone()))
                 }
             }))
             .on_action(cx.listener(Self::newline))
+            .on_action(cx.listener(|this, _: &Tab, _, cx| if this.intercept { cx.emit(InputNav::Tab) } else { cx.propagate() }))
+            .on_action(cx.listener(|this, _: &Escape, _, cx| if this.intercept { cx.emit(InputNav::Escape) } else { cx.propagate() }))
             .on_action(cx.listener(Self::up))
             .on_action(cx.listener(Self::down))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
@@ -854,7 +885,20 @@ impl TextInput {
             multiline: false,
             enter_newline: false,
             last_lines: vec![],
+            intercept: false,
         }
+    }
+    /// Posisi kursor (offset byte).
+    pub fn caret(&self) -> usize {
+        self.cursor_offset()
+    }
+    /// Ganti isi dan taruh kursor di `caret`.
+    pub fn set_text_at(&mut self, text: impl Into<SharedString>, caret: usize, cx: &mut Context<Self>) {
+        self.content = text.into();
+        let c = caret.min(self.content.len());
+        self.selected_range = c..c;
+        cx.emit(InputChanged(self.content.clone()));
+        cx.notify();
     }
     pub fn text(&self) -> SharedString {
         self.content.clone()
@@ -888,6 +932,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("end", End, ctx),
         KeyBinding::new("enter", Submit, ctx),
         KeyBinding::new("shift-enter", Newline, ctx),
+        KeyBinding::new("tab", Tab, ctx),
+        KeyBinding::new("escape", Escape, ctx),
         KeyBinding::new("up", Up, ctx),
         KeyBinding::new("down", Down, ctx),
     ]);

@@ -6480,6 +6480,7 @@ dependencies = [
  "keyring",
  "portable-pty",
  "pulldown-cmark",
+ "regex",
  "roxmltree 0.20.0",
  "rust-embed",
  "serde",

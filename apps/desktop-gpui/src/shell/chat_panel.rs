@@ -17,6 +17,9 @@ use gpui::{
 };
 use std::collections::HashSet;
 
+#[path = "composer_assist.rs"]
+mod composer_assist;
+
 pub struct ChatPanel {
     app: Entity<AppState>,
     store: Entity<ProjectStore>,
@@ -29,6 +32,8 @@ pub struct ChatPanel {
     pending_new: bool,
     models: Vec<crate::core::engine::ModelOption>,
     models_loaded: bool,
+    assist: composer_assist::AssistState,
+    attach_menu: bool,
 }
 
 impl ChatPanel {
@@ -50,6 +55,13 @@ impl ChatPanel {
         cx.observe(&chat, |_, _, cx| cx.notify()).detach();
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &InputSubmit, cx| this.submit(e.0.to_string(), cx)).detach();
+        cx.subscribe(&input, |this, _, e: &crate::ui::InputNav, cx| this.on_nav(*e, cx)).detach();
+        cx.subscribe(&input, |this, _, _: &crate::ui::InputChanged, cx| {
+            this.assist.active = 0;
+            cx.notify();
+        })
+        .detach();
+        cx.observe(&input, |_, _, cx| cx.notify()).detach();
         let mut me = Self {
             app,
             store,
@@ -62,6 +74,8 @@ impl ChatPanel {
             pending_new: false,
             models: vec![],
             models_loaded: false,
+            assist: Default::default(),
+            attach_menu: false,
         };
         me.sync(cx);
         me
@@ -110,13 +124,20 @@ impl ChatPanel {
     }
 
     fn submit(&mut self, text: String, cx: &mut Context<Self>) {
-        let text = text.trim().to_string();
+        let mut text = text.trim().to_string();
         if text.is_empty() {
             return;
         }
+        if let Some(ps) = crate::core::composer::parse_slash(&text) {
+            return self.run_slash(ps, cx);
+        }
+        if text.starts_with("//") {
+            text.remove(0); // `//` = garis miring apa adanya
+        }
         self.input.update(cx, |i, cx| i.set_text("", cx));
+        let files = std::mem::take(&mut self.assist.files);
         if let Some((_, id, _, _)) = self.current(cx) {
-            self.chat.update(cx, |c, cx| c.send(&id, text, cx));
+            self.chat.update(cx, |c, cx| c.send_with(&id, text, files, cx));
             return;
         }
         // Tanpa sesi: buat sesi Chat lalu kirim.
@@ -132,7 +153,7 @@ impl ChatPanel {
                 match r {
                     Ok(s) => {
                         me.sync(cx);
-                        me.chat.update(cx, |c, cx| c.send(&s.id, text, cx));
+                        me.chat.update(cx, |c, cx| c.send_with(&s.id, text, files, cx));
                     }
                     Err(e) => {
                         crate::ui::Toasts::show(
@@ -376,7 +397,8 @@ fn card(t: &Theme) -> gpui::Div {
 impl Render for ChatPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
-        let i = cx.global::<I18n>();
+        let i_owned = cx.global::<I18n>().clone();
+        let i = &i_owned;
         let me = cx.entity().downgrade();
         let cur = self.current(cx);
         let engine_ready = self.engine.read(cx).state.info.is_some();
@@ -439,7 +461,102 @@ impl Render for ChatPanel {
                 }
             })
         });
-        let composer = div().w_full().px(t.space(3)).pb(t.space(3)).child(
+        let sug = self.suggest(cx);
+        let intercept = sug.as_ref().is_some_and(|s| !s.entries.is_empty() || s.status.is_some());
+        if self.input.read(cx).intercept != intercept {
+            self.input.update(cx, |inp, _| inp.intercept = intercept);
+        }
+        let sug_el = sug.as_ref().map(|s| self.render_suggest(s, cx));
+        let chips = (!self.assist.files.is_empty()).then(|| {
+            let mut row = div().flex().flex_wrap().gap(t.space(1));
+            for (n, f) in self.assist.files.iter().enumerate() {
+                let name = f.filename.clone().unwrap_or_else(|| f.url.clone());
+                row = row.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t.space(1))
+                        .pl(t.space(2))
+                        .rounded(t.rem(rem::RADIUS_MD))
+                        .border_1()
+                        .border_color(t.colors.border_soft)
+                        .bg(t.colors.surface)
+                        .small(&t)
+                        .child(icon("paperclip").size(IconSize::Sm))
+                        .child(div().max_w(t.rem(14.)).truncate().child(name.clone()))
+                        .child(
+                            icon_button(SharedString::from(format!("chip-x-{n}")), "close", i.tp("chat.removeAttachment", &[("name", &name)]))
+                                .size(ControlSize::Sm)
+                                .variant(ButtonVariant::Ghost)
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    if n < s.assist.files.len() {
+                                        s.assist.files.remove(n);
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                );
+            }
+            let total = self.assist.files.len().to_string();
+            row.child(
+                icon_button("chip-clear", "close", i.tp("chat.removeAllAttachments", &[("n", &total)]))
+                    .size(ControlSize::Sm)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        s.assist.files.clear();
+                        cx.notify();
+                    })),
+            )
+        });
+        let attach_btn = {
+            let me2 = me.clone();
+            let entries = vec![
+                crate::ui::entry(i.t("chat.attach"), {
+                    let me = me.clone();
+                    move |_, cx| {
+                        me.update(cx, |s, cx| s.attach(false, cx)).ok();
+                    }
+                })
+                .icon("paperclip"),
+                crate::ui::entry(i.t("chat.attachFolder"), {
+                    let me = me.clone();
+                    move |_, cx| {
+                        me.update(cx, |s, cx| s.attach(true, cx)).ok();
+                    }
+                })
+                .icon("folder"),
+            ];
+            div()
+                .relative()
+                .child(
+                    icon_button("chat-attach", "plus", i.t("chat.attach"))
+                        .size(ControlSize::Sm)
+                        .disabled(!engine_ready)
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.attach_menu = !s.attach_menu;
+                            cx.notify();
+                        })),
+                )
+                .when(self.attach_menu, |d| {
+                    d.child(crate::ui::menu_popup("m-attach", &t, entries, gpui::Anchor::BottomLeft, move |_, cx| {
+                        me2.update(cx, |s, cx| {
+                            s.attach_menu = false;
+                            cx.notify();
+                        })
+                        .ok();
+                    }))
+                })
+        };
+        let mode_sel = {
+            let chat = self.chat.clone();
+            let items = crate::core::composer::PERMISSION_MODES
+                .iter()
+                .map(|m| (SharedString::from(*m), SharedString::from(i.t(&format!("chat.mode.{m}")))))
+                .collect();
+            crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone())
+                .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_permission_mode(&v, cx)))
+        };
+        let composer = div().w_full().px(t.space(3)).pb(t.space(3)).flex().flex_col().gap(t.space(2)).children(sug_el).children(chips).child(
             div()
                 .flex()
                 .flex_col()
@@ -451,7 +568,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(div().flex_1()).children(model_sel).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).child(send_btn)),
         );
 
         let Some(st) = state else {
