@@ -34,6 +34,7 @@ pub struct SettingsPage {
     active: &'static str,
     scroll: ScrollHandle,
     models: Option<Result<Vec<ModelOption>, String>>,
+    providers: Entity<super::providers_section::ProvidersSection>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -55,7 +56,8 @@ impl SettingsPage {
             cx.notify();
         })
         .detach();
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None };
+        let providers = cx.new(super::providers_section::ProvidersSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers };
         me.load_models(cx);
         me
     }
@@ -308,6 +310,8 @@ impl Render for SettingsPage {
                     })
                     .collect(),
             };
+            let mut rows = rows;
+            rows.insert(0, div().py(t.space(2)).child(self.providers.clone()).into_any_element());
             content = content.child(group(&t, i.t("settings.models"), rows));
         }
 

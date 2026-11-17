@@ -47,6 +47,8 @@ pub struct TextInput {
     pub size: super::ControlSize,
     pub invalid: bool,
     pub disabled: bool,
+    /// Tampilkan isi sebagai bintang (kunci API, sandi).
+    pub masked: bool,
 }
 
 impl TextInput {
@@ -514,6 +516,9 @@ impl Element for TextElement {
 
         let (display_text, text_color) = if content.is_empty() {
             (input.placeholder.clone(), cx.global::<Theme>().colors.fg_subtle)
+        } else if input.masked {
+            // Topeng sepanjang byte agar offset kursor/seleksi tetap cocok.
+            (SharedString::from("*".repeat(content.len())), style.color)
         } else {
             (content, style.color)
         };
@@ -711,6 +716,7 @@ impl TextInput {
             size: super::ControlSize::Md,
             invalid: false,
             disabled: false,
+            masked: false,
         }
     }
     pub fn text(&self) -> SharedString {
