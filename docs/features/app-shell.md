@@ -18,6 +18,7 @@
 | Command palette | `Ctrl+K` / `Ctrl+Shift+P`: cari fuzzy, ↑↓ Enter Esc                                                             |
 | Pengaturan      | Dirender dari JSON Schema: bahasa, tema, skala UI, ingat tata letak; reset per pengaturan; JSON saat ini        |
 | Empty state     | Setiap panel menyatakan fase hadirnya; tidak ada konten palsu                                                   |
+| Tur pengenalan  | Saat dibuka tanpa project: nama, status model, project/Chat, pintasan (`Onboarding.tsx`); sekali, lalu dari palet |
 
 ## Pintasan
 

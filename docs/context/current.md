@@ -1,9 +1,14 @@
 # Kondisi Saat Ini
 
-> Snapshot, selalu ditimpa. Terakhir diperbarui: 16-11-2026.
+> Snapshot, selalu ditimpa. Terakhir diperbarui: 17-11-2026.
 
 ## Terbaru (17-11-2026)
 
+- **Tur pengenalan pertama kali:** dialog `Onboarding` 4 langkah (nama tampilan, status model nyata + tombol hubungkan provider, tambah project / mulai di Chat, pintasan penting). Muncul sekali saat dibuka tanpa project (pengaturan `onboarding`, mati setelah Selesai/Lewati), bisa dibuka lagi dari palet ("Tur pengenalan"). Browser otomatis (Playwright, vitest jsdom) tidak dihadang kecuali tes memasang penanda `zandor.e2e.tour`. Tes: e2e `onboarding.spec.ts`.
+- **Opt-in memori di dialog percayai folder:** sakelar "Aktifkan memori untuk project ini" mengikuti bawaan memori; override hanya disimpan bila berbeda. Dialog percayai kini `Dialog` biasa (role `dialog`, bukan `alertdialog`). Tes: e2e `memory.spec.ts` (5).
+- **Engine remote lewat URL (ADR-076):** Pengaturan → Engine remote (`#/settings/engines`): URL + Basic Auth, status health jujur, Cek/Ubah/Hapus; pilihan Engine di dialog Tambah project; penanda status di baris project. Router EngineApi per direktori (`core/engine/remote.ts`), tanpa remote perilaku lama tidak berubah. HTTPS wajib kecuali loopback (tunnel SSH); CSP `connect-src` + `https: wss:`. Tes: core `remote.test.ts` (3), e2e `remote-engine.spec.ts` (engine tiruan kedua). Batasan: sandi tanpa enkripsi di registry, Panel 3 belum membuka berkas remote, belum diuji ke engine remote sungguhan/build native.
+- **Model peran — model kecil:** Pengaturan → Provider dan model → **Model kecil** (opencode `small_model`, judul sesi/ringkasan), disimpan Rust di `model-roles.json`, masuk config saat engine dimulai; tombol mulai ulang engine. Tes Rust `small_model_dari_berkas_peran_divalidasi`, e2e `model-settings.spec.ts`. Model memori sengaja tidak dibuat (plugin memori tidak memanggil model sendiri); model gambar tetap preferensi.
+- **Status uji penuh (17-11-2026):** vitest 899/899; e2e 209 lulus, 4 gagal: `panel-toggles` (tes masih mengharapkan 5 tombol, sejak tombol smart resize ADR-066 ada 6) dan `sidebar-menu` "kustomisasi tampilan" (tombol Simpan dialog tampilan project di luar viewport) — keduanya sudah gagal sebelum pekerjaan ini; `mvp` dan `design-system` zoom flaky (lulus bila dijalankan sendiri).
 - **Pencarian global lintas sesi:** Ctrl+Shift+F / palet → dialog `GlobalSearch` (judul + isi pesan semua project dan Chat, hasil bertahap, sorotan, klik membuka sesi di pesannya). Logika `core/chat/session-search.ts` (cache per `time.updated`, konkurensi 4, batal saat kata berubah). Tes: core 4, e2e `global-search.spec.ts`. Belum: indeks di disk, build native.
 - **Diff view Panel 3 (ADR-075):** tombol **Lihat diff** di Perubahan sesi (Panel 4) dan di langkah tool `edit` membuka `DiffViewer` (Monaco diff, inline saat sempit) dengan bilah per bagian: navigasi, Terima (menandai), Tolak (mengembalikan bagian + simpan, toast Urungkan), Terima/Tolak semua (konfirmasi), Tutup diff. Logika patch murni di `core/docs/patch.ts` (urai, balik, kembalikan satu hunk, geser). Tes: core `patch.test.ts` (5), komponen `DiffViewer.test.tsx` (4: terima tanpa tulis, tolak + urungkan, tolak semua, tanpa penulisan), e2e `panel4.spec.ts` (2). Biome kini mengecualikan `bundled-skills/**/*.md` (penyebab baris kosong di frontmatter skill). Belum: build native, pewarnaan TextMate di diff.
 - **Teks PDF bisa dipilih dan dicari:** `PdfViewer` memasang `TextLayer` pdf.js di atas kanvas tiap halaman (CSS diadaptasi dari `pdf_viewer.css`, token desain); kolom cari di bilah PDF (tombol cari toolbar dokumen / Ctrl+F memfokuskannya), hitungan "i dari n", sorotan semua hasil + hasil aktif, Enter/Shift+Enter dan tombol ↑/↓, tidak peka huruf besar; PDF tanpa lapisan teks diberi catatan jujur. Bilah PDF membungkus di panel sempit. Tes: e2e `docs.spec.ts` 19/19 (termasuk posisi span sejajar glyph). Batasan: kata yang terpecah di dua potongan teks PDF tidak ditemukan; belum dicek di build native.
@@ -28,7 +33,7 @@
 - **Fase 6 — Provider & Model:** selesai dengan batasan (CI hijau).
 - **Fase 7 — Panel 3 Viewer Dokumen:** selesai (CI hijau).
 - **Fase 8 — Panel 4 Tools:** selesai (CI hijau).
-- **Fase 9 — Memori & Skill Creator:** selesai di lokal (belum di-push); ADR-037, `docs/features/memory.md`. Adapter Hindsight/Graphify dan opt-in di dialog Tambah project belum.
+- **Fase 9 — Memori & Skill Creator:** selesai di lokal (belum di-push); ADR-037, `docs/features/memory.md`. Opt-in di dialog Tambah project ada (17-11-2026); adapter Hindsight/Graphify ditunda.
 - **Pengaturan satu halaman (15-11-2026):** Tampilan lanjutan digabung ke kategori Tampilan; Memori dan skill serta Automasi kini kategori di Pengaturan (ADR-059); rute lama jadi alias. Bug aliran event (batas 6 koneksi WebView) diperbaiki di `ChatStore` (maks 4 aliran, lihat `docs/features/tools.md`); smoke native 50/50.
 - **Toggle memori/skill creator di composer (15-11-2026):** ADR-060; sesi project berbagi pengaturan project, sesi Chat per sesi; skill creator kini per project/sesi (plugin + inti).
 - **Panel 3 auto-tutup (16-11-2026):** menutup tab dokumen terakhir melipat Panel 3 (`DocPanel`, hanya peralihan ada → kosong; membuka panel manual tanpa dokumen tetap menampilkan keadaan kosong). Membuka berkas memunculkannya lagi. Tes e2e `docs.spec.ts` ("tertutup otomatis").
@@ -45,7 +50,7 @@
 - **Logo aplikasi (16-11-2026):** varian "Tiga Panel — Tajam" dipasang — atom `AppLogo` di header sidebar, favicon SVG, ikon Tauri (ADR-065); ikon di build native belum diperiksa.
 - **Gelembung pesan pengguna (15-11-2026):** token `--z-color-bubble` (campuran `fg` 8% di atas `bg`, ikut tema kustom) agar gelembung pesan pengguna terlihat di tema gelap maupun terang; e2e memeriksa latar berbeda dari panel.
 - **Penyempurnaan chat (permintaan pemilik 14-11-2026):** render kaya, form pertanyaan agent, info pemakaian composer — ADR-040 (Masuk dengan OpenWork dihapus oleh ADR-055 lalu dikembalikan sebagai kartu Sign-in + akun ganda oleh ADR-056, belum diuji ke akun OpenWork sungguhan); belum: kuota provider (engine tidak menyediakannya, lihat chat.md).
-- **Fase 11 — Panel 3 lanjutan & fitur ekstra:** sebagian selesai di lokal (ADR-039, ADR-045, ADR-050): edit berkas, DOCX/XLSX/PPTX/ipynb, saran prompt, automasi + notifikasi, input suara (dikte, Web Speech), save-as pesan (teks/gambar/SVG). Belum: remote engine, model peran (memori/image generator), skill bawaan "agent mengonfigurasi Zandor".
+- **Fase 11 — Panel 3 lanjutan & fitur ekstra:** sebagian selesai di lokal (ADR-039, ADR-045, ADR-050): edit berkas, DOCX/XLSX/PPTX/ipynb, saran prompt, automasi + notifikasi, input suara (dikte, Web Speech), save-as pesan (teks/gambar/SVG). Engine remote (ADR-076) dan model kecil selesai 17-11-2026. Belum: generate gambar (model gambar masih preferensi), skill bawaan "agent mengonfigurasi Zandor".
 - **Fase 10 — Kustomisasi:** selesai di lokal; ADR-038, `docs/features/appearance.md`. Belum: paket ikon file Open VSX.
 - **Layout shell baru (permintaan pemilik 14-11-2026):** panel mengambang, sidebar bertingkat, sapaan sesi baru — ADR-041; notifikasi sudah ada (ADR-050); nama pengguna di pengaturan kini ada (ADR-067).
 - **Pengaturan Provider & model (permintaan pemilik 14-11-2026):** model bawaan, provider (protokol/id/kunci/ambil model), pengelola model (visibilitas, kemampuan, grup), logo kustom + otomatis — ADR-054; belum: fitur generate gambar, deteksi kemampuan dari endpoint.
@@ -96,13 +101,13 @@
 
 - [x] Supervisor engine produksi (start, health, restart terbatas, mati bersama app), engine di-pin + sha256
 - [x] Plugin guard wajib + penanda diverifikasi (temuan: plugin dimuat per-instance; path `\?\` merusak URL)
-- [x] Connection manager lokal (struktur remote ada, belum diisi)
+- [x] Connection manager lokal + engine remote lewat URL per project (ADR-076)
 - [x] Project (tambah/daftar/ganti nama/lepas), sesi (buat/ganti nama/hapus/pilih), sesi tanpa project, pencarian
 - [x] Dialog "Percayai folder ini?" (16-11-2026) sebelum folder baru ditambahkan sebagai project; folder yang sudah jadi
       project tidak ditanya lagi; batal/Esc = tidak ditambahkan (e2e `projects.spec.ts`)
 - [x] Tab Files: pohon file nyata, ikon Material Icon Theme; ikon UI Lucide
 - [x] Terbukti end-to-end: smoke native 12/12 termasuk restart aplikasi → sesi tetap ada
-- [ ] Belum: UI warna project, single-instance (DB terkunci bila dua Zandor), remote engine (Fase 11)
+- [ ] Belum: UI warna project, single-instance (DB terkunci bila dua Zandor). Remote engine ada (ADR-076)
 - Catatan CI: langkah baru `bun run prepare:engine` dan `ZANDOR_REQUIRE_ENGINE=1`; belum pernah dijalankan di runner.
 
 ## Fase 5 — Chat Inti: inti selesai di lokal (belum di-push)

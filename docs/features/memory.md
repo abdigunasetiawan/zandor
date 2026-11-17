@@ -11,7 +11,9 @@
 - **Skill creator:** pemicu koreksi / `/reflect` / ≥ 5 tool call → kandidat → petunjuk satu kali → tool `skill_propose`
   (validasi + pemindai secret) → antrean `pending` → **disetujui pengguna** → `SKILL.md` (global atau project).
 - **UI:** halaman `/memory` (Pengaturan, Memori, Antrean skill, Skill terpasang), tombol sidebar, perintah palet,
-  opt-in per sesi di Info sesi. Di luar Tauri: pratinjau di memori proses dengan label jujur.
+  opt-in per sesi di Info sesi, dan sakelar memori project langsung di dialog percayai folder saat menambah project
+  (17-11-2026; override disimpan hanya bila berbeda dari bawaan, tidak tampil untuk project di engine remote).
+  Di luar Tauri: pratinjau di memori proses dengan label jujur.
 - **Keamanan:** perintah Rust hanya untuk berkas daftar-putih; nama skill ketat; skill project hanya di project terdaftar.
 
 ## Cara test
