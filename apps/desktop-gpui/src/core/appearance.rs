@@ -13,8 +13,14 @@ pub const SWATCH_KEYS: [&str; 5] = ["bg", "raised", "fg", "accent", "border-stro
 pub const DEFAULT_PRESET: &str = "zandor";
 pub const TYPE_PROPS: [&str; 4] = ["size", "weight", "lh", "tracking"];
 pub const FONT_SLOTS: [&str; 3] = ["ui", "code", "terminal"];
-/// Kunci gaya project yang didukung port ini (gradien/gambar/overlay belum).
-pub const PROJECT_STYLE_KEYS: [&str; 4] = ["logo", "border", "background", "fg"];
+/// Kunci gaya project yang diisi lewat kolom teks.
+pub const PROJECT_STYLE_KEYS: [&str; 9] = ["logo", "border", "background", "fg", "gradient", "overlayColor", "overlayOpacity", "imageY", "imageZoom"];
+pub const PROJECT_OVERLAYS: [&str; 5] = ["full", "gradient", "gradient-rtl", "gradient-ttb", "gradient-btt"];
+
+fn int_in(v: &str, min: u32, max: u32) -> Option<&'static str> {
+    let ok = !v.is_empty() && v.len() <= 3 && v.chars().all(|c| c.is_ascii_digit()) && v.parse::<u32>().is_ok_and(|n| (min..=max).contains(&n));
+    (!ok).then_some("angka di luar rentang")
+}
 
 /// Port validateLogo.
 pub fn validate_logo(v: &str) -> Option<&'static str> {
@@ -31,10 +37,17 @@ pub fn validate_logo(v: &str) -> Option<&'static str> {
 }
 
 pub fn validate_project_style(key: &str, v: &str) -> Option<&'static str> {
-    if key == "logo" {
-        return validate_logo(v);
+    use crate::core::gradient as g;
+    match key {
+        "logo" => validate_logo(v),
+        "gradient" => g::validate_gradient_css(v).map(|_| "gradien tidak valid"),
+        "image" => g::validate_image_data_url(v, g::MAX_STYLE_IMAGE_CHARS),
+        "logoImage" => g::validate_image_data_url(v, g::MAX_LOGO_IMAGE_CHARS),
+        "imageY" | "overlayOpacity" => int_in(v, 0, 100),
+        "imageZoom" => int_in(v, 100, 300),
+        "overlay" => (!PROJECT_OVERLAYS.contains(&v)).then_some("overlay tidak dikenal"),
+        _ => (!is_color(v)).then_some("warna tidak valid"),
     }
-    (!is_color(v)).then_some("warna tidak valid")
 }
 
 pub const CHAT_STYLE_KEYS: [&str; 10] = ["width", "composerRatio", "font", "size", "weight", "opacity", "lineHeight", "tracking", "gap", "codeSize"];

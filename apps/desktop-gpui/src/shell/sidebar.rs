@@ -161,6 +161,52 @@ struct Ctx<'a> {
     query: String,
 }
 
+/// Lapisan latar baris project: gambar (posisi/zoom) > gradien, lalu overlay. Port rowStyle + CSS overlay (Sidebar.tsx).
+/// GPUI hanya mendukung gradien linear 2 titik: titik pertama & terakhir dipakai; gradien radial digambar linear.
+fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Vec<gpui::AnyElement> {
+    use crate::core::appearance::parse_color;
+    use gpui::{linear_color_stop, linear_gradient, relative};
+    let mut out = vec![];
+    let num = |k: &str, d: f32| ap.project_style(id, k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(d);
+    if let Some(img) = ap.project_style(id, "image").and_then(|u| crate::core::gradient::image_of(&u)) {
+        let z = num("imageZoom", 100.) / 100.;
+        let y = num("imageY", 50.) / 100.;
+        out.push(
+            gpui::img(img)
+                .absolute()
+                .w(relative(z))
+                .h(relative(z))
+                .left(relative(-(z - 1.) / 2.))
+                .top(relative(-(z - 1.) * y))
+                .object_fit(gpui::ObjectFit::Cover)
+                .into_any_element(),
+        );
+    } else if let Some(spec) = ap.project_style(id, "gradient").and_then(|g| crate::core::gradient::parse_gradient(&g)) {
+        let (a, b) = (spec.stops.first(), spec.stops.last());
+        if let (Some(a), Some(b)) = (a, b) {
+            if let (Some(ca), Some(cb)) = (parse_color(&a.color), parse_color(&b.color)) {
+                let angle = if spec.radial { 180. } else { spec.angle };
+                out.push(div().absolute().inset_0().bg(linear_gradient(angle, linear_color_stop(ca, a.pos / 100.), linear_color_stop(cb, b.pos / 100.))).into_any_element());
+            }
+        }
+    }
+    if let Some(kind) = ap.project_style(id, "overlay") {
+        let mut c = ap.project_style(id, "overlayColor").and_then(|v| parse_color(&v)).unwrap_or(gpui::black());
+        c.a = num("overlayOpacity", 50.) / 100.;
+        let clear = gpui::Hsla { a: 0., ..c };
+        let layer = div().absolute().inset_0();
+        let layer = match kind.as_str() {
+            "full" => layer.bg(c),
+            "gradient" => layer.bg(linear_gradient(90., linear_color_stop(c, 0.), linear_color_stop(clear, 1.))),
+            "gradient-rtl" => layer.bg(linear_gradient(270., linear_color_stop(c, 0.), linear_color_stop(clear, 1.))),
+            "gradient-ttb" => layer.bg(linear_gradient(180., linear_color_stop(c, 0.), linear_color_stop(clear, 1.))),
+            _ => layer.bg(linear_gradient(0., linear_color_stop(c, 0.), linear_color_stop(clear, 1.))),
+        };
+        out.push(layer.into_any_element());
+    }
+    out
+}
+
 fn row_base(t: &Theme, id: impl Into<SharedString>, active: bool) -> gpui::Stateful<gpui::Div> {
     let c = &t.colors;
     div()
@@ -491,12 +537,14 @@ impl Render for Sidebar {
                         .danger(),
                     ];
                     let pid2 = pid.clone();
-                    let (logo, pborder, pbg, pfg) = {
+                    let (logo, logo_img, pborder, pbg, pfg, layers) = {
                         let ap = crate::core::appearance::AppearanceStore::global(cx).read(cx);
                         let col = |k: &str| ap.project_style(&p.id, k).and_then(|v| crate::core::appearance::parse_color(&v));
-                        (ap.project_style(&p.id, "logo"), col("border"), col("background"), col("fg"))
+                        let logo_img = ap.project_style(&p.id, "logoImage").and_then(|u| crate::core::gradient::image_of(&u));
+                        (ap.project_style(&p.id, "logo"), logo_img, col("border"), col("background"), col("fg"), project_layers(&ap, &p.id))
                     };
                     let row = row_base(&t, format!("p-{}", p.id), active && ctx.sel.1.is_none())
+                        .when(!layers.is_empty(), |d| d.relative().overflow_hidden().children(layers))
                         .when_some(pbg, |d, c| d.bg(c))
                         .when_some(pborder, |d, c| d.border_1().border_color(c))
                         .when_some(pfg, |d, c| d.text_color(c))
@@ -506,9 +554,10 @@ impl Render for Sidebar {
                             }
                             cx.notify();
                         }))
-                        .child(match logo {
-                            Some(l) => div().flex_none().w(t.rem(rem::ICON_MD)).flex().justify_center().child(l).into_any_element(),
-                            None => icon(if open { "folder_open" } else { "folder" }).size(IconSize::Md).into_any_element(),
+                        .child(match (logo_img, logo) {
+                            (Some(img), _) => gpui::img(img).flex_none().size(t.rem(rem::ICON_MD)).rounded(t.rem(rem::RADIUS_SM)).object_fit(gpui::ObjectFit::Cover).into_any_element(),
+                            (None, Some(l)) => div().flex_none().w(t.rem(rem::ICON_MD)).flex().justify_center().child(l).into_any_element(),
+                            (None, None) => icon(if open { "folder_open" } else { "folder" }).size(IconSize::Md).into_any_element(),
                         })
                         .child(div().flex_1().min_w_0().truncate().child(p.name.clone()))
                         .child(
