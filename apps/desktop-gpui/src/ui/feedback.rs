@@ -55,8 +55,8 @@ impl RenderOnce for Badge {
             .rounded(t.rem(rem::RADIUS_FULL))
             .bg(bg)
             .text_color(fg)
-            .text_size(t.rem(SMALL.size))
-            .font_weight(FontWeight(LABEL.weight))
+            .text_size(t.rem(t.ty(crate::theme::SMALL).size))
+            .font_weight(FontWeight(t.ty(crate::theme::LABEL).weight))
             .line_height(gpui::relative(1.))
             .whitespace_nowrap()
             .child(self.text)
@@ -117,8 +117,8 @@ impl RenderOnce for Kbd {
                     .rounded(t.rem(rem::RADIUS_SM))
                     .bg(t.colors.raised)
                     .text_color(t.colors.fg_muted)
-                    .font_family(FONT_CODE)
-                    .text_size(t.rem(SMALL.size))
+                    .font_family(t.font_code.clone())
+                    .text_size(t.rem(t.ty(crate::theme::SMALL).size))
                     .line_height(gpui::relative(1.3))
                     .text_center()
                     .child(p),
@@ -182,8 +182,8 @@ impl RenderOnce for Avatar {
             .border_1()
             .border_color(t.colors.border)
             .text_color(t.colors.fg)
-            .text_size(t.rem(SMALL.size))
-            .font_weight(FontWeight(LABEL.weight));
+            .text_size(t.rem(t.ty(crate::theme::SMALL).size))
+            .font_weight(FontWeight(t.ty(crate::theme::LABEL).weight));
         match self.src {
             Some(src) => base.child(gpui::img(src).size_full().object_fit(gpui::ObjectFit::Cover)),
             None => base.child(initials(&self.name).to_uppercase()),

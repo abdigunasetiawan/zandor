@@ -3,7 +3,7 @@ use super::layout::{PanelContent, ShellLayout};
 use super::state::{AppState, PanelId};
 use super::titlebar::TitleBar;
 use crate::i18n::{I18n, Locale};
-use crate::theme::{step_scale, Theme, ThemeMode, FONT_UI};
+use crate::theme::{step_scale, Theme, ThemeMode};
 use crate::ui::Toasts;
 use gpui::{div, prelude::*, App, Context, Entity, IntoElement, Window};
 use std::rc::Rc;
@@ -176,8 +176,8 @@ impl Render for Root {
             .overflow_hidden()
             .bg(t.colors.bg)
             .text_color(t.colors.fg)
-            .font_family(FONT_UI)
-            .text_size(t.rem(crate::theme::P.size))
+            .font_family(t.font_ui.clone())
+            .text_size(t.rem(t.ty(crate::theme::P).size))
             .child(self.titlebar.clone())
             .child(div().flex().flex_1().min_h_0().child(content))
             .children(self.palette.clone())
@@ -204,7 +204,11 @@ pub fn apply_settings(window: &mut Window, cx: &mut App) {
     let locale = if st.str("language") == "en" { Locale::En } else { Locale::Id };
     let system_dark = matches!(window.appearance(), gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark);
     let mut theme = Theme::new(mode, system_dark, if scale > 0. { scale } else { 1.0 });
-    crate::core::appearance::AppearanceStore::global(cx).read(cx).apply(&mut theme.colors, theme.dark);
+    {
+        let ap = crate::core::appearance::AppearanceStore::global(cx).read(cx);
+        ap.apply(&mut theme.colors, theme.dark);
+        ap.apply_type(&mut theme);
+    }
     cx.set_global(theme);
     cx.set_global(I18n::new(locale));
     window.refresh();

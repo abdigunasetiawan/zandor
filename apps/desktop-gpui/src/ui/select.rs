@@ -57,7 +57,7 @@ impl RenderOnce for Select {
                     .border_color(t.colors.border)
                     .rounded(t.rem(rem::RADIUS_MD))
                     .bg(t.colors.surface)
-                    .text_size(t.rem(BUTTON.size))
+                    .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
                     .when(is_open, |d| d.border_color(t.colors.focus))
                     .when(self.disabled, |d| d.opacity(0.5).cursor_not_allowed())
                     .when(!self.disabled, |d| {

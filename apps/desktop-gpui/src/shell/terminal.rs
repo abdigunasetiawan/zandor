@@ -1,6 +1,6 @@
 //! Terminal — PTY lokal (portable-pty, ConPTY di Windows) + emulator VT (vt100) digambar dengan GPUI.
 //! Pengganti panel Terminal berbasis xterm.js; ukuran font dari pengaturan `terminalFontSize`.
-use crate::theme::{Theme, FONT_CODE};
+use crate::theme::Theme;
 use gpui::{
     canvas, div, prelude::*, px, App, Bounds, Context, FocusHandle, Focusable, FontWeight, HighlightStyle, Hsla, IntoElement,
     KeyDownEvent, Pixels, StyledText, Window,
@@ -318,7 +318,7 @@ impl Render for Terminal {
             .overflow_hidden()
             .p(t.space(2))
             .bg(t.colors.bg)
-            .font_family(FONT_CODE)
+            .font_family(t.font_terminal.clone())
             .text_size(px(fs))
             .line_height(px(line_h))
             .text_color(t.colors.fg)

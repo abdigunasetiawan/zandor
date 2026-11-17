@@ -811,8 +811,8 @@ impl Render for TextInput {
             .rounded(t.rem(crate::theme::rem::RADIUS_MD))
             .bg(t.colors.surface)
             .text_color(t.colors.fg)
-            .text_size(t.rem(crate::theme::P.size))
-            .line_height(t.rem(crate::theme::P.size * crate::theme::P.lh))
+            .text_size(t.rem(t.ty(crate::theme::P).size))
+            .line_height(t.rem(t.ty(crate::theme::P).size * t.ty(crate::theme::P).lh))
             .overflow_hidden();
         if focused {
             el = el.border_color(t.colors.focus);

@@ -113,16 +113,16 @@ impl Render for Toasts {
                 .min_w_0()
                 .child(
                     div()
-                        .text_size(t.rem(LABEL.size))
-                        .font_weight(FontWeight(H4.weight))
-                        .line_height(gpui::relative(LABEL.lh))
+                        .text_size(t.rem(t.ty(crate::theme::LABEL).size))
+                        .font_weight(FontWeight(t.ty(crate::theme::H4).weight))
+                        .line_height(gpui::relative(t.ty(crate::theme::LABEL).lh))
                         .child(inp.title.clone()),
                 );
             if let Some(d) = &inp.description {
                 content = content.child(
                     div()
-                        .text_size(t.rem(SMALL.size))
-                        .line_height(gpui::relative(SMALL.lh))
+                        .text_size(t.rem(t.ty(crate::theme::SMALL).size))
+                        .line_height(gpui::relative(t.ty(crate::theme::SMALL).lh))
                         .text_color(c.fg_muted)
                         .child(d.clone()),
                 );
@@ -139,8 +139,8 @@ impl Render for Toasts {
                         .items_center()
                         .rounded(t.rem(rem::RADIUS_MD))
                         .bg(hover)
-                        .text_size(t.rem(SMALL.size))
-                        .font_weight(FontWeight(LABEL.weight))
+                        .text_size(t.rem(t.ty(crate::theme::SMALL).size))
+                        .font_weight(FontWeight(t.ty(crate::theme::LABEL).weight))
                         .cursor_pointer()
                         .hover(move |s| s.bg(active))
                         .on_click(cx.listener(move |this, _, w, cx| {

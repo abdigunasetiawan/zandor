@@ -1,7 +1,7 @@
 //! Top bar (frameless) — port shell/TitleBar.tsx + .titlebar/.omnibox di styles.css.
 use super::state::{format_combo, AppState, PANEL_IDS, SMART_RESIZE_SHORTCUT};
 use crate::i18n::I18n;
-use crate::theme::{rem, Theme, BUTTON};
+use crate::theme::{rem, Theme};
 use crate::ui::{button, icon, icon_button, kbd, menu_item, popup, separator, ButtonVariant, ControlSize, IconSize};
 use gpui::{
     anchored, deferred, div, prelude::*, px, App, Context, Anchor, Entity, IntoElement, MouseButton,
@@ -203,7 +203,7 @@ impl Render for TitleBar {
                     .rounded(t.rem(rem::RADIUS_MD))
                     .bg(raised)
                     .text_color(muted)
-                    .text_size(t.rem(BUTTON.size))
+                    .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
                     .cursor_pointer()
                     .hover(move |s| s.bg(hover))
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())

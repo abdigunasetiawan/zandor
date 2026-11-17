@@ -1,7 +1,7 @@
 //! Panel Dokumen — pratinjau berkas yang dibuka dari pohon Berkas: Markdown dirender, berkas teks lain ditampilkan
 //! sebagai kode dengan nomor baris. Berkas biner/terlalu besar diberi catatan. Tab per berkas terbuka.
 use crate::i18n::I18n;
-use crate::theme::{rem, Theme, FONT_CODE};
+use crate::theme::{rem, Theme};
 use crate::ui::{icon, icon_button, markdown, ButtonVariant, ControlSize, IconSize, TypeExt};
 use gpui::{div, prelude::*, App, AppContext, Context, Entity, Global, IntoElement, SharedString, Window};
 
@@ -127,7 +127,7 @@ impl Render for DocsPanel {
                         .flex()
                         .flex_col()
                         .p(t.space(3))
-                        .font_family(FONT_CODE)
+                        .font_family(t.font_code.clone())
                         .code(&t)
                         .children(lines.into_iter().take(20_000).enumerate().map(|(n, l)| {
                             div()

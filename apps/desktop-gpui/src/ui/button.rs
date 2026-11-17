@@ -149,9 +149,9 @@ impl RenderOnce for Button {
             .rounded(t.rem(rem::RADIUS_MD))
             .bg(bg)
             .text_color(fg)
-            .text_size(t.rem(BUTTON.size))
-            .font_weight(FontWeight(BUTTON.weight))
-            .line_height(gpui::relative(BUTTON.lh))
+            .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
+            .font_weight(FontWeight(t.ty(crate::theme::BUTTON).weight))
+            .line_height(gpui::relative(t.ty(crate::theme::BUTTON).lh))
             .whitespace_nowrap();
         el = if self.square { el.w(h) } else { el.px(t.space(self.size.pad_space())) };
 

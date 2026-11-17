@@ -106,7 +106,7 @@ impl RenderOnce for MenuItem {
             .min_h(t.rem(rem::CONTROL_MD))
             .px(t.space(2))
             .rounded(t.rem(rem::RADIUS_MD))
-            .text_size(t.rem(BUTTON.size))
+            .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
             .text_color(fg)
             .when(described, |d| d.items_start().py(t.space(2)))
             .when(!described, |d| d.items_center())
@@ -121,7 +121,7 @@ impl RenderOnce for MenuItem {
                     .flex_col()
                     .gap(t.space(1))
                     .min_w_0()
-                    .child(div().font_weight(FontWeight(H4.weight)).child(self.label))
+                    .child(div().font_weight(FontWeight(t.ty(crate::theme::H4).weight)).child(self.label))
                     .child(div().max_w(t.rem(rem::SPACE[7] * 6.)).small(&t).child(desc)),
             ),
             None => el.child(self.label),
@@ -208,8 +208,8 @@ impl RenderOnce for Tabs {
                 .border_1()
                 .border_color(gpui::transparent_black())
                 .rounded(t.rem(rem::RADIUS_MD))
-                .text_size(t.rem(BUTTON.size))
-                .font_weight(FontWeight(BUTTON.weight))
+                .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
+                .font_weight(FontWeight(t.ty(crate::theme::BUTTON).weight))
                 .text_color(if active { c.fg } else { c.fg_muted })
                 .when(active, |d| d.bg(c.segment_active).shadow(t.shadow_1()));
             if let Some(name) = it.icon {

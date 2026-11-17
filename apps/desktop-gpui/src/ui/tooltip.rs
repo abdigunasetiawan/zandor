@@ -15,8 +15,8 @@ impl Render for TextTooltip {
             .rounded(t.rem(crate::theme::rem::RADIUS_MD))
             .bg(t.colors.accent)
             .text_color(t.colors.on_accent)
-            .text_size(t.rem(SMALL.size))
-            .line_height(gpui::relative(SMALL.lh))
+            .text_size(t.rem(t.ty(crate::theme::SMALL).size))
+            .line_height(gpui::relative(t.ty(crate::theme::SMALL).lh))
             .shadow(t.shadow_2())
             .child(self.text.clone())
     }

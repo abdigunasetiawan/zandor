@@ -1,7 +1,7 @@
 //! Token desain Zandor — port 1:1 dari packages/ui/src/styles/tokens.css.
 //! Ukuran dalam rem (1rem = 16px × ui_scale), warna sama persis dengan CSS.
 #![allow(dead_code)]
-use gpui::{px, rgb, rgba, Global, Hsla, Pixels};
+use gpui::{SharedString, px, rgb, rgba, Global, Hsla, Pixels};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemeMode {
@@ -169,24 +169,27 @@ impl Colors {
 /// Satu variabel tipografi: ukuran (rem) / ketebalan / tinggi baris / jarak huruf (em).
 #[derive(Clone, Copy, Debug)]
 pub struct TypeStyle {
+    /// Indeks di TYPE_VARS (untuk override dari Tampilan).
+    pub id: usize,
     pub size: f32,
     pub weight: f32,
     pub lh: f32,
     pub tracking: f32,
 }
-const fn ts(size: f32, weight: f32, lh: f32, tracking: f32) -> TypeStyle {
-    TypeStyle { size, weight, lh, tracking }
+const fn ts(id: usize, size: f32, weight: f32, lh: f32, tracking: f32) -> TypeStyle {
+    TypeStyle { id, size, weight, lh, tracking }
 }
-pub const H1: TypeStyle = ts(1.75, 700., 1.25, -0.02);
-pub const H2: TypeStyle = ts(1.375, 700., 1.3, -0.015);
-pub const H3: TypeStyle = ts(1.125, 600., 1.35, -0.01);
-pub const H4: TypeStyle = ts(1.0, 600., 1.4, 0.);
-pub const P: TypeStyle = ts(0.875, 400., 1.55, 0.);
-pub const SMALL: TypeStyle = ts(0.75, 400., 1.4, 0.);
-pub const LINK: TypeStyle = ts(0.875, 500., 1.55, 0.);
-pub const BUTTON: TypeStyle = ts(0.8125, 500., 1.2, 0.);
-pub const LABEL: TypeStyle = ts(0.8125, 500., 1.3, 0.);
-pub const CODE: TypeStyle = ts(0.8125, 400., 1.5, 0.);
+pub const TYPE_VARS: [&str; 10] = ["h1", "h2", "h3", "h4", "p", "small", "link", "button", "label", "code"];
+pub const H1: TypeStyle = ts(0, 1.75, 700., 1.25, -0.02);
+pub const H2: TypeStyle = ts(1, 1.375, 700., 1.3, -0.015);
+pub const H3: TypeStyle = ts(2, 1.125, 600., 1.35, -0.01);
+pub const H4: TypeStyle = ts(3, 1.0, 600., 1.4, 0.);
+pub const P: TypeStyle = ts(4, 0.875, 400., 1.55, 0.);
+pub const SMALL: TypeStyle = ts(5, 0.75, 400., 1.4, 0.);
+pub const LINK: TypeStyle = ts(6, 0.875, 500., 1.55, 0.);
+pub const BUTTON: TypeStyle = ts(7, 0.8125, 500., 1.2, 0.);
+pub const LABEL: TypeStyle = ts(8, 0.8125, 500., 1.3, 0.);
+pub const CODE: TypeStyle = ts(9, 0.8125, 400., 1.5, 0.);
 
 pub const FONT_UI: &str = "Plus Jakarta Sans";
 pub const FONT_CODE: &str = "JetBrains Mono";
@@ -220,6 +223,11 @@ pub struct Theme {
     pub dark: bool,
     pub scale: f32,
     pub colors: Colors,
+    /// Tipografi efektif (default + override Tampilan), urut TYPE_VARS.
+    pub types: [TypeStyle; 10],
+    pub font_ui: SharedString,
+    pub font_code: SharedString,
+    pub font_terminal: SharedString,
 }
 
 impl Global for Theme {}
@@ -236,7 +244,15 @@ impl Theme {
             dark,
             scale,
             colors: if dark { Colors::dark() } else { Colors::light() },
+            types: [H1, H2, H3, H4, P, SMALL, LINK, BUTTON, LABEL, CODE],
+            font_ui: FONT_UI.into(),
+            font_code: FONT_CODE.into(),
+            font_terminal: FONT_CODE.into(),
         }
+    }
+    /// Gaya tipografi efektif untuk variabel ini.
+    pub fn ty(&self, s: TypeStyle) -> TypeStyle {
+        self.types[s.id]
     }
     /// rem → piksel sesuai skala UI.
     pub fn rem(&self, r: f32) -> Pixels {

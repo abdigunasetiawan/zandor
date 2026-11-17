@@ -10,9 +10,9 @@ type OnToggle = Box<dyn Fn(bool, &mut Window, &mut App) + 'static>;
 
 fn choice_label(t: &Theme, label: SharedString) -> impl IntoElement {
     div()
-        .text_size(t.rem(LABEL.size))
-        .font_weight(FontWeight(LABEL.weight))
-        .line_height(gpui::relative(LABEL.lh))
+        .text_size(t.rem(t.ty(crate::theme::LABEL).size))
+        .font_weight(FontWeight(t.ty(crate::theme::LABEL).weight))
+        .line_height(gpui::relative(t.ty(crate::theme::LABEL).lh))
         .text_color(t.colors.fg)
         .child(label)
 }

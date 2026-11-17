@@ -5,6 +5,7 @@ use gpui::{FontWeight, Styled};
 pub trait TypeExt: Styled + Sized {
     /// Terapkan ukuran/ketebalan/tinggi baris dari satu variabel tipografi.
     fn typo(self, t: &Theme, s: TypeStyle) -> Self {
+        let s = t.ty(s);
         self.text_size(t.rem(s.size))
             .font_weight(FontWeight(s.weight))
             .line_height(gpui::relative(s.lh))
@@ -15,7 +16,7 @@ pub trait TypeExt: Styled + Sized {
     }
     /// .z-code
     fn code(self, t: &Theme) -> Self {
-        self.typo(t, crate::theme::CODE).font_family(FONT_CODE)
+        self.typo(t, crate::theme::CODE).font_family(t.font_code.clone())
     }
 }
 impl<T: Styled> TypeExt for T {}

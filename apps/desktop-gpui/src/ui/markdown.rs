@@ -174,7 +174,7 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                                 div()
                                     .px(t.space(3))
                                     .py(t.space(2))
-                                    .font_family(FONT_CODE)
+                                    .font_family(t.font_code.clone())
                                     .code(t)
                                     .child(body.trim_end_matches('\n').to_string()),
                             );

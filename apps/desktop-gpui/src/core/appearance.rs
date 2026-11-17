@@ -11,6 +11,74 @@ pub const COLOR_KEYS: [&str; 18] = [
 ];
 pub const SWATCH_KEYS: [&str; 5] = ["bg", "raised", "fg", "accent", "border-strong"];
 pub const DEFAULT_PRESET: &str = "zandor";
+pub const TYPE_PROPS: [&str; 4] = ["size", "weight", "lh", "tracking"];
+pub const FONT_SLOTS: [&str; 3] = ["ui", "code", "terminal"];
+
+fn is_dec(s: &str) -> bool {
+    // ^\d*\.?\d+$
+    let (a, b) = s.split_once('.').unwrap_or(("", s));
+    let b_ok = !b.is_empty() && b.chars().all(|c| c.is_ascii_digit());
+    let a_ok = a.chars().all(|c| c.is_ascii_digit());
+    if s.contains('.') { a_ok && b_ok } else { b_ok }
+}
+
+/// Validasi satu properti tipografi (port validateTypeValue). None = valid.
+pub fn validate_type_value(prop: &str, v: &str) -> Option<&'static str> {
+    match prop {
+        "size" => {
+            let Some(n) = v.strip_suffix("rem").filter(|n| is_dec(n)) else { return Some("ukuran harus dalam rem, mis. 0.875rem") };
+            let n: f32 = n.parse().unwrap_or(0.);
+            (!(0.5..=4.).contains(&n)).then_some("ukuran harus 0.5rem–4rem")
+        }
+        "tracking" => {
+            if v == "0" {
+                return None;
+            }
+            let Some(n) = v.strip_suffix("em").filter(|n| is_dec(n.strip_prefix('-').unwrap_or(n))) else {
+                return Some("jarak huruf harus dalam em, mis. -0.01em");
+            };
+            let n: f32 = n.parse().unwrap_or(9.);
+            (!(-0.1..=0.5).contains(&n)).then_some("jarak huruf harus -0.1em–0.5em")
+        }
+        "weight" => {
+            if v.len() != 3 || !v.chars().all(|c| c.is_ascii_digit()) {
+                return Some("ketebalan harus 100–900");
+            }
+            let n: u32 = v.parse().unwrap_or(0);
+            (!(100..=900).contains(&n)).then_some("ketebalan harus 100–900")
+        }
+        _ => {
+            if !is_dec(v) {
+                return Some("tinggi baris harus angka, mis. 1.5");
+            }
+            let n: f32 = v.parse().unwrap_or(0.);
+            (!(1. ..=3.).contains(&n)).then_some("tinggi baris harus 1–3")
+        }
+    }
+}
+
+/// Daftar font: nama dan koma saja (port validateFontFamily).
+pub fn validate_font_family(v: &str) -> Option<&'static str> {
+    if v.trim().is_empty() {
+        return Some("nama font kosong");
+    }
+    if v.chars().count() > 200 {
+        return Some("nama font terlalu panjang");
+    }
+    if !v.chars().all(|c| c.is_alphanumeric() || " ,\"'._-".contains(c)) {
+        return Some("nama font hanya boleh huruf, angka, spasi, koma, tanda kutip");
+    }
+    let l = v.to_lowercase();
+    if l.contains("url") || l.contains("expression") || l.contains("import") {
+        return Some("nama font tidak valid");
+    }
+    None
+}
+
+/// Font pertama dari daftar CSS (GPUI memakai satu keluarga).
+pub fn first_family(v: &str) -> String {
+    v.split(',').next().unwrap_or("").trim().trim_matches(['"', '\'']).to_string()
+}
 
 pub type ColorMap = Vec<(String, String)>;
 
@@ -211,6 +279,9 @@ pub struct AppearanceStore {
     raw: Map<String, Value>,
     pub preset: String,
     pub custom: Vec<ThemeDef>,
+    /// "h1" → { "size": "1.5rem", … }
+    pub typography: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+    pub fonts: std::collections::BTreeMap<String, String>,
 }
 struct Handle(Entity<AppearanceStore>);
 impl Global for Handle {}
@@ -229,7 +300,29 @@ impl AppearanceStore {
         if !presets().iter().any(|p| p.id == preset) && !custom.iter().any(|c| c.id == preset) {
             preset = DEFAULT_PRESET.into();
         }
-        let e = cx.new(|_| Self { path, raw, preset, custom });
+        let mut typography: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> = Default::default();
+        if let Some(o) = raw.get("typography").and_then(Value::as_object) {
+            for v in crate::theme::TYPE_VARS {
+                for p in TYPE_PROPS {
+                    if let Some(x) = o.get(v).and_then(|m| m.get(p)).and_then(Value::as_str) {
+                        if validate_type_value(p, x).is_none() {
+                            typography.entry(v.to_string()).or_default().insert(p.to_string(), x.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        let fonts = raw
+            .get("fonts")
+            .and_then(Value::as_object)
+            .map(|o| {
+                FONT_SLOTS
+                    .iter()
+                    .filter_map(|k| o.get(*k).and_then(Value::as_str).filter(|v| validate_font_family(v).is_none()).map(|v| (k.to_string(), v.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts });
         cx.set_global(Handle(e.clone()));
         e
     }
@@ -250,7 +343,78 @@ impl AppearanceStore {
         }
     }
 
+    /// Terapkan tipografi & font ke tema.
+    pub fn apply_type(&self, t: &mut crate::theme::Theme) {
+        for (n, v) in crate::theme::TYPE_VARS.iter().enumerate() {
+            let Some(m) = self.typography.get(*v) else { continue };
+            let ty = &mut t.types[n];
+            if let Some(x) = m.get("size").and_then(|s| s.trim_end_matches("rem").parse().ok()) {
+                ty.size = x;
+            }
+            if let Some(x) = m.get("weight").and_then(|s| s.parse().ok()) {
+                ty.weight = x;
+            }
+            if let Some(x) = m.get("lh").and_then(|s| s.parse().ok()) {
+                ty.lh = x;
+            }
+            if let Some(x) = m.get("tracking").and_then(|s| s.trim_end_matches("em").parse().ok()) {
+                ty.tracking = x;
+            }
+        }
+        if let Some(f) = self.fonts.get("ui") {
+            t.font_ui = first_family(f).into();
+        }
+        if let Some(f) = self.fonts.get("code") {
+            t.font_code = first_family(f).into();
+            t.font_terminal = t.font_code.clone();
+        }
+        if let Some(f) = self.fonts.get("terminal") {
+            t.font_terminal = first_family(f).into();
+        }
+    }
+
+    /// None = kembali ke default. Mengembalikan galat.
+    pub fn set_typography(&mut self, var: &str, prop: &str, value: Option<&str>, cx: &mut Context<Self>) -> Option<&'static str> {
+        if let Some(v) = value {
+            if let Some(e) = validate_type_value(prop, v) {
+                return Some(e);
+            }
+        }
+        let cur = self.typography.entry(var.to_string()).or_default();
+        match value {
+            Some(v) => {
+                cur.insert(prop.into(), v.into());
+            }
+            None => {
+                cur.remove(prop);
+            }
+        }
+        if cur.is_empty() {
+            self.typography.remove(var);
+        }
+        self.save(cx);
+        None
+    }
+
+    pub fn set_font(&mut self, slot: &str, value: Option<&str>, cx: &mut Context<Self>) -> Option<&'static str> {
+        match value {
+            Some(v) => {
+                if let Some(e) = validate_font_family(v) {
+                    return Some(e);
+                }
+                self.fonts.insert(slot.into(), v.into());
+            }
+            None => {
+                self.fonts.remove(slot);
+            }
+        }
+        self.save(cx);
+        None
+    }
+
     fn save(&mut self, cx: &mut Context<Self>) {
+        self.raw.insert("typography".into(), serde_json::to_value(&self.typography).unwrap_or(json!({})));
+        self.raw.insert("fonts".into(), serde_json::to_value(&self.fonts).unwrap_or(json!({})));
         self.raw.insert("version".into(), json!(1));
         self.raw.insert("preset".into(), json!(self.preset));
         self.raw.insert("customThemes".into(), Value::Array(self.custom.iter().map(ThemeDef::to_json).collect()));
@@ -316,6 +480,8 @@ impl AppearanceStore {
         self.raw = profile_keep.into_iter().collect();
         self.preset = DEFAULT_PRESET.into();
         self.custom.clear();
+        self.typography.clear();
+        self.fonts.clear();
         self.save(cx);
     }
 }
@@ -347,6 +513,22 @@ mod tests {
         let e = sanitize_theme(&json!({"id": "Bad Id", "name": "", "dark": {"nope": "#000", "fg": "red"}})).unwrap_err();
         assert_eq!(e.len(), 4);
         assert!(sanitize_theme(&json!({"id": "a", "name": "A"})).is_err());
+    }
+
+    #[test]
+    fn type_values() {
+        assert_eq!(validate_type_value("size", "0.875rem"), None);
+        assert!(validate_type_value("size", "5rem").is_some());
+        assert!(validate_type_value("size", "12px").is_some());
+        assert_eq!(validate_type_value("weight", "600"), None);
+        assert!(validate_type_value("weight", "60").is_some());
+        assert_eq!(validate_type_value("lh", "1.5"), None);
+        assert!(validate_type_value("lh", "4").is_some());
+        assert_eq!(validate_type_value("tracking", "-0.01em"), None);
+        assert_eq!(validate_type_value("tracking", "0"), None);
+        assert_eq!(validate_font_family("Inter, sans-serif"), None);
+        assert!(validate_font_family("x; url(a)").is_some());
+        assert_eq!(first_family("\"Fira Code\", monospace"), "Fira Code");
     }
 
     #[test]
