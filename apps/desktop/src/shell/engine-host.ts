@@ -27,6 +27,8 @@ export type EngineHost = {
   attachmentsFromFiles(files: File[]): Promise<{ items: FileAttachment[]; skipped: string[] }>;
   /** Model kecil engine (`provider/model`, untuk judul sesi dan ringkasan); null = engine memilih sendiri. */
   smallModel(): Promise<string | null>;
+  /** Pemeriksaan stack (onboarding). `null` di luar aplikasi desktop (tidak bisa menjalankan program). */
+  systemCheck(): Promise<SystemCheck[] | null>;
   /** Simpan model kecil; berlaku setelah engine dimulai ulang. Hanya di aplikasi desktop. */
   setSmallModel(model: string | null): Promise<void>;
 };
@@ -139,6 +141,9 @@ export function createBrowserHost(): EngineHost {
     async smallModel() {
       return null;
     },
+    async systemCheck() {
+      return null;
+    },
     async setSmallModel() {
       throw new Error("model kecil hanya bisa diatur di aplikasi desktop");
     },
@@ -169,6 +174,9 @@ async function attachmentsFromFiles(files: File[]): Promise<{ items: FileAttachm
   }
   return { items, skipped };
 }
+
+/** Hasil satu pemeriksaan stack dari Rust (`syscheck.rs`). */
+export type SystemCheck = { id: string; found: boolean; version: string | null; detail: string | null };
 
 export async function loadEngineHost(): Promise<EngineHost> {
   const { isTauri, invoke } = await import("@tauri-apps/api/core");
@@ -220,6 +228,7 @@ export async function loadEngineHost(): Promise<EngineHost> {
       return { items, skipped: r.skipped };
     },
     smallModel: () => invoke<string | null>("model_roles_get"),
+    systemCheck: () => invoke<SystemCheck[]>("system_check"),
     setSmallModel: (small) => invoke("model_roles_set", { small }),
   };
 }

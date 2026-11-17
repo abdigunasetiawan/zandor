@@ -156,7 +156,7 @@ function Status({ status }: { status: ToolPart["state"]["status"] }) {
         <span className="visually-hidden">{label}</span>
       </span>
     );
-  return <Working variant="ripple" size="sm" label={label} />;
+  return <Working variant="grid" size="sm" label={label} />;
 }
 
 function Body({ part, view }: { part: ToolPart; view: ToolView }) {

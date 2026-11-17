@@ -18,12 +18,12 @@ export function Spinner({
   );
 }
 
-export type WorkingVariant = "wave" | "ripple" | "orbit";
-const WORKING_PARTS: Record<WorkingVariant, number> = { wave: 5, ripple: 3, orbit: 3 };
+export type WorkingVariant = "wave" | "ripple" | "orbit" | "grid";
+const WORKING_PARTS: Record<WorkingVariant, number> = { wave: 5, ripple: 3, orbit: 3, grid: 9 };
 
 /**
  * Indikator "sedang bekerja" (pengganti spinner biasa): `wave` = gelombang batang, `ripple` = titik berdenyut dengan riak,
- * `orbit` = tiga titik mengorbit. Murni CSS, mengikuti warna teks (`currentColor`), dan diam saat gerak dikurangi.
+ * `orbit` = tiga titik mengorbit, `grid` = sembilan kotak berkilau diagonal (bawaan indikator kerja agent). Murni CSS, mengikuti warna teks (`currentColor`), dan diam saat gerak dikurangi.
  */
 export function Working({
   variant = "wave",

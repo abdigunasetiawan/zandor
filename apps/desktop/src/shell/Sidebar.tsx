@@ -140,9 +140,13 @@ export function Sidebar() {
         </span>
         <div className="sidebar__brandwrap">
           <h2 className="z-h4 sidebar__brand">{t("app.name")}</h2>
-          {devBuild && (
+          {devBuild ? (
             <Badge tone="warning" title={t("app.devHint")}>
               {t("app.devLabel")}
+            </Badge>
+          ) : (
+            <Badge tone="outline" title={t("app.betaHint")}>
+              {t("app.betaLabel")}
             </Badge>
           )}
         </div>

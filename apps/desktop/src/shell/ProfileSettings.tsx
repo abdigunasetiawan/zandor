@@ -24,7 +24,8 @@ import { useAppearance, useServices } from "./services";
 const CHOICES = 12;
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export function ProfileSettings() {
+/** `heading=false` saat disematkan di halaman yang sudah punya judul (onboarding). */
+export function ProfileSettings({ heading = true }: { heading?: boolean }) {
   const { t } = useI18n();
   const { appearance: store } = useServices();
   const { profile } = useAppearance();
@@ -32,7 +33,10 @@ export function ProfileSettings() {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const avatar = profile.avatar;
-  const [tab, setTab] = useState<string>(avatar?.kind ?? "initials");
+  // Ilustrasi jadi tab bawaan (pilihan paling menarik); avatar yang sudah dipilih membuka tabnya sendiri.
+  const [tab, setTab] = useState<string>(avatar?.kind ?? "illustration");
+  // Draf lokal: store memangkas spasi tepi, jadi menulis langsung ke store membuat spasi di antara kata tak bisa diketik.
+  const [draft, setDraft] = useState(profile.name ?? "");
   const [style, setStyle] = useState<AvatarStyle>(avatar?.kind === "illustration" ? avatar.style : "lorelei");
   const [seeds, setSeeds] = useState<string[]>(() => {
     const fresh = Array.from({ length: CHOICES }, randomSeed);
@@ -59,10 +63,17 @@ export function ProfileSettings() {
   };
 
   return (
-    <section className="settings__group profile" id="settings-profile" aria-labelledby="settings-h-profile">
-      <h2 id="settings-h-profile" className="z-h4">
-        {t("settings.profile")}
-      </h2>
+    <section
+      className="settings__group profile"
+      id="settings-profile"
+      aria-labelledby={heading ? "settings-h-profile" : undefined}
+      aria-label={heading ? undefined : t("settings.profile")}
+    >
+      {heading && (
+        <h2 id="settings-h-profile" className="z-h4">
+          {t("settings.profile")}
+        </h2>
+      )}
 
       <div className="profile__card" data-testid="profile-preview">
         <Avatar name={name} src={src} size="lg" />
@@ -76,10 +87,14 @@ export function ProfileSettings() {
         {(c) => (
           <Input
             {...c}
-            value={profile.name ?? ""}
+            value={draft}
             maxLength={MAX_PROFILE_NAME}
-            placeholder={osName ?? t("sb.user.fallback")}
-            onChange={(e) => fail(store.setProfileName(e.target.value))}
+            placeholder={t("profile.namePlaceholder")}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              fail(store.setProfileName(e.target.value));
+            }}
+            onBlur={() => setDraft(profile.name ?? "")}
           />
         )}
       </Field>

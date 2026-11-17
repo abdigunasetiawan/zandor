@@ -144,7 +144,7 @@ function JobRow({
         <button type="button" className="jobs__toggle" aria-expanded={expanded} onClick={onToggle} title={job.command}>
           {expanded ? <ChevronDownIcon size="sm" /> : <ChevronRightIcon size="sm" />}
           <span className="jobs__state" aria-hidden="true">
-            {live ? <Working variant="ripple" /> : <span className="jobs__dot" />}
+            {live ? <Working variant="grid" /> : <span className="jobs__dot" />}
           </span>
           <span className="jobs__main">
             <span className="jobs__name">{job.name}</span>

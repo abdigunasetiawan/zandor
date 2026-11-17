@@ -355,6 +355,8 @@ export const ATOM_DEMOS: Record<AtomName, () => ReactNode> = {
         <Working variant="wave" />
         <Working variant="ripple" />
         <Working variant="orbit" />
+        <Working variant="grid" />
+        <Working variant="grid" size="dot" />
         <Working variant="wave" size="sm" />
         <Working variant="ripple" size="dot" />
       </>,

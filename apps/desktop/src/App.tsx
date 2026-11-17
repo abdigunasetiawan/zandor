@@ -16,6 +16,7 @@ import { AgentControlDriver } from "./shell/AgentControlDriver";
 import { AutomationDriver } from "./shell/AutomationDriver";
 import { CommandCenter } from "./shell/CommandCenter";
 import { NotificationDriver } from "./shell/NotificationDriver";
+import { OnboardingPage } from "./shell/OnboardingPage";
 import { SettingsPage, type SettingsSection } from "./shell/SettingsPage";
 import { ShellLayout } from "./shell/ShellLayout";
 import {
@@ -31,7 +32,8 @@ import { TitleBar } from "./shell/TitleBar";
 export type Route =
   | { page: "home" }
   | { page: "settings"; section: SettingsSection | null }
-  | { page: "design-system"; section: string | null };
+  | { page: "design-system"; section: string | null }
+  | { page: "onboarding" };
 
 /** "/", "/settings", "/design-system[/bagian]" → rute. Selain itu = beranda. */
 export function parseRoute(path: string): Route {
@@ -46,6 +48,7 @@ export function parseRoute(path: string): Route {
   if (/^\/settings\/chat\/?$/.test(path)) return { page: "settings", section: "chat" };
   if (/^\/settings\/documents\/?$/.test(path)) return { page: "settings", section: "documents" };
   if (/^\/settings\/engines\/?$/.test(path)) return { page: "settings", section: "engines" };
+  if (/^\/welcome\/?$/.test(path)) return { page: "onboarding" };
   const m = path.match(/^\/design-system(?:\/([a-z-]+))?\/?$/);
   return m ? { page: "design-system", section: m[1] ?? null } : { page: "home" };
 }
@@ -159,6 +162,7 @@ function Page() {
   }, [page, section]);
   if (route.page === "settings") return <SettingsPage initial={route.section} />;
   if (page === "design-system") return <DesignSystemPage />;
+  if (page === "onboarding") return <OnboardingPage />;
   return <ShellLayout />;
 }
 

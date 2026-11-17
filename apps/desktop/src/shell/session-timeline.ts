@@ -172,3 +172,29 @@ export function touchedFiles(messages: ChatMessage[]): TouchedFile[] {
   }
   return [...map.values()].sort((a, b) => b.lastAt - a.lastAt);
 }
+
+const normPath = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+
+/**
+ * Lengkapi daftar dari tool dengan perubahan menurut snapshot engine. Berkas yang dibuat/diubah lewat `bash`
+ * (skrip, generator dokumen) tidak tercatat sebagai tool read/edit/write, tetapi tampil di snapshot.
+ * Berkas yang dihapus dilewati karena tidak bisa dibuka. `at` = waktu untuk entri yang hanya ada di snapshot.
+ */
+export function mergeSnapshotFiles(
+  touched: TouchedFile[],
+  diffs: { file: string; status: "added" | "deleted" | "modified" }[],
+  directory: string,
+  at: number,
+): TouchedFile[] {
+  const seen = new Set(touched.map((f) => normPath(f.path)));
+  const extra: TouchedFile[] = [];
+  for (const d of diffs) {
+    if (d.status === "deleted") continue;
+    const abs = /^([a-zA-Z]:[\\/]|\/)/.test(d.file) ? d.file : `${directory.replace(/[\\/]+$/, "")}/${d.file}`;
+    const key = normPath(abs);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    extra.push({ path: abs, ops: [d.status === "added" ? "write" : "edit"], count: 1, lastAt: at, failed: false });
+  }
+  return [...touched, ...extra].sort((a, b) => b.lastAt - a.lastAt);
+}

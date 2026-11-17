@@ -182,7 +182,10 @@ export function ChatPanel() {
   const session = chatState.sessions[sel.session.id];
   const title = sessionTitle(sel.session) ?? t("sb.untitled");
 
-  const welcome = !!session && session.loaded && session.messages.length === 0 && !session.error;
+  // sesi yang baru dibuat dari halaman bawaan langsung memakai tata letak transkrip: tanpa ini composer sempat turun
+  // (memuat), naik lagi (sesi kosong = sambutan), lalu turun lagi saat pesan pertama masuk
+  const welcome =
+    !!session && session.loaded && session.messages.length === 0 && !session.error && !sentFromDraft.has(sel.session.id);
 
   return (
     <SessionFlagsContext.Provider value={{ hasProject: sel.project !== null }}>
@@ -246,6 +249,9 @@ export function PromptDock({
     </section>
   );
 }
+
+/** ID sesi yang dibuat oleh pesan pertama dari halaman bawaan (tidak lagi menampilkan sambutan). */
+const sentFromDraft = new Set<string>();
 
 /** Halaman bawaan Panel 2 saat tidak ada sesi terbuka: tampilan sesi baru; sesi sungguhan dibuat saat pesan pertama dikirim. */
 function DraftChat() {
@@ -542,7 +548,20 @@ function useStickToBottom(dep: unknown, follow = true, forceKey?: unknown) {
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(toBottom);
     };
-    const observer = new MutationObserver(schedule);
+    // Tinggi bubble jawaban bisa berubah tanpa mutasi DOM yang teramati (pengukuran baris virtual, font/gambar,
+    // animasi lipatan): ResizeObserver pada anak-anak kontainer menjaga posisi tetap di jawaban terbaru.
+    const resize = new ResizeObserver(schedule);
+    const watchChildren = () => {
+      resize.disconnect();
+      for (const child of Array.from(el.children)) resize.observe(child);
+      const vlist = el.querySelector(".vlist");
+      if (vlist) for (const row of Array.from(vlist.children)) resize.observe(row);
+    };
+    watchChildren();
+    const observer = new MutationObserver(() => {
+      watchChildren();
+      schedule();
+    });
     observer.observe(el, { childList: true, subtree: true, characterData: true });
     // klik pengguna (mis. membuka lipatan) memperbesar isi tanpa scroll: hitung ulang apakah masih di dasar
     const onClick = () => setTimeout(() => (stick.current = nearBottom(el)), 0);
@@ -550,6 +569,7 @@ function useStickToBottom(dep: unknown, follow = true, forceKey?: unknown) {
     el.addEventListener("load", schedule, true);
     return () => {
       observer.disconnect();
+      resize.disconnect();
       el.removeEventListener("click", onClick);
       el.removeEventListener("load", schedule, true);
       if (raf) cancelAnimationFrame(raf);
@@ -633,7 +653,8 @@ export function Transcript({ session, follow = true }: { session: SessionChat; f
   const { ref, onScroll } = useStickToBottom(
     [session.messages, total, session.permissions.length, session.questions.length, busy],
     follow,
-    allMessages.filter((m) => m.info.role === "user").length,
+    // kirim pesan DAN munculnya bubble jawaban → paksa kembali menempel ke dasar (fokus ke jawaban, bukan bubble sendiri)
+    `${allMessages.filter((m) => m.info.role === "user").length}:${lastAssistant ? turnKey(lastAssistant) : ""}`,
   );
   // gulir ke pesan yang diminta (tautan pesan / daftar sematan); menunggu sampai elemennya ada
   const visibleCount = rows.getVirtualItems().length;
@@ -989,6 +1010,7 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
   /** Halaman bawaan: buat sesi di project terpilih (atau Chat) dan terapkan pilihan memori/skill tertunda. */
   const ensureSession = async (): Promise<string> => {
     const created = await projects.createSession(pstate.selection.key ?? CHAT_KEY);
+    sentFromDraft.add(created.id);
     chat.open(created.directory, created.id);
     for (const kind of ["memory", "skill"] as const) {
       const on = pendingMemory[kind];

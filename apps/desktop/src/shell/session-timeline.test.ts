@@ -1,6 +1,6 @@
 import type { ChatMessage } from "@zandor/core";
 import { describe, expect, test } from "vitest";
-import { buildTimeline, touchedFiles } from "./session-timeline";
+import { buildTimeline, mergeSnapshotFiles, touchedFiles } from "./session-timeline";
 
 const user = (id: string, text: string, at: number): ChatMessage => ({
   info: { id, sessionID: "s", role: "user", time: { created: at } },
@@ -101,5 +101,25 @@ describe("touchedFiles", () => {
     expect(files[1]).toMatchObject({ ops: ["read", "edit"], count: 2, failed: false });
     expect(files[0]).toMatchObject({ ops: ["write"], failed: true });
     expect(touchedFiles([])).toEqual([]);
+  });
+});
+
+describe("mergeSnapshotFiles", () => {
+  test("menambah berkas buatan bash dari snapshot; tanpa duplikat; yang dihapus dilewati", () => {
+    const touched = touchedFiles([
+      asst("a1", 100, [tool("1", "read", { filePath: "C:\\chat\\a.md" }, "completed", 100, 110)]),
+    ]);
+    const out = mergeSnapshotFiles(
+      touched,
+      [
+        { file: "a.md", status: "modified" }, // sama dengan C:\chat\a.md
+        { file: "halo.docx", status: "added" },
+        { file: "lama.txt", status: "deleted" },
+      ],
+      "C:\\chat",
+      500,
+    );
+    expect(out.map((f) => f.path)).toEqual(["C:\\chat/halo.docx", "C:\\chat\\a.md"]);
+    expect(out[0]).toMatchObject({ ops: ["write"] });
   });
 });

@@ -20,6 +20,7 @@ mod providers;
 mod registry;
 mod secrets;
 mod shells;
+mod syscheck;
 
 use engine::{EngineManager, EnginePaths, EngineSnapshot};
 use std::path::PathBuf;
@@ -48,11 +49,14 @@ fn engine_restart(manager: State<EngineManager>) {
     manager.restart();
 }
 
-/// Buka DevTools (Inspect Element) untuk jendela utama. Tersedia juga di build rilis lewat fitur `devtools` (ADR-062);
-/// F12 dan klik kanan → Inspect memakai mekanisme WebView2 yang sama. Hanya webview UI lokal yang bisa memanggilnya.
+/// Buka DevTools (Inspect Element) untuk jendela utama. Hanya build debug: build rilis (beta) tidak membawa fitur
+/// `devtools`, jadi di sana perintah ini tidak melakukan apa-apa (aplikasi tidak boleh terasa seperti browser).
 #[tauri::command]
 fn open_devtools(window: tauri::WebviewWindow) {
+    #[cfg(debug_assertions)]
     window.open_devtools();
+    #[cfg(not(debug_assertions))]
+    let _ = window;
 }
 
 /// Model kecil engine (`provider/model`) dari `model-roles.json`; None = engine memilih sendiri.
@@ -572,6 +576,14 @@ fn control_reply(
 
 /// Simpan lampiran hasil seret/tempel (DOCX, XLSX, arsip, …) ke `<app_data>/attachments` agar agent bisa membacanya
 /// dari disk; model tidak menerima jenis ini sebagai bagian berkas. Mengembalikan path absolut.
+/// Pemeriksaan stack untuk onboarding (Python + pustaka dokumen, Git, Node.js, winget). Blocking → thread terpisah.
+#[tauri::command]
+async fn system_check() -> Result<Vec<syscheck::Check>, String> {
+    tauri::async_runtime::spawn_blocking(syscheck::check_all)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn attachment_save(app: tauri::AppHandle, name: String, data: String) -> Result<String, String> {
     const MAX_BYTES: usize = 50 * 1024 * 1024;
@@ -1124,6 +1136,7 @@ pub fn run() {
             control_reply,
             image_generate,
             attachment_save,
+            system_check,
             memory_read,
             memory_write,
             memory_delete,

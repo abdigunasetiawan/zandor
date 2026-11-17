@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alternatif Indikator Kerja</title>
+<style>
+:root{--bg:#181818;--card:#202020;--row:#262626;--fg:#ececec;--muted:#9a9a9a;--border:rgba(255,255,255,.08);--warn:#e0a63a}
+:root[data-theme=light]{--bg:#f4f4f4;--card:#fff;--row:#ececec;--fg:#1a1a1a;--muted:#666;--border:rgba(0,0,0,.08)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif;padding:24px 16px}
+header{max-width:960px;margin:0 auto 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:18px;margin:0;font-weight:600}
+.sub{color:var(--muted);font-size:13px;margin:4px 0 0}
+button{background:var(--row);color:var(--fg);border:0;border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit}
+.grid{max-width:960px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.card h2{font-size:14px;margin:0;font-weight:600}
+.card p{margin:0;color:var(--muted);font-size:12px}
+.sizes{display:flex;align-items:center;gap:20px;height:40px}
+.row{display:flex;align-items:center;gap:8px;background:var(--row);border-radius:8px;padding:6px 10px;font-size:13px}
+.row span.t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.w{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;color:var(--fg)}
+.w.dot{width:12px;height:12px}.w.sm{width:16px;height:16px}.w.md{width:24px;height:24px}.w.lg{width:36px;height:36px}
+.w i{display:block}
+@media (prefers-reduced-motion:reduce){.w i,.w{animation:none!important}}
+
+/* 1 Komet */
+.a1 i{position:absolute;inset:0;border-radius:50%}
+.a1 i:first-child{inset:33%;background:currentColor;animation:breathe 1.8s ease-in-out infinite}
+.a1 i:nth-child(2){background:conic-gradient(transparent 90deg,currentColor);-webkit-mask:radial-gradient(farthest-side,transparent 62%,#000 66%);mask:radial-gradient(farthest-side,transparent 62%,#000 66%);animation:spin 1.1s linear infinite}
+.a1 i:nth-child(3){background:currentColor;opacity:.08}
+
+/* 2 Napas lembut (halo terisi) */
+.a2 i{position:absolute;inset:0;margin:auto;border-radius:50%;background:currentColor}
+.a2 i:first-child{width:40%;height:40%}
+.a2 i:nth-child(2){width:100%;height:100%;opacity:0;animation:halo 2s cubic-bezier(.2,.6,.3,1) infinite}
+.a2 i:nth-child(3){width:100%;height:100%;opacity:0;animation:halo 2s cubic-bezier(.2,.6,.3,1) 1s infinite}
+
+/* 3 Tiga titik melompat */
+.a3{gap:12%}
+.a3 i{width:22%;height:22%;border-radius:50%;background:currentColor;animation:hop 1.1s ease-in-out infinite}
+.a3 i:nth-child(2){animation-delay:.15s}.a3 i:nth-child(3){animation-delay:.3s}
+
+/* 4 Grid 3x3 berkilau */
+.a4{display:inline-grid;grid-template-columns:repeat(3,1fr);gap:12%}
+.a4 i{border-radius:30%;background:currentColor;aspect-ratio:1;animation:fade 1.4s ease-in-out infinite}
+.a4 i:nth-child(1){animation-delay:0s}.a4 i:nth-child(2),.a4 i:nth-child(4){animation-delay:.12s}.a4 i:nth-child(3),.a4 i:nth-child(5),.a4 i:nth-child(7){animation-delay:.24s}.a4 i:nth-child(6),.a4 i:nth-child(8){animation-delay:.36s}.a4 i:nth-child(9){animation-delay:.48s}
+
+/* 5 Kelopak (bunga berputar bertahap) */
+.a5 i{position:absolute;top:0;left:45%;width:10%;height:30%;border-radius:99px;background:currentColor;transform-origin:50% 166%;opacity:.15;animation:petal 1s linear infinite}
+.a5 i:nth-child(1){transform:rotate(0);animation-delay:-1s}.a5 i:nth-child(2){transform:rotate(45deg);animation-delay:-.875s}.a5 i:nth-child(3){transform:rotate(90deg);animation-delay:-.75s}.a5 i:nth-child(4){transform:rotate(135deg);animation-delay:-.625s}.a5 i:nth-child(5){transform:rotate(180deg);animation-delay:-.5s}.a5 i:nth-child(6){transform:rotate(225deg);animation-delay:-.375s}.a5 i:nth-child(7){transform:rotate(270deg);animation-delay:-.25s}.a5 i:nth-child(8){transform:rotate(315deg);animation-delay:-.125s}
+
+/* 6 Morf (kotak membulat ↔ lingkaran berputar) */
+.a6 i{width:60%;height:60%;background:currentColor;animation:morph 2.2s ease-in-out infinite}
+
+/* 7 Sparkle (bintang empat sudut berkedip) */
+.a7 i{width:80%;height:80%;background:currentColor;clip-path:polygon(50% 0,61% 39%,100% 50%,61% 61%,50% 100%,39% 61%,0 50%,39% 39%);animation:sparkle 1.6s ease-in-out infinite}
+
+/* 8 Equalizer tiga batang */
+.a8{gap:14%;align-items:flex-end}
+.a8 i{width:20%;height:100%;border-radius:99px;background:currentColor;transform-origin:bottom;animation:eq 1s ease-in-out infinite}
+.a8 i:nth-child(2){animation-delay:-.3s}.a8 i:nth-child(3){animation-delay:-.6s}
+
+/* 9 Busur ganda berlawanan */
+.a9 i{position:absolute;inset:0;border-radius:50%;border:2px solid transparent}
+.w.dot.a9 i{border-width:1.5px}
+.a9 i:first-child{border-top-color:currentColor;border-right-color:currentColor;animation:spin 1s linear infinite}
+.a9 i:nth-child(2){inset:28%;border-bottom-color:currentColor;opacity:.6;animation:spin .8s linear infinite reverse}
+
+/* 10 Garis infinity (titik menelusuri ∞) */
+.a10 i{position:absolute;width:26%;height:26%;border-radius:50%;background:currentColor;offset-path:path('M12 12c-3-4-9-4-9 0s6 4 9 0 9-4 9 0-6 4-9 0z');animation:inf 1.8s linear infinite}
+.a10 i:nth-child(2){opacity:.5;animation-delay:-.08s}.a10 i:nth-child(3){opacity:.25;animation-delay:-.16s}
+.w.dot.a10 i{offset-path:path('M6 6c-1.5-2-4.5-2-4.5 0s3 2 4.5 0 4.5-2 4.5 0-3 2-4.5 0z')}
+.w.sm.a10 i{offset-path:path('M8 8c-2-2.6-6-2.6-6 0s4 2.6 6 0 6-2.6 6 0-4 2.6-6 0z')}
+.w.lg.a10 i{offset-path:path('M18 18c-4.5-6-13.5-6-13.5 0s9 6 13.5 0 13.5-6 13.5 0-9 6-13.5 0z')}
+
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes breathe{50%{transform:scale(1.1)}0%,100%{transform:scale(.85);opacity:.75}}
+@keyframes halo{0%{transform:scale(.4);opacity:.35}100%{transform:scale(1);opacity:0}}
+@keyframes hop{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-45%);opacity:1}}
+@keyframes fade{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+@keyframes petal{0%{opacity:1}100%{opacity:.15}}
+@keyframes morph{0%,100%{border-radius:20%;transform:rotate(0) scale(.85)}50%{border-radius:50%;transform:rotate(180deg) scale(1)}}
+@keyframes sparkle{0%,100%{transform:scale(.55) rotate(0);opacity:.5}50%{transform:scale(1) rotate(45deg);opacity:1}}
+@keyframes eq{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+@keyframes inf{to{offset-distance:100%}}
+.warn{color:var(--warn)}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>10 alternatif indikator "sedang bekerja"</h1><p class="sub">Tiap kartu: ukuran dot · sm · md · lg, lalu contoh di baris sidebar.</p></div>
+  <button id="theme">Ganti tema</button>
+</header>
+<main class="grid" id="grid"></main>
+<script>
+const items=[
+ ["a1",3,"1. Komet","Titik inti bernapas + ekor bergradasi berputar (versi saat ini)."],
+ ["a2",3,"2. Halo lembut","Titik + halo terisi yang memudar keluar. Paling tenang."],
+ ["a3",3,"3. Tiga titik melompat","Klasik 'mengetik', jelas di ukuran kecil."],
+ ["a4",9,"4. Grid berkilau","Sembilan kotak menyala diagonal, terasa 'berpikir'."],
+ ["a5",8,"5. Kelopak","Delapan kelopak memudar bergiliran (gaya sistem, lebih halus)."],
+ ["a6",1,"6. Morf","Kotak membulat berubah jadi lingkaran sambil berputar."],
+ ["a7",1,"7. Sparkle","Bintang empat sudut berdenyut — nuansa AI."],
+ ["a8",3,"8. Equalizer","Tiga batang naik-turun, versi ringkas dari wave."],
+ ["a9",2,"9. Busur ganda","Dua busur berputar berlawanan arah."],
+ ["a10",3,"10. Infinity","Titik dengan jejak menelusuri lintasan ∞."]
+];
+const w=(c,n,s)=>`<span class="w ${s} ${c}">${"<i></i>".repeat(n)}</span>`;
+document.getElementById("grid").innerHTML=items.map(([c,n,t,d])=>`
+<section class="card"><h2>${t}</h2><p>${d}</p>
+<div class="sizes">${["dot","sm","md","lg"].map(s=>w(c,n,s)).join("")}${w(c,n,"md").replace('class="w','class="w warn')}</div>
+<div class="row">${w(c,n,"dot")}<span class="t">Refaktor modul autentikasi</span></div></section>`).join("");
+document.getElementById("theme").onclick=()=>{const r=document.documentElement;r.dataset.theme=r.dataset.theme==="light"?"dark":"light"};
+</script>
+</body>
+</html>

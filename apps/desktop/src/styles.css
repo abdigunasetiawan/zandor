@@ -5076,6 +5076,10 @@
   width: var(--z-space-3);
   height: var(--z-space-3);
 }
+/* bekerja: indikator grid harus tetap grid (`.sdot` di atas memaksa flex) */
+.sdot.z-working--grid {
+  display: inline-grid;
+}
 .sdot:not(.sdot--busy)::before {
   content: "";
   width: var(--z-space-1);
@@ -5093,8 +5097,8 @@
   width: calc(var(--z-space-1) * 1.5);
   height: calc(var(--z-space-1) * 1.5);
   background: var(--z-color-warning);
-  box-shadow: 0 0 0 0 var(--z-color-warning);
-  animation: sdot-ping 1400ms ease-out infinite;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--z-color-warning) 55%, transparent);
+  animation: sdot-ping 1800ms var(--z-ease) infinite;
 }
 .sdot[data-state="failed"]::before,
 .sdot[data-state="limit"]::before {
@@ -5109,7 +5113,7 @@
 }
 @keyframes sdot-ping {
   0% {
-    box-shadow: 0 0 0 0 var(--z-color-warning);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--z-color-warning) 55%, transparent);
   }
   70%,
   100% {
@@ -6319,4 +6323,350 @@ fieldset.pstyle__templates {
 .imggen__error {
   margin: 0;
   color: var(--z-color-danger);
+}
+
+/* Halaman onboarding (#/welcome): fokus penuh, satu kolom di tengah, tanpa sidebar/header */
+.titlebar--bare {
+  background: transparent;
+  border-bottom: 0;
+}
+.onb {
+  display: flex;
+  justify-content: center;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--z-color-bg);
+}
+.onb__frame {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-5);
+  width: 100%;
+  max-width: calc(var(--z-space-7) * 14);
+  padding: var(--z-space-6) var(--z-space-4);
+}
+.onb__progress {
+  display: flex;
+  gap: var(--z-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.onb__progress li {
+  flex: 1;
+}
+.onb__dot {
+  display: block;
+  width: 100%;
+  height: var(--z-space-1);
+  padding: 0;
+  cursor: pointer;
+  background: var(--z-color-raised);
+  border: 0;
+  border-radius: var(--z-radius-full);
+}
+.onb__dot[data-done],
+.onb__dot[aria-current="step"] {
+  background: var(--z-color-fg);
+}
+.onb__dot:focus-visible {
+  outline: var(--z-border-width) solid var(--z-color-focus);
+  outline-offset: var(--z-space-1);
+}
+.onb__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--z-space-2);
+}
+.onb__title {
+  margin: 0;
+}
+.onb__lead {
+  margin-bottom: var(--z-space-4);
+}
+.onb__muted {
+  margin: 0;
+  color: var(--z-color-fg-muted);
+}
+.onb__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-4);
+}
+.onb__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--z-space-2);
+  align-items: center;
+}
+.onb__status {
+  display: flex;
+  gap: var(--z-space-2);
+  align-items: center;
+  margin: 0;
+}
+.onb__status[data-tone="ok"] {
+  color: var(--z-color-success);
+}
+.onb__error {
+  margin: 0;
+  color: var(--z-color-danger);
+}
+.onb__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.onb__item,
+.onb__check {
+  padding: var(--z-space-3);
+  background: var(--z-color-surface);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+}
+.onb__item {
+  display: flex;
+  gap: var(--z-space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.onb__check {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+}
+.onb__check[data-status="missing"] {
+  border-color: var(--z-color-warning);
+}
+.onb__group {
+  margin: var(--z-space-3) 0 0;
+  color: var(--z-color-fg-muted);
+}
+.onb__checkhead {
+  display: flex;
+  gap: var(--z-space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+.onb__checking {
+  display: inline-flex;
+  gap: var(--z-space-1);
+  align-items: center;
+}
+.onb__note {
+  margin: 0;
+  font-family: var(--z-font-mono);
+  color: var(--z-color-fg-subtle);
+  overflow-wrap: anywhere;
+}
+.onb__install {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+}
+.onb__cmd {
+  display: block;
+  padding: var(--z-space-2);
+  font-family: var(--z-font-mono);
+  font-size: var(--z-type-small-size);
+  background: var(--z-color-raised);
+  border-radius: var(--z-radius-sm);
+  overflow-wrap: anywhere;
+}
+.onb__foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--z-space-2);
+  align-items: center;
+  padding: var(--z-space-3) 0;
+  background: var(--z-color-bg);
+}
+.onb__spacer {
+  flex: 1;
+}
+.onb__welcome {
+  align-items: flex-start;
+  /* safe: di jendela pendek isi tidak terpotong di atas (tetap bisa digulir) */
+  justify-content: safe center;
+  min-height: 100%;
+}
+.onb__choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.onb__choice legend {
+  margin-bottom: var(--z-space-1);
+  padding: 0;
+}
+.onb__option {
+  display: flex;
+  gap: var(--z-space-3);
+  align-items: flex-start;
+  padding: var(--z-space-3);
+  cursor: pointer;
+  background: var(--z-color-surface);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-md);
+}
+.onb__option:hover {
+  background: var(--z-color-hover);
+}
+.onb__option[data-checked] {
+  border-color: var(--z-color-fg);
+}
+.onb__option input {
+  margin-top: var(--z-space-1);
+  accent-color: var(--z-color-accent);
+}
+.onb__optiontext {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  min-width: 0;
+}
+.onb__pro {
+  color: var(--z-color-success);
+}
+.onb__con {
+  color: var(--z-color-fg-muted);
+}
+.onb__prompt {
+  margin: 0;
+  padding: var(--z-space-3);
+  font-family: var(--z-font-mono);
+  font-size: var(--z-type-small-size);
+  white-space: pre-wrap;
+  background: var(--z-color-raised);
+  border-radius: var(--z-radius-md);
+  overflow-wrap: anywhere;
+}
+.onb__sources {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.onb__sources li {
+  display: inline-flex;
+  gap: var(--z-space-1);
+  align-items: center;
+}
+.onb__thanks {
+  align-items: flex-start;
+}
+.onb__logo {
+  width: calc(var(--z-space-7) * 1.5);
+  height: calc(var(--z-space-7) * 1.5);
+}
+.onb__points li::marker {
+  color: var(--z-color-fg-muted);
+}
+.onb__points {
+  list-style: decimal;
+}
+.onb__seg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.onb__seg legend {
+  margin-bottom: var(--z-space-2);
+  padding: 0;
+}
+.onb__segrow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--z-space-1);
+  align-self: flex-start;
+  padding: var(--z-space-1);
+  background: var(--z-color-segment);
+  border-radius: var(--z-radius-lg);
+}
+/* Konsentris: radius dalam (md) = radius wadah (lg) - padding wadah (space-1). Ukuran sama dengan .z-tabs__tab. */
+.onb__segopt {
+  position: relative;
+  display: inline-flex;
+  gap: var(--z-space-2);
+  align-items: center;
+  height: var(--z-control-md);
+  padding: 0 var(--z-space-3);
+  font-size: var(--z-type-button-size);
+  font-weight: var(--z-type-button-weight);
+  color: var(--z-color-fg-muted);
+  cursor: pointer;
+  border-radius: var(--z-radius-md);
+}
+.onb__segopt:hover {
+  color: var(--z-color-fg);
+}
+.onb__segopt[data-checked] {
+  color: var(--z-color-fg);
+  background: var(--z-color-segment-active);
+  box-shadow: var(--z-shadow-1);
+}
+.onb__segopt input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.onb__segopt:has(input:focus-visible) {
+  outline: var(--z-border-width) solid var(--z-color-focus);
+  outline-offset: calc(var(--z-border-width) * -1);
+}
+.onb__mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  padding: var(--z-space-4);
+  background: var(--z-color-surface);
+  border: var(--z-border-width) solid var(--z-color-border);
+  border-radius: var(--z-radius-lg);
+}
+.onb__mode p {
+  margin: 0;
+}
+.onb__mode .onb__seg {
+  margin-bottom: var(--z-space-1);
+}
+.onb__flag {
+  width: var(--z-icon-md);
+  height: auto;
+  border-radius: calc(var(--z-radius-sm) / 2);
+  box-shadow: 0 0 0 var(--z-border-width) var(--z-color-border);
+}
+.onb__welcome .onb__seg:first-of-type {
+  margin-top: var(--z-space-5);
+}
+.onb__extra {
+  display: flex;
+  gap: var(--z-space-2);
+  align-items: center;
+}
+.onb__extra > :first-child {
+  flex: 1;
+}
+
+/* Build rilis/beta (browser-guard.ts): UI tidak bisa diseleksi sembarangan seperti halaman web. Teks yang memang
+   berguna untuk disalin tetap bisa: isi pesan chat, blok kode, kolom isian, editor, terminal, dan lapisan teks PDF. */
+.z-app-locked body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.z-app-locked :is(input, textarea, [contenteditable="true"], .md, .msg__text, pre, code, .monaco-editor, .xterm) {
+  user-select: text;
+  -webkit-user-select: text;
 }

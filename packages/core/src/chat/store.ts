@@ -67,6 +67,22 @@ const RECENT_PREF = "zandor.recentModels";
 const PINNED_MSG_PREF = "zandor.pinnedMessages";
 export const MAX_RECENT = 3;
 export const modelKey = (r: ModelRef) => `${r.providerID}/${r.modelID}`;
+
+/** Provider bawaan engine (tanpa koneksi dari pengguna). */
+export const OPENCODE_PROVIDER = "opencode";
+
+/**
+ * Model cadangan bila pengguna belum memilih apa pun (tanpa model sesi, model bawaan, atau model terakhir).
+ * Bila satu-satunya koneksi adalah OpenCode bawaan, pakai DeepSeek dari OpenCode; selain itu model pertama.
+ */
+export function fallbackModel(models: readonly ModelOption[]): ModelRef | null {
+  const onlyOpencode = models.length > 0 && models.every((m) => m.providerID === OPENCODE_PROVIDER);
+  const deepseek = onlyOpencode
+    ? models.find((m) => /deepseek/i.test(m.modelID) || /deepseek/i.test(m.name))
+    : undefined;
+  const pick = deepseek ?? models[0];
+  return pick ? { providerID: pick.providerID, modelID: pick.modelID } : null;
+}
 const MAX_RELOADS = 3;
 /** Aliran event bersamaan maksimum (sisakan koneksi untuk permintaan biasa; batas WebView ~6 per host). */
 const MAX_STREAMS = 4;
@@ -189,8 +205,7 @@ export class ChatStore {
     const def = this.options.defaultModel?.() ?? null;
     if (has(def)) return def;
     if (has(this.preferred)) return this.preferred;
-    const first = models[0];
-    return first ? { providerID: first.providerID, modelID: first.modelID } : null;
+    return fallbackModel(models);
   }
 
   private validVariant(models: ModelOption[], model: ModelRef | null, variant: string | null): string | null {
@@ -733,7 +748,14 @@ export class ChatStore {
     // Stop oleh pengguna menjeda antrean: pesan yang menunggu tidak dikirim diam-diam setelah dihentikan.
     if (this.queueOf(sessionId).length > 0)
       this.update({ queuePaused: { ...this.snap.queuePaused, [sessionId]: true } });
-    await this.api.abort(s.directory, sessionId);
+    // Pertanyaan yang tertunda menahan giliran di engine; abort saja tidak selalu melepasnya. Tolak dulu
+    // semua pertanyaan sesi ini, termasuk yang belum sampai ke state UI, lalu abort.
+    const api = this.api;
+    const pending = await api.listQuestions(s.directory).catch((): QuestionRequest[] => []);
+    const ids = new Set([...s.questions.map((q) => q.id), ...pending.filter((q) => q.sessionID === sessionId).map((q) => q.id)]);
+    await Promise.all([...ids].map((id) => api.rejectQuestion(s.directory, id).catch(() => {})));
+    if (ids.size > 0) this.patchSession(sessionId, (x) => ({ ...x, questions: [] }));
+    await api.abort(s.directory, sessionId);
   }
 
   /** Jawab pertanyaan agent. `answers[i]` = pilihan/teks untuk pertanyaan ke-i. */

@@ -91,7 +91,10 @@ const MENUS: Array<{ labelKey: MessageKey; ids: Array<string | "-"> }> = [
     ],
   },
   { labelKey: "menu.help", ids: ["app.palette", "help.about"] },
-  { labelKey: "menu.dev", ids: ["dev.copyChatHtml", "dev.openDevtools", "-", "dev.designSystem"] },
+  // Menu Dev (termasuk Dev Tools) hanya di build pengembangan; build rilis/beta tidak menampilkannya.
+  ...(import.meta.env.DEV
+    ? [{ labelKey: "menu.dev" as const, ids: ["dev.copyChatHtml", "dev.openDevtools", "-", "dev.designSystem"] }]
+    : []),
 ];
 
 function MenuBar() {
@@ -159,6 +162,15 @@ export function TitleBar() {
   const panelState = usePanelState();
   const { openPalette } = useCommandCenter();
   const actions = panels.actions;
+
+  // Onboarding: fokus penuh tanpa header — hanya area seret + kontrol jendela (jendela tanpa bingkai).
+  if (/^\/welcome\/?$/.test(navState.current))
+    return (
+      <div className="titlebar titlebar--bare" data-tauri-drag-region>
+        <div className="titlebar__center" data-tauri-drag-region />
+        <WindowControls />
+      </div>
+    );
 
   return (
     <header

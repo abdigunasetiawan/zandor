@@ -74,7 +74,7 @@ export function QuestionCard({ request, sessionId }: { request: QuestionRequest;
           <fieldset key={i} className="qcard__q">
             <legend className="qcard__legend">
               {q.header && <span className="z-small qcard__topic">{q.header}</span>}
-              <span className="z-p qcard__text">{q.question}</span>
+              <span className="z-p qcard__text">{q.question || t("q.malformed")}</span>
             </legend>
             {q.options.length > 0 && (
               <p className="z-small qcard__hint">{q.multiple ? t("q.multiHint") : t("q.singleHint")}</p>
@@ -204,7 +204,7 @@ export function TodoList({ todos }: { todos: Todo[] }) {
                 ) : x.status === "cancelled" ? (
                   <CloseIcon size="sm" />
                 ) : x.status === "in_progress" ? (
-                  <Working variant="ripple" size="dot" />
+                  <Working variant="grid" size="dot" />
                 ) : null}
               </span>
               <span className="todos__text">{x.content}</span>

@@ -615,43 +615,87 @@
   }
 }
 
-/* ripple: inti titik + dua riak yang memudar */
+/* ripple: inti titik tenang + ekor komet bergradasi yang mengitari (halus di ukuran kecil, tanpa garis riak) */
 .z-working--ripple i {
   position: absolute;
   inset: 0;
   margin: auto;
-  width: 45%;
-  height: 45%;
   border-radius: var(--z-radius-full);
 }
 .z-working--ripple i:first-child {
+  width: 34%;
+  height: 34%;
   background: currentColor;
-  animation: z-working-breathe 1600ms ease-in-out infinite;
+  animation: z-working-breathe 1800ms ease-in-out infinite;
 }
-.z-working--ripple i:not(:first-child) {
+.z-working--ripple i:nth-child(2) {
   width: 100%;
   height: 100%;
-  border: var(--z-border-width) solid currentColor;
-  opacity: 0;
-  animation: z-working-ripple 1600ms ease-out infinite;
-  animation-delay: calc(var(--i) * 500ms);
+  background: conic-gradient(from 0deg, transparent 0deg, transparent 90deg, currentColor 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent 62%, currentColor 66%);
+  mask: radial-gradient(farthest-side, transparent 62%, currentColor 66%);
+  opacity: 0.9;
+  animation: z-working-spin 1100ms linear infinite;
+}
+.z-working--ripple i:nth-child(3) {
+  width: 100%;
+  height: 100%;
+  background: currentColor;
+  opacity: 0.08;
+}
+@keyframes z-working-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 @keyframes z-working-breathe {
   0%,
   100% {
+    opacity: 0.7;
     transform: scale(0.85);
   }
   50% {
-    transform: scale(1.1);
+    opacity: 1;
+    transform: scale(1.05);
   }
 }
-@keyframes z-working-ripple {
-  0% {
-    opacity: 0.7;
-    transform: scale(0.45);
-  }
+
+/* grid: 3x3 kotak kecil yang berkilau bergiliran secara diagonal */
+.z-working--grid {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12%;
+}
+.z-working--grid i {
+  aspect-ratio: 1;
+  border-radius: 30%;
+  background: currentColor;
+  animation: z-working-glint 1400ms ease-in-out infinite;
+}
+.z-working--grid i:nth-child(2),
+.z-working--grid i:nth-child(4) {
+  animation-delay: 120ms;
+}
+.z-working--grid i:nth-child(3),
+.z-working--grid i:nth-child(5),
+.z-working--grid i:nth-child(7) {
+  animation-delay: 240ms;
+}
+.z-working--grid i:nth-child(6),
+.z-working--grid i:nth-child(8) {
+  animation-delay: 360ms;
+}
+.z-working--grid i:nth-child(9) {
+  animation-delay: 480ms;
+}
+@keyframes z-working-glint {
+  0%,
   100% {
-    opacity: 0;
+    opacity: 0.2;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
     transform: scale(1);
   }
 }
@@ -698,8 +742,12 @@
     opacity: 0.8;
     transform: scaleY(0.6);
   }
-  .z-working--ripple i:not(:first-child) {
-    display: none;
+  .z-working--grid i {
+    opacity: 0.6;
+  }
+  .z-working--ripple i:nth-child(2) {
+    background: currentColor;
+    opacity: 0.35;
   }
 }
 

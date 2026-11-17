@@ -31,3 +31,6 @@ playwright-report/
 
 # Artefak engine (diunduh/dibundel oleh scripts/prepare-engine.ts)
 apps/desktop/src-tauri/resources/
+
+# Installer beta hasil Buat-Installer-Beta.cmd
+rilis-beta/

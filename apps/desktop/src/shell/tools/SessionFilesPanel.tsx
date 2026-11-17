@@ -1,18 +1,49 @@
 // Panel 4 — Berkas sesi: berkas yang disentuh agent di sesi ini (dibaca/diubah/ditulis), terbaru dulu. Klik membukanya di Panel 3.
+
+import type { SessionFileDiff } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
 import { FilesIcon } from "@zandor/ui";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FileTypeIcon } from "../FileTypeIcon";
-import { useDocActions } from "../services";
-import { touchedFiles } from "../session-timeline";
+import { useDocActions, useServices } from "../services";
+import { mergeSnapshotFiles, touchedFiles } from "../session-timeline";
 import { ToolNotice } from "./ToolNotice";
 import { relativeTo, useSelectedSession } from "./use-selected-session";
 
 export function SessionFilesPanel() {
   const { t } = useI18n();
+  const { projects } = useServices();
   const sel = useSelectedSession();
   const docs = useDocActions();
-  const files = useMemo(() => (sel ? touchedFiles(sel.session.messages) : []), [sel]);
+  const [snap, setSnap] = useState<{ id: string; diffs: SessionFileDiff[] } | null>(null);
+  const id = sel?.id ?? null;
+  const dir = sel?.directory ?? "";
+  const demo = sel?.demo ?? true;
+  const busy = sel?.session.status.type !== "idle" || sel?.session.sending === true;
+  const messageCount = sel?.session.messages.length ?? 0;
+
+  // Snapshot engine menangkap berkas yang dibuat lewat bash; dimuat ulang tiap giliran selesai.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pemicu = sesi, status sibuk, jumlah pesan
+  useEffect(() => {
+    const api = projects.engineApi();
+    if (!id || demo || !api || busy) return;
+    let live = true;
+    api.sessionDiff(dir, id).then(
+      (diffs) => live && setSnap({ id, diffs }),
+      () => live && setSnap({ id, diffs: [] }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [id, dir, demo, busy, messageCount]);
+
+  const files = useMemo(() => {
+    if (!sel) return [];
+    const touched = touchedFiles(sel.session.messages);
+    if (!snap || snap.id !== sel.id) return touched;
+    const lastAt = sel.session.messages.at(-1)?.info.time.created ?? 0;
+    return mergeSnapshotFiles(touched, snap.diffs, sel.directory, lastAt);
+  }, [sel, snap]);
   if (!sel) return <ToolNotice icon={<FilesIcon size="lg" />}>{t("info.empty")}</ToolNotice>;
 
   return (

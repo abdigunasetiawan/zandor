@@ -12,6 +12,13 @@ Buka lewat ikon roda gigi di footer sidebar, palet perintah ("Kelola provider & 
   (kunci ditolak, rate limit, server bermasalah, tidak terjangkau).
 - **Keamanan:** kunci disimpan di keychain sistem (Windows Credential Manager), bukan di berkas atau konfigurasi.
 
+## Model bawaan bila belum memilih
+
+Urutan pemilihan model untuk sesi baru: model yang dipilih di sesi → **Model chat bawaan** (Pengaturan) → model terakhir
+dipakai → cadangan. Cadangannya: bila satu-satunya koneksi adalah **OpenCode bawaan** (belum menambah provider lain),
+Zandor memakai model **DeepSeek dari OpenCode** (mis. `opencode/deepseek-v4.1-flash-free`); bila ada koneksi lain, model
+pertama dalam daftar. Pilihan Anda sendiri selalu didahulukan.
+
 ## Tambah koneksi
 
 Di **Pengaturan › Provider dan model**, klik **Tambah koneksi**: formulir tampil di halaman yang sama (bukan popup) dengan tab Endpoint kustom (id, nama, protokol API, base URL, kunci, ambil model), Lokal (Ollama/LM Studio), Katalog provider, dan Masuk. Semua provider diperlakukan sama.

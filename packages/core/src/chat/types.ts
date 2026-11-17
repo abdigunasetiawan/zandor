@@ -244,9 +244,18 @@ export function toQuestion(raw: unknown): QuestionRequest | null {
   if (!isObj(raw)) return null;
   const id = str(raw.id);
   const sessionID = str(raw.sessionID);
-  if (!id || !sessionID || !Array.isArray(raw.questions)) return null;
+  if (!id || !sessionID) return null;
+  // Model kadang mengirim `questions` sebagai string JSON. Tetap dibaca bila bisa.
+  let list: unknown = raw.questions;
+  if (typeof list === "string") {
+    try {
+      list = JSON.parse(list);
+    } catch {
+      list = [];
+    }
+  }
   const questions: QuestionItem[] = [];
-  for (const q of raw.questions) {
+  for (const q of Array.isArray(list) ? list : []) {
     if (!isObj(q)) continue;
     const text = str(q.question);
     if (!text) continue;
@@ -263,7 +272,9 @@ export function toQuestion(raw: unknown): QuestionRequest | null {
       custom: q.custom !== false,
     });
   }
-  if (questions.length === 0) return null;
+  // Permintaan yang isinya rusak tetap dikembalikan: engine menunggu jawabannya, jadi pengguna harus bisa
+  // melihat kartunya dan melewatinya. Kalau dibuang, sesi menggantung selamanya.
+  if (questions.length === 0) questions.push({ question: "", header: "", options: [], multiple: false, custom: true });
   const req: QuestionRequest = { id, sessionID, questions };
   if (isObj(raw.tool) && str(raw.tool.messageID) && str(raw.tool.callID)) {
     req.tool = { messageID: raw.tool.messageID as string, callID: raw.tool.callID as string };

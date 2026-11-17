@@ -42,8 +42,16 @@ describe("toQuestion / toTodos (normalisasi defensif)", () => {
 
   test("data rusak ditolak atau dibersihkan", () => {
     expect(toQuestion(null)).toBeNull();
-    expect(toQuestion({ id: "x", sessionID: "s", questions: [] })).toBeNull();
-    expect(toQuestion({ id: "x", sessionID: "s", questions: [{ question: "" }, 5, null] })).toBeNull();
+    expect(toQuestion({ questions: [] })).toBeNull();
+    // Isi rusak tetap jadi kartu (teks kosong) agar pengguna bisa melewatinya; engine sedang menunggu.
+    for (const questions of [[], [{ question: "" }, 5, null], "bukan json", undefined])
+      expect(toQuestion({ id: "x", sessionID: "s", questions })?.questions).toEqual([
+        { question: "", header: "", options: [], multiple: false, custom: true },
+      ]);
+    expect(
+      toQuestion({ id: "x", sessionID: "s", questions: JSON.stringify([{ question: "Lanjut?" }]) })?.questions[0]
+        ?.question,
+    ).toBe("Lanjut?");
     const q = toQuestion({
       id: "x",
       sessionID: "s",
@@ -140,6 +148,15 @@ describe("ChatStore: pertanyaan dan todo", () => {
     expect(store.state().sessions.s1?.questions.map((q) => q.id)).toEqual(["que_2"]);
     await store.rejectQuestion("s1", "que_2");
     expect(engine.questionReplies.at(-1)).toEqual({ requestId: "que_2", answers: null });
+    expect(store.state().sessions.s1?.questions).toEqual([]);
+  });
+
+  test("abort menolak pertanyaan tertunda milik sesi (yang tak tampil pun) sebelum abort", async () => {
+    const { engine, store } = await setup();
+    engine.questions.push(toQuestion({ ...RAW, id: "que_tersembunyi" }) as QuestionRequest);
+    await store.abort("s1");
+    expect(engine.questionReplies.map((r) => r.requestId).sort()).toEqual(["que_1", "que_tersembunyi"]);
+    expect(engine.aborted).toEqual(["s1"]);
     expect(store.state().sessions.s1?.questions).toEqual([]);
   });
 

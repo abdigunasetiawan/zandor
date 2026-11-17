@@ -3,6 +3,7 @@ import { detectLocale } from "@zandor/i18n";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, hashToPath } from "./App";
+import { installBrowserGuard } from "./shell/browser-guard";
 import { loadDocHost } from "./shell/doc-host";
 import { loadEngineHost } from "./shell/engine-host";
 import { loadGitHost } from "./shell/git-host";
@@ -17,6 +18,8 @@ import "./styles.css";
 const SETTINGS_KEY = "zandor.settings";
 const APPEARANCE_KEY = "zandor.appearance";
 const AUTOMATION_KEY = "zandor.automation";
+
+if (!import.meta.env.DEV) installBrowserGuard();
 
 const activity = new ActivityLog();
 const logger = createLogger("app", {

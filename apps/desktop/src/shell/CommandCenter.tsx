@@ -18,7 +18,6 @@ import { buildPanelDump } from "./dev-dump";
 import { GlobalSearch } from "./GlobalSearch";
 import { ImageGenerateDialog } from "./ImageGenerateDialog";
 import { requestMessageFocus } from "./message-focus";
-import { Onboarding } from "./Onboarding";
 import { useAppearance, useCommandList, useProjects, useServices, useSettings, useWindowApi } from "./services";
 
 type CommandCenterValue = { openPalette: () => void };
@@ -73,11 +72,10 @@ export function CommandCenter({ children }: { children: ReactNode }) {
   const [query, setQuery] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [tourOpen, setTourOpen] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
   const projectsState = useProjects();
   const tourWanted = useSettings().onboarding;
-  // Tur pengenalan muncul sekali saat aplikasi dibuka tanpa project (registry sudah dimuat).
+  // Onboarding (#/welcome) jadi fokus utama sampai diselesaikan/dilewati (pengaturan `onboarding`).
   const tourChecked = useRef(false);
   useEffect(() => {
     if (tourChecked.current || !projectsState.loaded) return;
@@ -87,8 +85,8 @@ export function CommandCenter({ children }: { children: ReactNode }) {
     try {
       if (localStorage.getItem("zandor.e2e.tour")) automated = false;
     } catch {}
-    if (tourWanted && !automated && projectsState.projects.length === 0) setTourOpen(true);
-  }, [projectsState.loaded, projectsState.projects.length, tourWanted]);
+    if (tourWanted && !automated) nav.push("/welcome");
+  }, [projectsState.loaded, tourWanted, nav]);
   const registry = useShortcutRegistry();
   const bindings = useShortcutList(); // render ulang saat pintasan diubah (palet menampilkan combo efektif)
   const appearance = useAppearance();
@@ -228,7 +226,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         },
       },
       { id: "help.about", titleKey: "cmd.about", group: "help", run: () => setAboutOpen(true) },
-      { id: "help.tour", titleKey: "cmd.tour", group: "help", run: () => setTourOpen(true) },
+      { id: "help.tour", titleKey: "cmd.tour", group: "help", run: () => nav.push("/welcome") },
       {
         id: "image.generate",
         titleKey: "cmd.generateImage",
@@ -237,7 +235,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         run: () => setImageOpen(true),
       },
     ];
-    if (windowApi) {
+    if (windowApi && import.meta.env.DEV) {
       defs.push({
         id: "dev.openDevtools",
         titleKey: "cmd.openDevtools",
@@ -248,6 +246,8 @@ export function CommandCenter({ children }: { children: ReactNode }) {
           await invoke("open_devtools");
         },
       });
+    }
+    if (windowApi) {
       defs.push({ id: "window.close", titleKey: "cmd.closeWindow", group: "app", run: () => void windowApi.close() });
     }
     const offs = defs.map((d) => commands.register(d));
@@ -326,7 +326,6 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         }}
       />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
-      <Onboarding open={tourOpen} onOpenChange={setTourOpen} />
       <ImageGenerateDialog open={imageOpen} onOpenChange={setImageOpen} />
       <Dialog
         open={aboutOpen}

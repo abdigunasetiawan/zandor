@@ -1,4 +1,4 @@
-// Titik status sesi (menggantikan bullet di sidebar dan dipakai di tab): idle = titik redup, bekerja = indikator ripple,
+// Titik status sesi (menggantikan bullet di sidebar dan dipakai di tab): idle = titik redup, bekerja = indikator grid berkilau,
 // butuh aksi = cincin berdenyut, selesai (belum dilihat) = titik terisi, gagal/batas = titik terisi berwarna bahaya.
 import type { SessionIndicator } from "@zandor/core";
 import { useI18n } from "@zandor/i18n/react";
@@ -8,7 +8,7 @@ import { useSessionIndicator } from "./services";
 export function SessionDot({ state }: { state: SessionIndicator }) {
   const { t } = useI18n();
   const label = t(`sdot.${state}` as never);
-  if (state === "busy") return <Working variant="ripple" size="dot" label={label} className="sdot sdot--busy" />;
+  if (state === "busy") return <Working variant="grid" size="dot" label={label} className="sdot sdot--busy" />;
   return <span className="sdot" data-state={state} role="img" aria-label={label} title={label} />;
 }
 
