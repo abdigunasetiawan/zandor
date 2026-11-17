@@ -38,6 +38,7 @@ pub struct SettingsPage {
     profile: Entity<super::profile_section::ProfileSection>,
     themes: Entity<super::themes_section::ThemesSection>,
     typography: Entity<super::type_section::TypeSection>,
+    chat_style: Entity<super::chat_style_section::ChatStyleSection>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -63,7 +64,8 @@ impl SettingsPage {
         let profile = cx.new(super::profile_section::ProfileSection::new);
         let themes = cx.new(super::themes_section::ThemesSection::new);
         let typography = cx.new(super::type_section::TypeSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes, typography };
+        let chat_style = cx.new(super::chat_style_section::ChatStyleSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes, typography, chat_style };
         me.load_models(cx);
         me
     }
@@ -293,6 +295,9 @@ impl Render for SettingsPage {
             }
             if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.themes"), &i.t("ap.title")]) {
                 rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.themes"))).child(self.themes.clone()).into_any_element());
+            }
+            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.chat"), &i.t("chatStyle.title")]) {
+                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.chat"))).child(self.chat_style.clone()).into_any_element());
             }
             if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.type"), &i.t("ap.type.fonts")]) {
                 rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.type"))).child(self.typography.clone()).into_any_element());

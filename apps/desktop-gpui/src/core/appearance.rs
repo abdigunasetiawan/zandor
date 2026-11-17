@@ -13,6 +13,41 @@ pub const SWATCH_KEYS: [&str; 5] = ["bg", "raised", "fg", "accent", "border-stro
 pub const DEFAULT_PRESET: &str = "zandor";
 pub const TYPE_PROPS: [&str; 4] = ["size", "weight", "lh", "tracking"];
 pub const FONT_SLOTS: [&str; 3] = ["ui", "code", "terminal"];
+pub const CHAT_STYLE_KEYS: [&str; 10] = ["width", "composerRatio", "font", "size", "weight", "opacity", "lineHeight", "tracking", "gap", "codeSize"];
+
+/// Port validateChat. None = valid.
+pub fn validate_chat(key: &str, v: &Value) -> Option<&'static str> {
+    let num = v.as_f64();
+    match key {
+        "opacity" => (!num.is_some_and(|n| (0.3..=1.).contains(&n))).then_some("opasitas harus 0.3–1"),
+        "weight" => (!num.is_some_and(|n| n.fract() == 0. && (100. ..=900.).contains(&n))).then_some("ketebalan harus 100–900"),
+        "font" => match v.as_str() {
+            Some(s) => validate_font_family(s),
+            None => Some("nama font kosong"),
+        },
+        "lineHeight" => (!num.is_some_and(|n| (1. ..=2.4).contains(&n))).then_some("tinggi baris harus 1–2.4"),
+        "composerRatio" => (!num.is_some_and(|n| (1. ..=1.6).contains(&n))).then_some("rasio composer harus 1–1.6"),
+        "tracking" => {
+            let Some(n) = v.as_str().and_then(|s| s.strip_suffix("em")).filter(|n| is_dec(n.strip_prefix('-').unwrap_or(n))) else {
+                return Some("nilai harus dalam em, mis. 0.01em");
+            };
+            let n: f32 = n.parse().unwrap_or(9.);
+            (!(-0.05..=0.2).contains(&n)).then_some("jarak huruf harus -0.05em–0.2em")
+        }
+        _ => {
+            let Some(n) = v.as_str().and_then(|s| s.strip_suffix("rem")).filter(|n| is_dec(n)) else {
+                return Some("nilai harus dalam rem, mis. 0.9rem");
+            };
+            let n: f32 = n.parse().unwrap_or(-1.);
+            match key {
+                "size" => (!(0.6..=2.).contains(&n)).then_some("ukuran harus 0.6rem–2rem"),
+                "codeSize" => (!(0.6..=1.6).contains(&n)).then_some("ukuran kode harus 0.6rem–1.6rem"),
+                "width" => (!(28. ..=120.).contains(&n)).then_some("lebar harus 28rem–120rem"),
+                _ => (!(0. ..=3.).contains(&n)).then_some("jarak harus 0rem–3rem"),
+            }
+        }
+    }
+}
 
 fn is_dec(s: &str) -> bool {
     // ^\d*\.?\d+$
@@ -282,6 +317,7 @@ pub struct AppearanceStore {
     /// "h1" → { "size": "1.5rem", … }
     pub typography: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     pub fonts: std::collections::BTreeMap<String, String>,
+    pub chat: Map<String, Value>,
 }
 struct Handle(Entity<AppearanceStore>);
 impl Global for Handle {}
@@ -322,7 +358,12 @@ impl AppearanceStore {
                     .collect()
             })
             .unwrap_or_default();
-        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts });
+        let chat: Map<String, Value> = raw
+            .get("chat")
+            .and_then(Value::as_object)
+            .map(|o| o.iter().filter(|(k, v)| CHAT_STYLE_KEYS.contains(&k.as_str()) && validate_chat(k, v).is_none()).map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
+        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat });
         cx.set_global(Handle(e.clone()));
         e
     }
@@ -371,6 +412,37 @@ impl AppearanceStore {
         if let Some(f) = self.fonts.get("terminal") {
             t.font_terminal = first_family(f).into();
         }
+        let n = |k: &str| self.chat.get(k).and_then(Value::as_f64).map(|x| x as f32);
+        let u = |k: &str, unit: &str| self.chat.get(k).and_then(Value::as_str).and_then(|s| s.strip_suffix(unit)).and_then(|s| s.parse::<f32>().ok());
+        t.chat = crate::theme::ChatVars {
+            opacity: n("opacity"),
+            weight: n("weight"),
+            size: u("size", "rem"),
+            gap: u("gap", "rem"),
+            font: self.chat.get("font").and_then(Value::as_str).map(|f| first_family(f).into()),
+            width: u("width", "rem"),
+            line: n("lineHeight"),
+            tracking: u("tracking", "em"),
+            code_size: u("codeSize", "rem"),
+            composer_ratio: n("composerRatio"),
+        };
+    }
+
+    /// None = kembali ke bawaan.
+    pub fn set_chat(&mut self, key: &str, value: Option<Value>, cx: &mut Context<Self>) -> Option<&'static str> {
+        match value {
+            Some(v) => {
+                if let Some(e) = validate_chat(key, &v) {
+                    return Some(e);
+                }
+                self.chat.insert(key.into(), v);
+            }
+            None => {
+                self.chat.remove(key);
+            }
+        }
+        self.save(cx);
+        None
     }
 
     /// None = kembali ke default. Mengembalikan galat.
@@ -415,6 +487,7 @@ impl AppearanceStore {
     fn save(&mut self, cx: &mut Context<Self>) {
         self.raw.insert("typography".into(), serde_json::to_value(&self.typography).unwrap_or(json!({})));
         self.raw.insert("fonts".into(), serde_json::to_value(&self.fonts).unwrap_or(json!({})));
+        self.raw.insert("chat".into(), Value::Object(self.chat.clone()));
         self.raw.insert("version".into(), json!(1));
         self.raw.insert("preset".into(), json!(self.preset));
         self.raw.insert("customThemes".into(), Value::Array(self.custom.iter().map(ThemeDef::to_json).collect()));
@@ -482,6 +555,7 @@ impl AppearanceStore {
         self.custom.clear();
         self.typography.clear();
         self.fonts.clear();
+        self.chat.clear();
         self.save(cx);
     }
 }
@@ -529,6 +603,16 @@ mod tests {
         assert_eq!(validate_font_family("Inter, sans-serif"), None);
         assert!(validate_font_family("x; url(a)").is_some());
         assert_eq!(first_family("\"Fira Code\", monospace"), "Fira Code");
+    }
+
+    #[test]
+    fn chat_values() {
+        assert_eq!(validate_chat("opacity", &json!(0.5)), None);
+        assert!(validate_chat("opacity", &json!(0.1)).is_some());
+        assert_eq!(validate_chat("width", &json!("46rem")), None);
+        assert!(validate_chat("width", &json!("10rem")).is_some());
+        assert_eq!(validate_chat("tracking", &json!("0.01em")), None);
+        assert!(validate_chat("weight", &json!(450.5)).is_some());
     }
 
     #[test]

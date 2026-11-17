@@ -228,6 +228,23 @@ pub struct Theme {
     pub font_ui: SharedString,
     pub font_code: SharedString,
     pub font_terminal: SharedString,
+    /// Gaya panel chat dari Tampilan (None = bawaan).
+    pub chat: ChatVars,
+}
+
+/// Port variabel --z-chat-* (tokens.css).
+#[derive(Clone, Debug, Default)]
+pub struct ChatVars {
+    pub opacity: Option<f32>,
+    pub weight: Option<f32>,
+    pub size: Option<f32>,
+    pub gap: Option<f32>,
+    pub font: Option<SharedString>,
+    pub width: Option<f32>,
+    pub line: Option<f32>,
+    pub tracking: Option<f32>,
+    pub code_size: Option<f32>,
+    pub composer_ratio: Option<f32>,
 }
 
 impl Global for Theme {}
@@ -248,6 +265,7 @@ impl Theme {
             font_ui: FONT_UI.into(),
             font_code: FONT_CODE.into(),
             font_terminal: FONT_CODE.into(),
+            chat: ChatVars::default(),
         }
     }
     /// Gaya tipografi efektif untuk variabel ini.

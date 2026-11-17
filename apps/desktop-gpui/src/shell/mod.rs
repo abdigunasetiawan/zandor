@@ -1,6 +1,7 @@
 //! Shell aplikasi — port apps/desktop/src/shell.
 pub mod automation_page;
 pub mod chat_panel;
+pub mod chat_style_section;
 pub mod command_center;
 pub mod commands;
 pub mod docs_panel;

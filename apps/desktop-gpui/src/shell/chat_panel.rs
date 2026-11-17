@@ -176,6 +176,34 @@ impl ChatPanel {
     }
 }
 
+/// .msg__text / .msg .md: gaya teks pesan dari Tampilan → Panel chat.
+fn chat_text(d: gpui::Div, t: &Theme) -> gpui::Div {
+    let c = &t.chat;
+    let p = t.ty(crate::theme::P);
+    d.text_size(t.rem(c.size.unwrap_or(p.size)))
+        .font_weight(FontWeight(c.weight.unwrap_or(p.weight)))
+        .line_height(gpui::relative(c.line.unwrap_or(p.lh)))
+        .opacity(c.opacity.unwrap_or(1.))
+}
+
+/// Tema untuk isi pesan: ukuran kode mengikuti --z-chat-code-size.
+fn msg_theme(t: &Theme) -> Theme {
+    let mut m = t.clone();
+    if let Some(s) = t.chat.code_size {
+        m.types[crate::theme::CODE.id].size = s;
+    }
+    m
+}
+
+/// Lebar kolom isi chat (rem): gaya Tampilan, atau pengaturan chatWidth.
+fn chat_width(t: &Theme, cx: &App) -> f32 {
+    t.chat.width.unwrap_or_else(|| match crate::core::settings::SettingsStore::global(cx).read(cx).str("chatWidth").as_str() {
+        "narrow" => 38.,
+        "wide" => 56.,
+        _ => rem::CHAT_WIDTH,
+    })
+}
+
 fn fmt_num(n: f64) -> String {
     if n >= 1000. { format!("{:.1}k", n / 1000.) } else { format!("{}", n as i64) }
 }
@@ -198,7 +226,7 @@ fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, i: &I18n) -> AnyElemen
                 .py(t.space(2))
                 .rounded(t.rem(rem::RADIUS_LG))
                 .bg(t.colors.bubble)
-                .child(text),
+                .child(chat_text(div(), t).child(text)),
         )
         .child(
             div().flex().justify_end().h(t.rem(rem::CONTROL_SM)).invisible().group_hover("umsg", |s| s.visible()).child(
@@ -309,7 +337,7 @@ fn assistant_msg(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, m: &ChatMessag
     let mut col = div().flex().flex_col().gap(t.space(2)).w_full().min_w_0();
     for p in &m.parts {
         match &p.kind {
-            PartKind::Text { text, synthetic: false } if !text.trim().is_empty() => col = col.child(markdown(text, t)),
+            PartKind::Text { text, synthetic: false } if !text.trim().is_empty() => col = col.child(chat_text(div(), t).child(markdown(text, &msg_theme(t)))),
             PartKind::Reasoning { text } if !text.trim().is_empty() => {
                 let open = expanded.contains(&p.id);
                 let pid = p.id.clone();
@@ -462,6 +490,8 @@ impl Render for ChatPanel {
                 }
             })
         });
+        let cw = chat_width(&t, cx);
+        let ratio = t.chat.composer_ratio.unwrap_or(rem::CHAT_COMPOSER_RATIO);
         let sug = self.suggest(cx);
         let intercept = sug.as_ref().is_some_and(|s| !s.entries.is_empty() || s.status.is_some());
         if self.input.read(cx).intercept != intercept {
@@ -606,7 +636,7 @@ impl Render for ChatPanel {
                                 .child(div().typo(&t, crate::theme::H2).child(i.tp(greet, &[("name", &format!(", {}", crate::core::profile::Profile::global(cx).read(cx).display_name()))])))
                                 .child(div().text_color(t.colors.fg_muted).child(i.t(if engine_ready { "chat.greet.sub" } else { "chat.engineDown" }))),
                         )
-                        .child(div().w_full().max_w(t.rem(rem::CHAT_WIDTH)).child(composer)),
+                        .child(div().w_full().max_w(t.rem(cw * ratio)).child(composer)),
                 )
                 .into_any_element();
         };
@@ -622,7 +652,7 @@ impl Render for ChatPanel {
             .overflow_y_scroll()
             .track_scroll(&self.scroll)
             .p(t.space(3));
-        let mut inner = div().flex().flex_col().gap(t.space(4)).w_full().max_w(t.rem(rem::CHAT_WIDTH)).mx_auto();
+        let mut inner = div().flex().flex_col().gap(t.rem(t.chat.gap.unwrap_or(0.75))).w_full().max_w(t.rem(cw)).mx_auto().when_some(t.chat.font.clone(), |d, f| d.font_family(f));
         if !st.loaded {
             inner = inner.child(div().text_color(t.colors.fg_muted).child(i.t("chat.loading")));
         } else if st.messages.is_empty() {
@@ -750,7 +780,7 @@ impl Render for ChatPanel {
             .size_full()
             .children(head)
             .child(body)
-            .child(div().w_full().max_w(t.rem(rem::CHAT_WIDTH + 1.5)).mx_auto().child(composer))
+            .child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer))
             .into_any_element()
     }
 }
