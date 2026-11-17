@@ -19,6 +19,8 @@ use std::collections::HashSet;
 
 #[path = "composer_assist.rs"]
 mod composer_assist;
+#[path = "queue_dock.rs"]
+mod queue_dock;
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -34,6 +36,7 @@ pub struct ChatPanel {
     models_loaded: bool,
     assist: composer_assist::AssistState,
     attach_menu: bool,
+    queue: queue_dock::QueueState,
 }
 
 impl ChatPanel {
@@ -77,6 +80,7 @@ impl ChatPanel {
             models_loaded: false,
             assist: Default::default(),
             attach_menu: false,
+            queue: Default::default(),
         };
         me.sync(cx);
         me
@@ -134,6 +138,23 @@ impl ChatPanel {
         }
         if text.starts_with("//") {
             text.remove(0); // `//` = garis miring apa adanya
+        }
+        if let Some((_, id, _, _)) = self.current(cx) {
+            if self.chat.read(cx).sessions.get(&id).is_some_and(|s| s.busy()) {
+                // agent sedang bekerja: pesan masuk antrean (dok di atas composer)
+                let files = self.assist.files.clone();
+                match self.chat.update(cx, |c, cx| c.enqueue(&id, &text, files, cx)) {
+                    Ok(_) => {
+                        self.input.update(cx, |i, cx| i.set_text("", cx));
+                        self.assist.files.clear();
+                    }
+                    Err(e) => {
+                        let msg = cx.global::<I18n>().tp("chat.sendError", &[("error", &e)]);
+                        composer_assist::note(cx, msg, crate::ui::ToastTone::Danger);
+                    }
+                }
+                return;
+            }
         }
         self.input.update(cx, |i, cx| i.set_text("", cx));
         let files = std::mem::take(&mut self.assist.files);
@@ -465,7 +486,7 @@ impl Render for ChatPanel {
         let send_btn = if busy {
             let id = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
             icon_button("chat-stop", "stop", i.t("chat.stop"))
-                .variant(ButtonVariant::Solid)
+                .variant(ButtonVariant::Danger)
                 .on_click(cx.listener(move |s, _, _, cx| s.chat.update(cx, |c, cx| c.abort(&id, cx))))
         } else {
             icon_button("chat-send", "arrow_up", i.t("chat.send"))
@@ -476,6 +497,13 @@ impl Render for ChatPanel {
                     s.submit(text, cx);
                 }))
         };
+        let can_queue = busy && !self.input.read(cx).text().trim().is_empty();
+        let add_btn = can_queue.then(|| {
+            icon_button("chat-queue", "arrow_up", i.t("queue.add")).variant(ButtonVariant::Solid).on_click(cx.listener(|s, _, _, cx| {
+                let text = s.input.read(cx).text().to_string();
+                s.submit(text, cx);
+            }))
+        });
         let model_sel = (!self.models.is_empty()).then(|| {
             let cur = self.chat.read(cx).model.clone().map(|m| format!("{}/{}", m.provider_id, m.model_id)).unwrap_or_default();
             let items = self.models.iter().map(|m| (SharedString::from(format!("{}/{}", m.provider_id, m.model_id)), SharedString::from(format!("{} · {}", m.name, m.provider_name)))).collect();
@@ -587,7 +615,8 @@ impl Render for ChatPanel {
             crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone())
                 .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_permission_mode(&v, cx)))
         };
-        let composer = div().w_full().px(t.space(3)).pb(t.space(3)).flex().flex_col().gap(t.space(2)).children(sug_el).children(chips).child(
+        let qdock = cur.as_ref().and_then(|c| self.render_queue(&c.1.clone(), cx));
+        let composer = div().w_full().px(t.space(3)).pb(t.space(3)).flex().flex_col().gap(t.space(2)).children(qdock).children(sug_el).children(chips).child(
             div()
                 .flex()
                 .flex_col()
@@ -599,7 +628,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(add_btn).child(send_btn)),
         );
 
         let Some(st) = state else {

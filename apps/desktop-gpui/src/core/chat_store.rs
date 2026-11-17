@@ -25,6 +25,20 @@ pub struct ChatStore {
     pub activity: std::collections::VecDeque<(f64, String)>,
     /// Mode izin: ask | auto-edit | auto-safe | auto-all (disimpan di prefs.json).
     pub permission_mode: String,
+    /// Antrean pesan per sesi (port queues/queuePaused di store.ts).
+    pub queues: HashMap<String, Vec<QueuedMessage>>,
+    pub queue_paused: std::collections::HashSet<String>,
+    force_next: std::collections::HashSet<String>,
+    q_seq: u64,
+}
+
+pub const MAX_QUEUE: usize = 50;
+
+#[derive(Clone, Debug)]
+pub struct QueuedMessage {
+    pub id: String,
+    pub text: String,
+    pub files: Vec<super::attachments::FileAttachment>,
 }
 
 fn prefs_path() -> std::path::PathBuf {
@@ -54,7 +68,7 @@ impl Global for ChatHandle {}
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()) });
+        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0 });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -89,6 +103,7 @@ impl ChatStore {
                                     cx.notify();
                                 }
                             }
+                            s.pump(&sid, false, cx);
                         }
                         Msg::Reconnected(dir) => {
                             let ids: Vec<String> =
@@ -336,7 +351,116 @@ impl ChatStore {
         cx.notify();
     }
 
+    // ---------- antrean pesan ----------
+
+    pub fn queue_of(&self, id: &str) -> &[QueuedMessage] {
+        self.queues.get(id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    fn set_queue(&mut self, id: &str, items: Vec<QueuedMessage>, cx: &mut Context<Self>) {
+        if items.is_empty() {
+            self.queues.remove(id);
+            self.queue_paused.remove(id);
+        } else {
+            self.queues.insert(id.to_string(), items);
+        }
+        cx.notify();
+    }
+
+    /// Tambah pesan ke antrean sesi.
+    pub fn enqueue(&mut self, id: &str, text: &str, files: Vec<super::attachments::FileAttachment>, cx: &mut Context<Self>) -> Result<String, String> {
+        let t = text.trim();
+        if !self.sessions.contains_key(id) {
+            return Err("sesi tidak ditemukan".into());
+        }
+        if t.is_empty() && files.is_empty() {
+            return Err("pesan kosong".into());
+        }
+        let mut cur = self.queue_of(id).to_vec();
+        if cur.len() >= MAX_QUEUE {
+            return Err(format!("antrean penuh (maks {MAX_QUEUE})"));
+        }
+        self.q_seq += 1;
+        let qid = format!("q{}", self.q_seq);
+        cur.push(QueuedMessage { id: qid.clone(), text: t.to_string(), files });
+        self.set_queue(id, cur, cx);
+        Ok(qid)
+    }
+
+    pub fn edit_queued(&mut self, id: &str, qid: &str, text: &str, cx: &mut Context<Self>) {
+        let t = text.trim();
+        let mut cur = self.queue_of(id).to_vec();
+        let Some(item) = cur.iter_mut().find(|q| q.id == qid) else { return };
+        if t.is_empty() && item.files.is_empty() {
+            return self.remove_queued(id, qid, cx);
+        }
+        item.text = t.to_string();
+        self.set_queue(id, cur, cx);
+    }
+
+    pub fn remove_queued(&mut self, id: &str, qid: &str, cx: &mut Context<Self>) {
+        let cur: Vec<_> = self.queue_of(id).iter().filter(|q| q.id != qid).cloned().collect();
+        self.set_queue(id, cur, cx);
+    }
+
+    /// Pindahkan item ke indeks `to` (0 = dikirim paling dulu).
+    pub fn move_queued(&mut self, id: &str, qid: &str, to: isize, cx: &mut Context<Self>) {
+        let mut cur = self.queue_of(id).to_vec();
+        let Some(from) = cur.iter().position(|q| q.id == qid) else { return };
+        let to = to.clamp(0, cur.len() as isize - 1) as usize;
+        if to == from {
+            return;
+        }
+        let item = cur.remove(from);
+        cur.insert(to, item);
+        self.set_queue(id, cur, cx);
+    }
+
+    /// Kirim langsung: pindah ke depan; bila agent bekerja, hentikan dulu lalu kirim saat idle.
+    pub fn send_queued_now(&mut self, id: &str, qid: &str, cx: &mut Context<Self>) {
+        self.move_queued(id, qid, 0, cx);
+        if !self.queue_of(id).iter().any(|q| q.id == qid) {
+            return;
+        }
+        self.queue_paused.remove(id);
+        if self.sessions.get(id).is_some_and(|s| s.busy()) {
+            self.force_next.insert(id.to_string());
+            let sid = id.to_string();
+            self.bg(id, cx, move |api, dir| api.abort(dir, &sid));
+        }
+        self.pump(id, true, cx);
+    }
+
+    pub fn resume_queue(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.queue_paused.remove(id);
+        self.pump(id, true, cx);
+    }
+
+    /// Kirim pesan terdepan bila sesi idle dan antrean tidak dijeda.
+    fn pump(&mut self, id: &str, force: bool, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.get(id) else { return };
+        if self.queue_of(id).is_empty() || self.api.is_none() {
+            return;
+        }
+        let forced = force || self.force_next.contains(id);
+        if s.busy() || !s.loaded || self.queue_paused.contains(id) {
+            return;
+        }
+        if (s.error.is_some() && !forced) || !s.permissions.is_empty() || !s.questions.is_empty() {
+            return;
+        }
+        let mut q = self.queue_of(id).to_vec();
+        let head = q.remove(0);
+        self.force_next.remove(id);
+        self.set_queue(id, q, cx);
+        self.send_with(id, head.text, head.files, cx);
+    }
+
     pub fn abort(&mut self, id: &str, cx: &mut Context<Self>) {
+        // Stop oleh pengguna menjeda antrean.
+        if !self.queue_of(id).is_empty() && !self.force_next.contains(id) {
+            self.queue_paused.insert(id.to_string());
+        }
         let sid = id.to_string();
         self.bg(id, cx, move |api, dir| api.abort(dir, &sid));
     }
