@@ -34,3 +34,4 @@ apps/desktop/src-tauri/resources/
 
 # Installer beta hasil Buat-Installer-Beta.cmd
 rilis-beta/
+/apps/desktop-gpui/target/

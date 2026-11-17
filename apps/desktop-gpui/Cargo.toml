@@ -1,0 +1,12 @@
+[package]
+name = "zandor-gpui"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Crate terpisah dari workspace utama: GPUI berat & diambil dari git Zed.
+[workspace]
+
+[dependencies]
+gpui = { git = "https://github.com/zed-industries/zed" }
+gpui_platform = { git = "https://github.com/zed-industries/zed" }

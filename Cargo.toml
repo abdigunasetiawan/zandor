@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = ["apps/desktop/src-tauri", "crates/engine-supervisor"]
-exclude = ["spikes", "reference"]
+exclude = ["spikes", "reference", "apps/desktop-gpui"]
 
 [workspace.package]
 edition = "2021"
