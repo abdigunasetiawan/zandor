@@ -1,5 +1,14 @@
 import { describe, expect, test } from "vitest";
-import { attachmentFromPath, baseNameOf, DIRECTORY_MIME, fileUrlFromPath, mimeForName } from "./attachments";
+import {
+  attachmentFromPath,
+  attachmentParts,
+  baseNameOf,
+  DIRECTORY_MIME,
+  fileUrlFromPath,
+  mimeForName,
+  modelReadable,
+  pathFromFileUrl,
+} from "./attachments";
 
 describe("lampiran", () => {
   test("URL file dari path Windows (spasi, unicode, awalan verbatim)", () => {
@@ -24,5 +33,24 @@ describe("lampiran", () => {
     });
     expect(attachmentFromPath("C:\\p\\src", true).mime).toBe(DIRECTORY_MIME);
     expect(baseNameOf("C:\\p\\src\\")).toBe("src");
+  });
+});
+
+describe("lampiran yang tidak diterima model", () => {
+  test("DOCX dari disk → catatan path sintetis; gambar/PDF/teks tetap bagian file", () => {
+    const parts = attachmentParts([
+      attachmentFromPath("C:/Data/Tugas BI.docx"),
+      attachmentFromPath("C:Data\foto.png"),
+      attachmentFromPath("C:/Data/a.pdf"),
+      { mime: "application/zip", url: "data:application/zip;base64,AA==", filename: "x.zip" },
+    ]);
+    expect(parts.map((p) => p.type)).toEqual(["file", "file", "text"]);
+    const note = parts[2];
+    expect(note?.type === "text" && note.synthetic).toBe(true);
+    expect(note?.type === "text" && note.text).toContain("- Tugas BI.docx: C:/Data/Tugas BI.docx");
+    expect(note?.type === "text" && note.text).toContain("- x.zip: (tidak tersimpan di disk");
+    expect(modelReadable("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe(false);
+    expect(modelReadable("text/csv")).toBe(true);
+    expect(pathFromFileUrl("file:///C:/a%20b/c.txt")).toBe("C:/a b/c.txt");
   });
 });

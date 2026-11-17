@@ -25,6 +25,17 @@ const MIME: Record<string, string> = {
   gif: "image/gif",
   webp: "image/webp",
   svg: "image/svg+xml",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  doc: "application/msword",
+  xls: "application/vnd.ms-excel",
+  ppt: "application/vnd.ms-powerpoint",
+  odt: "application/vnd.oasis.opendocument.text",
+  ods: "application/vnd.oasis.opendocument.spreadsheet",
+  odp: "application/vnd.oasis.opendocument.presentation",
+  ipynb: "application/x-ipynb+json",
+  zip: "application/zip",
 };
 
 export const DIRECTORY_MIME = "application/x-directory";
@@ -55,4 +66,67 @@ export function attachmentFromPath(path: string, isDirectory = false): FileAttac
     url: fileUrlFromPath(path),
     filename,
   };
+}
+
+/**
+ * true bila model bisa menerima lampiran ini langsung sebagai bagian `file` (gambar, PDF, teks, folder). Jenis lain
+ * (DOCX/XLSX/PPTX, arsip, biner) ditolak provider ("file part media type … not supported"), jadi dikirim sebagai path
+ * agar agent membacanya dari disk dengan tool/skill (mis. `zandor-docx`).
+ */
+export function modelReadable(mime: string): boolean {
+  const m = mime.toLowerCase().split(";")[0]?.trim() ?? "";
+  return (
+    m.startsWith("image/") ||
+    m.startsWith("text/") ||
+    m === "application/pdf" ||
+    m === "application/json" ||
+    m === "application/xml" ||
+    m === DIRECTORY_MIME
+  );
+}
+
+/** `file:///C:/a%20b/c.txt` → `C:/a b/c.txt`; bukan URL file → null. */
+export function pathFromFileUrl(url: string): string | null {
+  if (!url.startsWith("file://")) return null;
+  let rest = url.slice("file://".length);
+  if (/^\/[A-Za-z]:/.test(rest)) rest = rest.slice(1);
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+export type PromptFilePart = { type: "file"; mime: string; url: string; filename?: string };
+export type PromptTextPart = { type: "text"; text: string; synthetic?: boolean };
+
+/** Bagian prompt untuk lampiran: yang terbaca model → `file`; sisanya → satu teks sintetis berisi path di disk. */
+export function attachmentParts(files: readonly FileAttachment[]): Array<PromptFilePart | PromptTextPart> {
+  const parts: Array<PromptFilePart | PromptTextPart> = [];
+  const notes: string[] = [];
+  for (const f of files) {
+    if (modelReadable(f.mime)) {
+      parts.push({ type: "file", mime: f.mime, url: f.url, ...(f.filename ? { filename: f.filename } : {}) });
+      continue;
+    }
+    const path = pathFromFileUrl(f.url);
+    const name = f.filename ?? (path ? baseNameOf(path) : "lampiran");
+    notes.push(
+      path
+        ? `- ${name}: ${path}`
+        : `- ${name}: (tidak tersimpan di disk; minta pengguna menyimpannya ke folder project)`,
+    );
+  }
+  if (notes.length)
+    parts.push({
+      type: "text",
+      synthetic: true,
+      text: [
+        "<zandor-attachments>",
+        "Pengguna melampirkan berkas yang tidak bisa dikirim langsung ke model. Baca dari disk dengan tool/skill yang sesuai (DOCX/XLSX/PPTX/PDF: skill zandor-docx/zandor-xlsx/zandor-pptx/zandor-pdf):",
+        ...notes,
+        "</zandor-attachments>",
+      ].join("\n"),
+    });
+  return parts;
 }

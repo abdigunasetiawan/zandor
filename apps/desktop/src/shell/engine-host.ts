@@ -1,6 +1,6 @@
 // Adapter ke host (Tauri). Di luar Tauri (browser/e2e) tidak ada supervisor: engine bisa diarahkan ke URL lewat
 // localStorage `zandor.engine.override` ({url,username,password}) dan registry disimpan di localStorage.
-import { attachmentFromPath, type FileAttachment, type RawEngineSnapshot } from "@zandor/core";
+import { attachmentFromPath, type FileAttachment, modelReadable, type RawEngineSnapshot } from "@zandor/core";
 
 export type EngineHost = {
   /** true bila berjalan di Tauri (ada supervisor, folder picker native, registry di disk). */
@@ -200,7 +200,25 @@ export async function loadEngineHost(): Promise<EngineHost> {
       const paths = Array.isArray(r) ? r : [r];
       return { items: paths.map((p) => attachmentFromPath(p, kind === "folder")), skipped: [] };
     },
-    attachmentsFromFiles,
+    // Jenis yang tidak diterima model (DOCX, XLSX, arsip, …) disimpan ke disk lalu dikirim sebagai path.
+    async attachmentsFromFiles(files) {
+      const r = await attachmentsFromFiles(files);
+      const items: FileAttachment[] = [];
+      for (const a of r.items) {
+        if (modelReadable(a.mime) || !a.url.startsWith("data:")) {
+          items.push(a);
+          continue;
+        }
+        try {
+          const data = a.url.slice(a.url.indexOf(",") + 1);
+          const path = await invoke<string>("attachment_save", { name: a.filename ?? "lampiran", data });
+          items.push(attachmentFromPath(path));
+        } catch {
+          r.skipped.push(a.filename ?? "lampiran");
+        }
+      }
+      return { items, skipped: r.skipped };
+    },
     smallModel: () => invoke<string | null>("model_roles_get"),
     setSmallModel: (small) => invoke("model_roles_set", { small }),
   };

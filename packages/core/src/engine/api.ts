@@ -1,6 +1,7 @@
 // Antarmuka engine yang dibutuhkan UI (Fase 4). Implementasi nyata membungkus SDK resmi @opencode-ai/sdk
 // (tipe sama persis dengan engine yang di-pin, ADR-021); test memakai implementasi palsu.
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+import { attachmentParts, type PromptFilePart } from "../attachments";
 import {
   type ChatMessage,
   type EngineEvent,
@@ -287,15 +288,7 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
         directory,
         ...(input.model ? { model: input.model } : {}),
         ...(input.variant ? { variant: input.variant } : {}),
-        parts: [
-          { type: "text", text: input.text },
-          ...(input.files ?? []).map((f) => ({
-            type: "file" as const,
-            mime: f.mime,
-            url: f.url,
-            ...(f.filename ? { filename: f.filename } : {}),
-          })),
-        ],
+        parts: [{ type: "text", text: input.text }, ...attachmentParts(input.files ?? [])],
       });
     },
     async getRevert(directory, sessionId) {
@@ -340,21 +333,22 @@ export function createEngineApi(info: EngineConnectionInfo, fetchImpl?: typeof f
       }));
     },
     async runCommand(directory, sessionId, input) {
+      const all = attachmentParts(input.files ?? []);
+      const cmdParts = {
+        files: all.filter((p): p is PromptFilePart => p.type === "file"),
+        notes: all.flatMap((p) => (p.type === "text" ? [p.text] : [])),
+      };
       await client.session.command({
         sessionID: sessionId,
         directory,
         command: input.command,
-        arguments: input.arguments,
+        // Perintah hanya menerima bagian `file`; catatan lampiran yang tak terbaca model ditambahkan ke argumen.
+        arguments: [input.arguments, ...cmdParts.notes].filter(Boolean).join("\n\n"),
         ...(input.model ? { model: `${input.model.providerID}/${input.model.modelID}` } : {}),
         ...(input.variant ? { variant: input.variant } : {}),
-        ...(input.files?.length
+        ...(cmdParts.files.length
           ? {
-              parts: input.files.map((f) => ({
-                type: "file" as const,
-                mime: f.mime,
-                url: f.url,
-                ...(f.filename ? { filename: f.filename } : {}),
-              })),
+              parts: cmdParts.files,
             }
           : {}),
       });

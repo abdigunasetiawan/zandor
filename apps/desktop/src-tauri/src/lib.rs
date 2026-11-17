@@ -570,6 +570,47 @@ fn control_reply(
     control::reply(&control_dir(&app)?, &id, &response)
 }
 
+/// Simpan lampiran hasil seret/tempel (DOCX, XLSX, arsip, …) ke `<app_data>/attachments` agar agent bisa membacanya
+/// dari disk; model tidak menerima jenis ini sebagai bagian berkas. Mengembalikan path absolut.
+#[tauri::command]
+fn attachment_save(app: tauri::AppHandle, name: String, data: String) -> Result<String, String> {
+    const MAX_BYTES: usize = 50 * 1024 * 1024;
+    let bytes = images::decode_b64(&data).ok_or("data lampiran tidak valid")?;
+    if bytes.len() > MAX_BYTES {
+        return Err("lampiran terlalu besar (maks 50 MB)".into());
+    }
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || matches!(c, '.' | '-' | '_' | ' ' | '(' | ')') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = safe
+        .trim()
+        .trim_start_matches('.')
+        .chars()
+        .take(120)
+        .collect::<String>();
+    let safe = if safe.is_empty() {
+        "lampiran".to_string()
+    } else {
+        safe
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let dir = app_data(&app)?.join("attachments").join(stamp.to_string());
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(&safe);
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 const IMAGE_SIZES: [&str; 3] = ["1024x1024", "1536x1024", "1024x1536"];
 
 /// Generate gambar dengan model `provider_id/model` lalu simpan di `root/rel` (ekstensi mengikuti isi, tidak menimpa).
@@ -1082,6 +1123,7 @@ pub fn run() {
             control_take,
             control_reply,
             image_generate,
+            attachment_save,
             memory_read,
             memory_write,
             memory_delete,
