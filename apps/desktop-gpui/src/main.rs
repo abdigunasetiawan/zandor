@@ -1,5 +1,6 @@
 //! Zandor — rewrite ke Rust + GPUI.
 mod assets;
+mod core;
 mod i18n;
 mod theme;
 mod ui;
