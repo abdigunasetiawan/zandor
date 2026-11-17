@@ -30,6 +30,8 @@ pub struct ToolsHost {
     job_log: Option<(String, String)>,
     terminal: Option<Entity<super::terminal::Terminal>>,
     browser: Option<Entity<super::browser::BrowserPanel>>,
+    log_filter: String,
+    log_observed: bool,
 }
 
 fn jobs_dir() -> PathBuf {
@@ -64,6 +66,8 @@ impl ToolsHost {
             job_log: None,
             terminal: None,
             browser: None,
+            log_filter: "all".into(),
+            log_observed: false,
         };
         me.sync(cx);
         me
@@ -608,24 +612,55 @@ impl ToolsHost {
 }
 
 impl ToolsHost {
-    fn render_log(&mut self, t: &Theme, _i: &I18n, cx: &mut Context<Self>) -> AnyElement {
-        let acts = ChatStore::global(cx).read(cx).activity.clone();
-        if acts.is_empty() {
-            return note(t, "—".into());
+    fn render_log(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
+        use crate::core::activity::{Activity, SOURCES};
+        let Some(act) = Activity::global(cx) else { return note(t, i.t("act.empty")) };
+        if !self.log_observed {
+            self.log_observed = true;
+            cx.observe(&act, |_, _, cx| cx.notify()).detach();
         }
-        div()
+        let filter = self.log_filter.clone();
+        let all = act.read(cx).entries.clone();
+        let shown: Vec<_> = all.iter().filter(|e| filter == "all" || e.source == filter).cloned().collect();
+        let items: Vec<(SharedString, SharedString)> = SOURCES.iter().map(|s| (SharedString::from(*s), SharedString::from(i.t(&format!("act.src.{s}"))))).collect();
+        let me = cx.entity();
+        let act2 = act.clone();
+        let bar = div()
             .flex()
-            .flex_col()
+            .items_center()
+            .gap(t.space(2))
             .p(t.space(2))
-            .code(t)
-            .children(acts.iter().rev().take(300).map(|(ts, s)| {
+            .child(crate::ui::select("act-filter", items, filter).on_change(move |v, _, cx| {
+                me.update(cx, |s, cx| {
+                    s.log_filter = v.to_string();
+                    cx.notify();
+                })
+            }))
+            .child(div().flex_1().small(t).text_color(t.colors.fg_muted).child(i.tp("act.count", &[("count", &shown.len().to_string())])))
+            .child(button("act-clear").label(i.t("act.clear")).size(ControlSize::Sm).disabled(all.is_empty()).on_click(move |_, _, cx| act2.update(cx, |a, cx| a.clear(cx))));
+        let mut list = div().flex().flex_col().px(t.space(2)).pb(t.space(2));
+        if shown.is_empty() {
+            list = list.child(note(t, i.t("act.empty")));
+        }
+        for e in shown.iter() {
+            let color = match e.level {
+                "error" => t.colors.danger,
+                "warn" => t.colors.warning,
+                _ => t.colors.fg,
+            };
+            list = list.child(
                 div()
                     .flex()
                     .gap(t.space(2))
-                    .child(div().flex_none().text_color(t.colors.fg_subtle).child(crate::core::automation::fmt_time(*ts)))
-                    .child(div().min_w_0().truncate().child(s.clone()))
-            }))
-            .into_any_element()
+                    .py(t.space(1))
+                    .border_b_1()
+                    .border_color(t.colors.border_soft)
+                    .child(div().flex_none().small(t).text_color(t.colors.fg_subtle).child(crate::core::automation::fmt_time(e.at)))
+                    .child(div().flex_none().small(t).text_color(t.colors.fg_muted).child(i.t(&format!("act.src.{}", e.source))))
+                    .child(div().flex_1().min_w_0().text_color(color).child(e.message.clone())),
+            );
+        }
+        div().flex().flex_col().child(bar).child(list).into_any_element()
     }
 
     fn render_trajectory(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {

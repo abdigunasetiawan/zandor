@@ -79,6 +79,25 @@ impl ChatStore {
                 cx.update(|cx| {
                     e.update(cx, |s, cx| match m {
                         Msg::Event(ev) => {
+                            {
+                                use super::types::{PartKind, SessionRunStatus, ToolStatus};
+                                let entry: Option<(&'static str, &'static str, String)> = match &ev {
+                                    EngineEvent::PartUpdated(p) => match &p.kind {
+                                        PartKind::Tool { tool, state, .. } if state.status == ToolStatus::Error => Some(("tool", "error", format!("{tool}: {}", state.error.clone().unwrap_or_default()))),
+                                        PartKind::Tool { tool, state, .. } if state.status == ToolStatus::Completed => Some(("tool", "info", format!("{tool} {}", state.title.clone().unwrap_or_default()))),
+                                        _ => None,
+                                    },
+                                    EngineEvent::PermissionAsked(r) => Some(("tool", "warn", format!("izin diminta: {} {}", r.permission, r.patterns.join(", ")))),
+                                    EngineEvent::PermissionReplied { reply, .. } => Some(("tool", "info", format!("izin dijawab: {reply:?}"))),
+                                    EngineEvent::SessionError { error, .. } => Some(("chat", "error", format!("{}: {}", error.name, error.message))),
+                                    EngineEvent::SessionStatus { status: SessionRunStatus::Retry { attempt, message }, .. } => Some(("chat", "warn", format!("coba ulang #{attempt}: {message}"))),
+                                    EngineEvent::QuestionAsked(_) => Some(("chat", "info", "agent bertanya".to_string())),
+                                    _ => None,
+                                };
+                                if let Some((src, lvl, msg)) = entry {
+                                    super::activity::log(cx, src, lvl, msg);
+                                }
+                            }
                             if !matches!(ev, EngineEvent::PartDelta { .. }) {
                                 let label = format!("{:?}", ev).split(['(', ' ', '{']).next().unwrap_or("").to_string();
                                 let sid = ev.session_id().unwrap_or("-").to_string();

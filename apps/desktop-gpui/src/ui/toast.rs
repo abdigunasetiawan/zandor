@@ -60,6 +60,10 @@ impl Toasts {
     }
     /// Tampilkan toast; kembalikan id-nya.
     pub fn show(input: ToastInput, cx: &mut App) -> u64 {
+        if matches!(input.tone, ToastTone::Danger | ToastTone::Warning) {
+            let lvl = if matches!(input.tone, ToastTone::Danger) { "error" } else { "warn" };
+            crate::core::activity::log(cx, "app", lvl, input.title.to_string());
+        }
         let e = cx.global::<ToastsHandle>().0.clone();
         e.update(cx, |this, cx| {
             let id = this.next;

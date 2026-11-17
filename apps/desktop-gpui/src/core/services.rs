@@ -81,6 +81,7 @@ pub fn init(cx: &mut App) {
         // ADR-024: Ctrl+C di terminal/engine anak harus berfungsi.
         windows_sys::Win32::System::Console::SetConsoleCtrlHandler(None, 0);
     }
+    super::activity::Activity::init(cx);
     let data = app_data_dir();
     let _ = std::fs::create_dir_all(&data);
     let projects = ProjectStore::init(
@@ -111,6 +112,11 @@ pub fn init(cx: &mut App) {
             let changed_api = cx
                 .update(|cx| {
                     let prev = status.read(cx).state.info.clone();
+                    if status.read(cx).state.status != st.status {
+                        let lvl = if st.error.is_some() { "error" } else { "info" };
+                        let msg = format!("engine: {}{}", st.status, st.error.as_ref().map(|e| format!(" — {e}")).unwrap_or_default());
+                        super::activity::log(cx, "engine", lvl, msg);
+                    }
                     status.update(cx, |s, cx| {
                         s.state = st.clone();
                         cx.notify();
