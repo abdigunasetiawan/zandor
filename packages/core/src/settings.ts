@@ -63,6 +63,14 @@ export const SETTINGS_SCHEMA = {
         enumLabelKeys: { id: "language.id", en: "language.en" },
       },
     },
+    onboarding: {
+      type: "boolean",
+      title: "Tur pengenalan",
+      description:
+        "Tampilkan tur pengenalan (nama, model, project, pintasan) saat aplikasi dibuka tanpa project. Mati otomatis setelah tur selesai atau dilewati; bisa dibuka lagi dari palet perintah.",
+      default: true,
+      "x-zandor": { titleKey: "settings.onboarding", group: "general" },
+    },
     theme: {
       type: "string",
       title: "Tema",
@@ -286,6 +294,7 @@ export const SETTINGS_SCHEMA = {
 export type SettingKey = keyof typeof SETTINGS_SCHEMA.properties;
 export type Settings = {
   language: "id" | "en";
+  onboarding: boolean;
   theme: "dark" | "light" | "system";
   uiScale: (typeof UI_SCALE_VALUES)[number];
   rememberLayout: boolean;

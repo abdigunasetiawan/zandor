@@ -269,7 +269,8 @@ function SidebarActions() {
   );
 }
 
-function AddProject() {
+/** Tombol tambah project (pilih folder / path); `labelled` = tombol berteks (dipakai tur pengenalan). */
+export function AddProject({ labelled = false, onAdded }: { labelled?: boolean; onAdded?: () => void } = {}) {
   const { t } = useI18n();
   const { host, projects } = useServices();
   const fail = useErrorToast();
@@ -291,6 +292,7 @@ function AddProject() {
         if (!ok) return;
       }
       await projects.addProject(p);
+      onAdded?.();
     } catch (e) {
       fail(e);
     }
@@ -315,7 +317,13 @@ function AddProject() {
   };
   return (
     <>
-      <IconButton label={t("sb.addProject")} size="sm" icon={<PlusIcon />} onClick={() => void onClick()} />
+      {labelled ? (
+        <Button variant="solid" onClick={() => void onClick()}>
+          <PlusIcon size="sm" /> {t("sb.addProject")}
+        </Button>
+      ) : (
+        <IconButton label={t("sb.addProject")} size="sm" icon={<PlusIcon />} onClick={() => void onClick()} />
+      )}
       <Dialog
         open={open}
         onOpenChange={setOpen}

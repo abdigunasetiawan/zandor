@@ -6169,3 +6169,40 @@ fieldset.pstyle__templates {
   background: color-mix(in srgb, var(--z-color-warning) 40%, transparent);
   color: inherit;
 }
+
+/* Tur pengenalan (Onboarding.tsx) */
+.tour__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--z-space-3);
+}
+.tour__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--z-space-2);
+}
+.tour__status {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  color: var(--z-color-fg-muted);
+}
+.tour__status--ok {
+  color: var(--z-color-success);
+}
+.tour__keys {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--z-space-2) var(--z-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tour__keys li {
+  display: contents;
+}
+.tour__count {
+  margin-inline-end: auto;
+  color: var(--z-color-fg-subtle);
+}

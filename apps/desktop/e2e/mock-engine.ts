@@ -53,6 +53,8 @@ export type MockEngine = {
 export type MockOptions = {
   /** Semua panggilan gagal 500. */
   fail?: boolean;
+  /** Tampilkan tur pengenalan (bawaan: mati). */
+  onboarding?: boolean;
   /** Daftar model; default satu model. Kosong = tidak ada provider. */
   models?: Array<{ id: string; name: string; variants?: string[]; limit?: { context: number; output?: number } }>;
   /** Jumlah pasangan pesan (pengguna+asisten) yang sudah ada di setiap sesi baru; untuk uji sesi panjang. */
@@ -144,12 +146,14 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
   const id = (p: string) => `${p}_${String(++n).padStart(6, "0")}`;
   const models = opts.models ?? [{ id: "m-satu", name: "Model Satu" }];
 
-  await page.addInitScript(() => {
+  await page.addInitScript((tour: boolean) => {
     if (!localStorage.getItem("zandor.engine.override")) {
       localStorage.setItem("zandor.engine.override", JSON.stringify({ url: "http://engine.test", password: "x" }));
       localStorage.setItem("zandor.chatsDir", "C:\\data\\chats");
     }
-  });
+    // Tur pengenalan tidak muncul otomatis di browser otomatis kecuali tes memintanya.
+    if (tour) localStorage.setItem("zandor.e2e.tour", "1");
+  }, opts.onboarding ?? false);
 
   const emit = (type: string, properties: unknown) => queue.push({ id: id("evt"), type, properties });
   state.addStep = (sid, part) => {

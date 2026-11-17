@@ -17,7 +17,8 @@ import { build } from "../build";
 import { buildPanelDump } from "./dev-dump";
 import { GlobalSearch } from "./GlobalSearch";
 import { requestMessageFocus } from "./message-focus";
-import { useAppearance, useCommandList, useServices, useWindowApi } from "./services";
+import { Onboarding } from "./Onboarding";
+import { useAppearance, useCommandList, useProjects, useServices, useSettings, useWindowApi } from "./services";
 
 type CommandCenterValue = { openPalette: () => void };
 const CommandCenterContext = createContext<CommandCenterValue | null>(null);
@@ -71,6 +72,21 @@ export function CommandCenter({ children }: { children: ReactNode }) {
   const [query, setQuery] = useState("");
   const [aboutOpen, setAboutOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+  const projectsState = useProjects();
+  const tourWanted = useSettings().onboarding;
+  // Tur pengenalan muncul sekali saat aplikasi dibuka tanpa project (registry sudah dimuat).
+  const tourChecked = useRef(false);
+  useEffect(() => {
+    if (tourChecked.current || !projectsState.loaded) return;
+    tourChecked.current = true;
+    // Browser otomatis (e2e/smoke) tidak dihadang tur kecuali tes memintanya lewat penanda.
+    let automated = navigator.webdriver;
+    try {
+      if (localStorage.getItem("zandor.e2e.tour")) automated = false;
+    } catch {}
+    if (tourWanted && !automated && projectsState.projects.length === 0) setTourOpen(true);
+  }, [projectsState.loaded, projectsState.projects.length, tourWanted]);
   const registry = useShortcutRegistry();
   const bindings = useShortcutList(); // render ulang saat pintasan diubah (palet menampilkan combo efektif)
   const appearance = useAppearance();
@@ -210,6 +226,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         },
       },
       { id: "help.about", titleKey: "cmd.about", group: "help", run: () => setAboutOpen(true) },
+      { id: "help.tour", titleKey: "cmd.tour", group: "help", run: () => setTourOpen(true) },
     ];
     if (windowApi) {
       defs.push({
@@ -300,6 +317,7 @@ export function CommandCenter({ children }: { children: ReactNode }) {
         }}
       />
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+      <Onboarding open={tourOpen} onOpenChange={setTourOpen} />
       <Dialog
         open={aboutOpen}
         onOpenChange={setAboutOpen}
