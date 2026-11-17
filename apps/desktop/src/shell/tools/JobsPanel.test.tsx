@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // Uji panel Jobs (ADR-072) terhadap host tiruan yang meniru berkas job dari plugin engine.
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { ActivityLog, createLogger } from "@zandor/core";
+import { ActivityLog, createFakeMemoryHost, createLogger } from "@zandor/core";
 import { I18nProvider } from "@zandor/i18n/react";
 import { afterEach, describe, expect, test } from "vitest";
 import { createBrowserDocHost } from "../doc-host";
@@ -41,6 +41,7 @@ function mount(host: JobsHost | null) {
     providerHost: createBrowserProviderHost(),
     docHost: createBrowserDocHost(() => null),
     gitHost: createUnavailableGitHost(),
+    memoryHost: createFakeMemoryHost({ connected: false }),
     appearanceStorage: { get: () => null, set: () => {} },
     automationStorage: { get: () => null, set: () => {} },
     notifyHost: createBrowserNotifyHost(),
