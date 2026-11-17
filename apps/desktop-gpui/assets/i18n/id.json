@@ -1744,5 +1744,7 @@
  "acc.confirmBody": "Kunci akun ini dihapus dari keychain. Akun lain pada provider ini tidak terpengaruh.",
  "acc.switched": "Akun {name} sekarang dipakai",
  "acc.note": "Satu akun aktif dipakai engine; ganti kapan saja tanpa memasukkan ulang kunci.",
- "acc.oauthNote": "Login lewat browser: engine hanya menyimpan satu login per provider. Untuk beberapa akun, pakai kunci API (tab Katalog)."
+ "acc.oauthNote": "Login lewat browser: engine hanya menyimpan satu login per provider. Untuk beberapa akun, pakai kunci API (tab Katalog).",
+ "voice.notDefault": "Dikte Windows memakai mikrofon bawaan sistem, bukan {device}. Jadikan {device} perangkat bawaan di Pengaturan Suara.",
+ "voice.openSound": "Buka Pengaturan Suara"
 }

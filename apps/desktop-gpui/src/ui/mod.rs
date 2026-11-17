@@ -21,7 +21,7 @@ pub use feedback::{avatar, badge, kbd, skeleton, working, BadgeTone, WorkingVari
 pub use text_input::{InputBlur, InputChanged, InputNav, InputSubmit, TextInput};
 pub use choice::{checkbox, switch, Slider, SliderChanged};
 pub use molecules::{dialog, field, menu_item, popup, separator, tabs, TabItem};
-pub use toast::{ToastInput, ToastTone, Toasts};
+pub use toast::{ToastAction, ToastInput, ToastTone, Toasts};
 pub use typo::TypeExt;
 pub use menu::{entry, menu_popup, MenuEntry};
 pub use markdown::markdown;

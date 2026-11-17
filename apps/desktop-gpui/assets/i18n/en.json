@@ -1744,5 +1744,7 @@
  "acc.confirmBody": "This account's key is removed from the keychain. Other accounts on this provider are unaffected.",
  "acc.switched": "Account {name} is now in use",
  "acc.note": "One active account is used by the engine; switch any time without re-entering the key.",
- "acc.oauthNote": "Browser login: the engine keeps only one login per provider. For several accounts, use API keys (Catalog tab)."
+ "acc.oauthNote": "Browser login: the engine keeps only one login per provider. For several accounts, use API keys (Catalog tab).",
+ "voice.notDefault": "Windows dictation uses the system default microphone, not {device}. Make {device} the default in Sound settings.",
+ "voice.openSound": "Open Sound settings"
 }

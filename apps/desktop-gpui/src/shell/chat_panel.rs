@@ -37,6 +37,9 @@ pub struct ChatPanel {
     models_loaded: bool,
     assist: composer_assist::AssistState,
     attach_menu: bool,
+    voice_menu: bool,
+    voice_devices: Vec<crate::voice::AudioInput>,
+    voice_device: String,
     queue: queue_dock::QueueState,
 }
 
@@ -84,6 +87,9 @@ impl ChatPanel {
             models_loaded: false,
             assist: Default::default(),
             attach_menu: false,
+            voice_menu: false,
+            voice_devices: vec![],
+            voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
         };
         me.sync(cx);
@@ -134,6 +140,13 @@ impl ChatPanel {
                 self.chat.update(cx, |c, cx| c.open(&dir, &id, cx));
             }
         }
+    }
+
+    fn pick_voice_device(&mut self, id: String, cx: &mut Context<Self>) {
+        crate::core::chat_store::write_pref(crate::voice::DEVICE_KEY, &id);
+        self.voice_device = id;
+        self.voice_menu = false;
+        cx.notify();
     }
 
     fn submit(&mut self, text: String, cx: &mut Context<Self>) {
@@ -503,8 +516,73 @@ impl Render for ChatPanel {
                     if let Err(e) = crate::voice::toggle_dictation() {
                         let msg = cx.global::<I18n>().tp("voice.error", &[("error", &e)]);
                         crate::ui::Toasts::show(crate::ui::ToastInput { title: msg.into(), description: None, tone: crate::ui::ToastTone::Danger, timeout_ms: None, action: None }, cx);
+                        return;
+                    }
+                    let devs = crate::voice::audio_inputs();
+                    if let Some(name) = crate::voice::chosen_not_default(&s.voice_device, &devs) {
+                        let i = cx.global::<I18n>();
+                        let title = i.tp("voice.notDefault", &[("device", &name)]);
+                        let label = i.t("voice.openSound");
+                        crate::ui::Toasts::show(
+                            crate::ui::ToastInput {
+                                title: title.into(),
+                                description: None,
+                                tone: crate::ui::ToastTone::Warning,
+                                timeout_ms: None,
+                                action: Some(crate::ui::ToastAction { label: label.into(), on_click: std::rc::Rc::new(|_, cx| cx.open_url("ms-settings:sound")) }),
+                            },
+                            cx,
+                        );
                     }
                 }))
+        };
+        let voice_dev = {
+            let me = cx.entity().downgrade();
+            let cur = self.voice_device.clone();
+            let mut entries = vec![{
+                let me = me.clone();
+                crate::ui::entry(i.t("voice.defaultDevice"), move |_, cx| {
+                    me.update(cx, |s, cx| s.pick_voice_device(String::new(), cx)).ok();
+                })
+                .checked(cur.is_empty())
+            }];
+            if self.voice_devices.is_empty() {
+                entries.push(crate::ui::entry(i.t("voice.noDevice"), |_, _| {}).disabled(true));
+            }
+            for (n, d) in self.voice_devices.iter().enumerate() {
+                let me = me.clone();
+                let id = d.id.clone();
+                let label = if d.label.is_empty() { i.tp("voice.deviceN", &[("n", &(n + 1).to_string())]) } else { d.label.clone() };
+                entries.push(crate::ui::entry(label, move |_, cx| {
+                    me.update(cx, |s, cx| s.pick_voice_device(id.clone(), cx)).ok();
+                })
+                .checked(cur == d.id));
+            }
+            let ok = crate::voice::supported();
+            div()
+                .relative()
+                .child(
+                    icon_button("chat-voice-dev", "chevron_down", i.t("voice.device"))
+                        .size(ControlSize::Sm)
+                        .variant(ButtonVariant::Ghost)
+                        .disabled(!ok)
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.voice_menu = !s.voice_menu;
+                            if s.voice_menu {
+                                s.voice_devices = crate::voice::audio_inputs();
+                            }
+                            cx.notify();
+                        })),
+                )
+                .when(self.voice_menu, |d| {
+                    d.child(crate::ui::menu_popup("m-voice", &t, entries, gpui::Anchor::BottomRight, move |_, cx| {
+                        me.update(cx, |s, cx| {
+                            s.voice_menu = false;
+                            cx.notify();
+                        })
+                        .ok();
+                    }))
+                })
         };
         let send_btn = if busy {
             let id = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
@@ -663,7 +741,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(variant_sel).child(voice_btn).children(add_btn).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(variant_sel).child(div().flex().items_center().child(voice_btn).child(voice_dev)).children(add_btn).child(send_btn)),
         );
 
         let Some(st) = state else {

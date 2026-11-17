@@ -7527,6 +7527,7 @@ dependencies = [
  "unicode-segmentation",
  "ureq",
  "vt100",
+ "windows 0.61.3",
  "windows-sys 0.61.2",
  "wry",
  "zandor-engine-supervisor",

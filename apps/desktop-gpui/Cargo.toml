@@ -34,3 +34,4 @@ rust-embed = { version = "8", features = ["include-exclude"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_UI_Input_KeyboardAndMouse"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Devices_FunctionDiscovery", "Win32_UI_Shell_PropertiesSystem"] }
