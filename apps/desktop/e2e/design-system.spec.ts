@@ -60,18 +60,18 @@ test("tema: gelap, terang, ikut sistem; tersimpan setelah reload", async ({ page
 
 test("zoom UI lewat Ctrl +/-/0 mengubah --ui-scale dan ukuran root, tanpa luapan", async ({ page }) => {
   await open(page);
-  expect(await rootFontPx(page)).toBe(16);
+  await expect.poll(() => rootFontPx(page)).toBe(16);
   await page.keyboard.press("Control+=");
-  expect(await rootFontPx(page)).toBe(18);
+  await expect.poll(() => rootFontPx(page)).toBe(18);
   for (let i = 0; i < 5; i++) await page.keyboard.press("Control+=");
-  expect(await rootFontPx(page)).toBe(24); // 150% = batas atas
+  await expect.poll(() => rootFontPx(page)).toBe(24); // 150% = batas atas
   expect(await noOverflow(page)).toBe(true);
   await page.keyboard.press("Control+0");
-  expect(await rootFontPx(page)).toBe(16);
+  await expect.poll(() => rootFontPx(page)).toBe(16);
   await page.keyboard.press("Control+-");
-  expect(await rootFontPx(page)).toBe(14);
+  await expect.poll(() => rootFontPx(page)).toBe(14);
   await page.reload();
-  expect(await rootFontPx(page)).toBe(14); // tersimpan
+  await expect.poll(() => rootFontPx(page)).toBe(14); // tersimpan
 });
 
 test("menu: buka, pilih item, status berubah; Esc menutup", async ({ page }) => {

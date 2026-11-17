@@ -1007,7 +1007,11 @@ function Composer({ session, draft = false }: { session: SessionChat; draft?: bo
       const typing =
         !!active && (active.matches("input, textarea, select, [contenteditable]") || active.isContentEditable);
       const free = !typing || !!active?.closest(".chat");
-      if (free && !document.querySelector('[role="dialog"], [role="menu"]')) el.focus({ preventScroll: true });
+      // Hanya overlay modal/menu yang menahan fokus; toast memakai role="dialog" non-modal dan tidak boleh menghalangi.
+      const blocked = document.querySelector(
+        '[role="dialog"]:not([aria-modal="false"]), [role="alertdialog"]:not([aria-modal="false"]), [role="menu"]',
+      );
+      if (free && !blocked) el.focus({ preventScroll: true });
     });
   };
   // sesi baru/tab berganti, engine baru siap, atau agent selesai bekerja → composer siap ketik

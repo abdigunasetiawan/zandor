@@ -3,6 +3,8 @@ import { mockEngine } from "./mock-engine";
 
 // PRD §13 butir 4: minimal 3 project dan 10 sesi tanpa crash.
 test("3 project dan 12 sesi: buat, kirim pesan, berpindah-pindah, muat ulang — tanpa galat/crash", async ({ page }) => {
+  // Skenario panjang (±25 dtk sendirian); saat suite berjalan paralel bisa melewati batas 30 dtk per tes.
+  test.setTimeout(90_000);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
@@ -26,14 +28,16 @@ test("3 project dan 12 sesi: buat, kirim pesan, berpindah-pindah, muat ulang —
     ["gamma", 3],
     ["Chat (tanpa project)", 2],
   ];
+  const rows = page.locator(".sidebar__section:not(.sidebar__section--demo) .tree__children .tree__session");
+  let made = 0;
   for (const [group, count] of plan) {
     for (let i = 0; i < count; i++) {
       await page.getByRole("button", { name: `Sesi baru di ${group}` }).click();
-      await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
+      // tunggu sesi ini tercatat dulu; kotak pesan sudah terlihat dari sesi sebelumnya sehingga bukan penanda
+      await expect(rows).toHaveCount(++made);
     }
   }
-  const rows = page.locator(".sidebar__section:not(.sidebar__section--demo) .tree__children .tree__session");
-  await expect(rows).toHaveCount(12);
+  await expect(page.getByRole("textbox", { name: /^Tulis pesan/ })).toBeVisible();
 
   // kirim pesan di tiga sesi berbeda
   const box = page.getByRole("textbox", { name: /^Tulis pesan/ });
@@ -63,7 +67,7 @@ test("3 project dan 12 sesi: buat, kirim pesan, berpindah-pindah, muat ulang —
   await expect(page.locator(".sidebar__status")).toContainText("Engine siap");
   await expect(
     page.locator(".sidebar__section:not(.sidebar__section--demo) .tree__children .tree__session"),
-  ).toHaveCount(12);
+  ).toHaveCount(12, { timeout: 20_000 }); // empat daftar sesi dimuat ulang bersamaan
   for (const n of names) await expect(page.getByRole("button", { name: n, exact: true })).toBeVisible();
 
   expect(errors).toEqual([]);

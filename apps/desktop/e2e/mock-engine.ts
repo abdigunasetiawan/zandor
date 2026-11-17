@@ -1,6 +1,6 @@
 // Engine tiruan di memori untuk e2e, dicegat lewat page.route (tanpa jaringan). Kontrak diverifikasi terhadap engine
 // asli di smoke native (e2e-native) dan rekaman SSE asli (packages/core/src/chat/fixtures).
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 
 type Sess = { id: string; title: string; directory: string; time: { created: number; updated: number } };
 type Part = Record<string, unknown> & { id: string; messageID: string; type: string };
@@ -440,7 +440,7 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
     finish();
   };
 
-  await page.route(`${opts.host ?? "http://engine.test"}/**`, async (route) => {
+  const handle = async (route: Route): Promise<void> => {
     const req = route.request();
     const url = new URL(req.url());
     const dir = url.searchParams.get("directory") ?? req.headers()["x-opencode-directory"] ?? "";
@@ -830,6 +830,15 @@ export async function mockEngine(page: Page, opts: MockOptions = {}): Promise<Mo
       return json(tree[path] ?? []);
     }
     return json({ message: `tidak ditangani: ${req.method()} ${p}` }, 404);
+  };
+  await page.route(`${opts.host ?? "http://engine.test"}/**`, async (route) => {
+    try {
+      await handle(route);
+    } catch (e) {
+      // Permintaan yang dibatalkan halaman (muat ulang/navigasi) saat handler masih menunggu (mis. long-poll /event)
+      // membuat `route.fulfill` melempar. Abaikan galat itu saja; galat lain tetap dilempar.
+      if (!/aborted|already handled|closed|detached|destroyed/i.test(String(e))) throw e;
+    }
   });
   // WebSocket PTY tiruan: prompt, gema ketikan, "perintah" dijawab, riwayat diputar ulang saat tersambung lagi.
   if (!secondary)

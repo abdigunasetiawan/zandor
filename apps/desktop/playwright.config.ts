@@ -5,6 +5,8 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   timeout: 30_000,
+  // Saat paralel (default ~setengah inti CPU) memuat aplikasi + daftar sesi bisa >5 dtk; 5 dtk bawaan memicu gagal palsu.
+  expect: { timeout: 10_000 },
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: { baseURL: "http://127.0.0.1:4173", channel: "msedge", locale: "id-ID", trace: "retain-on-failure" },
   webServer: {

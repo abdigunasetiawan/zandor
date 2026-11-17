@@ -9,9 +9,12 @@ async function setup(page: Page, limit?: { context: number; output?: number }) {
 }
 
 const send = async (page: Page, text: string) => {
+  // composer baru bisa mengirim setelah daftar model dimuat; di bawah beban ini bisa lebih lambat dari klik
+  await expect(page.getByRole("button", { name: /^Model: / })).toBeVisible();
   const box = page.getByRole("textbox", { name: /^Tulis pesan/ });
   await box.fill(text);
   await box.press("Enter");
+  await expect(page.getByRole("article", { name: "Anda" }).last()).toContainText(text);
   await expect(page.getByRole("article", { name: "Asisten" }).last()).toContainText("Halo", { timeout: 15_000 });
 };
 
