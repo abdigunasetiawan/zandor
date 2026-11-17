@@ -4,5 +4,6 @@ pub mod chat;
 pub mod chat_store;
 pub mod engine;
 pub mod projects;
+pub mod settings;
 pub mod services;
 pub mod types;

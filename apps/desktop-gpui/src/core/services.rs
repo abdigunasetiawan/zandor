@@ -88,6 +88,7 @@ pub fn init(cx: &mut App) {
         cx,
     );
 
+    super::settings::SettingsStore::init(data.join("settings.json"), cx);
     let chat = super::chat_store::ChatStore::init(cx);
     let manager = Arc::new(EngineManager::default());
     let initial = to_state(&manager.snapshot());

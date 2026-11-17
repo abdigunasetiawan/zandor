@@ -13,6 +13,7 @@ pub struct Root {
     titlebar: Entity<TitleBar>,
     layout: Entity<ShellLayout>,
     toasts: Entity<Toasts>,
+    settings_page: Entity<super::settings_page::SettingsPage>,
     palette: Option<Entity<super::command_center::CommandCenter>>,
 }
 
@@ -41,8 +42,21 @@ impl Root {
             }
         })
         .detach();
-        let _ = window;
-        Self { app, titlebar, layout, toasts, palette: None }
+        let settings = crate::core::settings::SettingsStore::global(cx);
+        cx.observe_in(&settings, window, |_, _, w, cx| apply_settings(w, cx)).detach();
+        cx.observe_window_appearance(window, |_, w, cx| apply_settings(w, cx)).detach();
+        apply_settings(window, cx);
+        let lay = layout.clone();
+        let app2 = app.clone();
+        let settings_page = cx.new(|cx| {
+            let mut p = super::settings_page::SettingsPage::new(app.clone(), cx);
+            p.on_reset_layout = Some(Rc::new(move |_, cx: &mut App| {
+                app2.update(cx, |a, cx| a.reset_layout(cx));
+                lay.update(cx, |l, cx| l.reset(cx));
+            }));
+            p
+        });
+        Self { app, titlebar, layout, toasts, palette: None, settings_page }
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -103,21 +117,13 @@ impl Root {
                     "view.zoomOut" => step_scale(t.scale, -1),
                     _ => 1.0,
                 };
-                let next = Theme::new(t.mode, t.dark, scale);
-                cx.set_global(next);
-                window.refresh();
+                set_setting("uiScale", serde_json::json!(scale), cx);
             }
             "view.toggleTheme" => {
-                let t = cx.global::<Theme>();
-                let mode = if t.dark { ThemeMode::Light } else { ThemeMode::Dark };
-                let next = Theme::new(mode, t.dark, t.scale);
-                cx.set_global(next);
-                window.refresh();
+                let dark = cx.global::<Theme>().dark;
+                set_setting("theme", serde_json::json!(if dark { "light" } else { "dark" }), cx);
             }
-            "view.langId" | "view.langEn" => {
-                cx.set_global(I18n::new(if id == "view.langEn" { Locale::En } else { Locale::Id }));
-                window.refresh();
-            }
+            "view.langId" | "view.langEn" => set_setting("language", serde_json::json!(if id == "view.langEn" { "en" } else { "id" }), cx),
             "window.close" => window.remove_window(),
             _ => {}
         }
@@ -131,6 +137,8 @@ impl Render for Root {
         let route = self.app.read(cx).current().to_string();
         let content: gpui::AnyElement = if route == "/" || route.is_empty() {
             self.layout.clone().into_any_element()
+        } else if route == "/settings" || route.starts_with("/settings/") {
+            self.settings_page.clone().into_any_element()
         } else {
             // Halaman lain (Pengaturan, Memori, Otomasi, Tampilan, Onboarding) — diport bertahap.
             div().size_full().into_any_element()
@@ -150,4 +158,27 @@ impl Render for Root {
             .children(self.palette.clone())
             .child(self.toasts.clone())
     }
+}
+
+fn set_setting(key: &str, v: serde_json::Value, cx: &mut App) {
+    let st = crate::core::settings::SettingsStore::global(cx);
+    if let Err(e) = st.update(cx, |s, cx| s.set(key, v, cx)) {
+        eprintln!("[zandor] {e}");
+    }
+}
+
+/// Terapkan tema, skala, dan bahasa dari pengaturan.
+pub fn apply_settings(window: &mut Window, cx: &mut App) {
+    let st = crate::core::settings::SettingsStore::global(cx).read(cx);
+    let mode = match st.str("theme").as_str() {
+        "dark" => ThemeMode::Dark,
+        "light" => ThemeMode::Light,
+        _ => ThemeMode::System,
+    };
+    let scale = st.num("uiScale") as f32;
+    let locale = if st.str("language") == "en" { Locale::En } else { Locale::Id };
+    let system_dark = matches!(window.appearance(), gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark);
+    cx.set_global(Theme::new(mode, system_dark, if scale > 0. { scale } else { 1.0 }));
+    cx.set_global(I18n::new(locale));
+    window.refresh();
 }
