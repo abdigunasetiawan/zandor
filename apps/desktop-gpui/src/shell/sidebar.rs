@@ -170,7 +170,7 @@ struct Ctx<'a> {
 }
 
 /// Lapisan latar baris project: gambar (posisi/zoom) > gradien, lalu overlay. Port rowStyle + CSS overlay (Sidebar.tsx).
-/// GPUI hanya mendukung gradien linear 2 titik: titik pertama & terakhir dipakai; gradien radial digambar linear.
+/// Gradien dirasterisasi penuh (semua titik, sudut, radial) sesuai ukuran baris — lihat `gradient_layer`.
 fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Vec<gpui::AnyElement> {
     use crate::core::appearance::parse_color;
     use gpui::{linear_color_stop, linear_gradient, relative};
@@ -190,12 +190,14 @@ fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Ve
                 .into_any_element(),
         );
     } else if let Some(spec) = ap.project_style(id, "gradient").and_then(|g| crate::core::gradient::parse_gradient(&g)) {
-        let (a, b) = (spec.stops.first(), spec.stops.last());
-        if let (Some(a), Some(b)) = (a, b) {
-            if let (Some(ca), Some(cb)) = (parse_color(&a.color), parse_color(&b.color)) {
-                let angle = if spec.radial { 180. } else { spec.angle };
-                out.push(div().absolute().inset_0().bg(linear_gradient(angle, linear_color_stop(ca, a.pos / 100.), linear_color_stop(cb, b.pos / 100.))).into_any_element());
-            }
+        let stops: Vec<(f32, [f32; 4])> = spec
+            .stops
+            .iter()
+            .filter_map(|s| parse_color(&s.color).map(|c| (s.pos / 100., gpui::Rgba::from(c))))
+            .map(|(p, c)| (p, [c.r, c.g, c.b, c.a]))
+            .collect();
+        if stops.len() == spec.stops.len() && !stops.is_empty() {
+            out.push(gradient_layer(stops, spec.radial, spec.angle));
         }
     }
     if let Some(kind) = ap.project_style(id, "overlay") {
@@ -213,6 +215,44 @@ fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Ve
         out.push(layer.into_any_element());
     }
     out
+}
+
+thread_local! {
+    static GRAD_CACHE: std::cell::RefCell<std::collections::HashMap<String, std::sync::Arc<gpui::RenderImage>>> = Default::default();
+}
+
+/// Lapisan gradien: dirender ke bitmap seukuran elemen (dibulatkan ke 4 px) lalu digambar sebagai gambar.
+fn gradient_layer(stops: Vec<(f32, [f32; 4])>, radial: bool, angle: f32) -> gpui::AnyElement {
+    gpui::canvas(
+        move |b, window, _| {
+            let sf = window.scale_factor();
+            let q = |v: f32| (((v * sf) / 4.).ceil() as u32 * 4).clamp(4, 4096);
+            let (w, h) = (q(f32::from(b.size.width)), q(f32::from(b.size.height)));
+            let key = format!("{stops:?}|{radial}|{angle}|{w}x{h}");
+            if let Some(i) = GRAD_CACHE.with(|c| c.borrow().get(&key).cloned()) {
+                return Some(i);
+            }
+            let buf = crate::core::gradient::raster(&stops, radial, angle, w, h);
+            let frame = image::Frame::new(image::RgbaImage::from_raw(w, h, buf)?);
+            let img = std::sync::Arc::new(gpui::RenderImage::new(smallvec::smallvec![frame]));
+            GRAD_CACHE.with(|c| {
+                let mut c = c.borrow_mut();
+                if c.len() > 128 {
+                    c.clear();
+                }
+                c.insert(key, img.clone());
+            });
+            Some(img)
+        },
+        |b, img, window, _| {
+            if let Some(img) = img {
+                let _ = window.paint_image(b, b, gpui::Corners::default(), img, 0, false);
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
 }
 
 fn row_base(t: &Theme, id: impl Into<SharedString>, active: bool) -> gpui::Stateful<gpui::Div> {

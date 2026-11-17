@@ -309,3 +309,78 @@ mod resize_tests {
         assert!(resize_image_bytes(b"<svg/>", 64, OutFmt::Png).is_err());
     }
 }
+
+/// Rasterisasi gradien CSS penuh (banyak titik, linear bersudut, radial "circle at center" farthest-corner) ke BGRA.
+/// Dipakai karena GPUI hanya punya gradien linear 2 titik. Interpolasi premultiplied seperti CSS.
+pub fn raster(stops: &[(f32, [f32; 4])], radial: bool, angle: f32, w: u32, h: u32) -> Vec<u8> {
+    let mut out = vec![0u8; (w * h * 4) as usize];
+    if stops.is_empty() || w == 0 || h == 0 {
+        return out;
+    }
+    // posisi tidak boleh mundur (aturan CSS)
+    let mut st: Vec<(f32, [f32; 4])> = Vec::with_capacity(stops.len());
+    for &(p, c) in stops {
+        let p = p.max(st.last().map(|x| x.0).unwrap_or(f32::MIN));
+        st.push((p, [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]]));
+    }
+    let (fw, fh) = (w as f32, h as f32);
+    let a = angle.to_radians();
+    let (dx, dy) = (a.sin(), -a.cos());
+    let len = (fw * dx).abs() + (fh * dy).abs();
+    let rad = ((fw / 2.).powi(2) + (fh / 2.).powi(2)).sqrt().max(1e-3);
+    for y in 0..h {
+        for x in 0..w {
+            let (px, py) = (x as f32 + 0.5 - fw / 2., y as f32 + 0.5 - fh / 2.);
+            let t = if radial { (px * px + py * py).sqrt() / rad } else { (px * dx + py * dy) / len.max(1e-3) + 0.5 };
+            let c = sample(&st, t);
+            let i = ((y * w + x) * 4) as usize;
+            let un = |v: f32| if c[3] > 0. { (v / c[3]).clamp(0., 1.) } else { 0. };
+            let q = |v: f32| (v * 255.).round() as u8;
+            out[i] = q(un(c[2]));
+            out[i + 1] = q(un(c[1]));
+            out[i + 2] = q(un(c[0]));
+            out[i + 3] = q(c[3].clamp(0., 1.));
+        }
+    }
+    out
+}
+
+fn sample(st: &[(f32, [f32; 4])], t: f32) -> [f32; 4] {
+    if t <= st[0].0 {
+        return st[0].1;
+    }
+    for w in st.windows(2) {
+        let ((p0, c0), (p1, c1)) = (w[0], w[1]);
+        if t <= p1 {
+            let k = if p1 > p0 { (t - p0) / (p1 - p0) } else { 1. };
+            return [0, 1, 2, 3].map(|j| c0[j] + (c1[j] - c0[j]) * k);
+        }
+    }
+    st[st.len() - 1].1
+}
+
+#[cfg(test)]
+mod raster_tests {
+    use super::*;
+
+    #[test]
+    fn three_stop_linear_and_radial() {
+        let red = [1., 0., 0., 1.];
+        let green = [0., 1., 0., 1.];
+        let blue = [0., 0., 1., 1.];
+        let s = [(0., red), (0.5, green), (1., blue)];
+        let px = |b: &Vec<u8>, w: u32, x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            [b[i + 2], b[i + 1], b[i]]
+        };
+        // 90deg = ke kanan
+        let b = raster(&s, false, 90., 100, 10);
+        assert!(px(&b, 100, 0, 5)[0] > 240);
+        assert!(px(&b, 100, 50, 5)[1] > 240);
+        assert!(px(&b, 100, 99, 5)[2] > 240);
+        // radial: tengah merah, sudut biru
+        let b = raster(&s, true, 0., 40, 40);
+        assert!(px(&b, 40, 20, 20)[0] > 230);
+        assert!(px(&b, 40, 0, 0)[2] > 230);
+    }
+}
