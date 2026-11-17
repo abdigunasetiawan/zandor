@@ -41,6 +41,7 @@ pub struct SettingsPage {
     chat_style: Entity<super::chat_style_section::ChatStyleSection>,
     keys: Entity<super::keys_section::KeysSection>,
     pstyles: Entity<super::projects_style_section::ProjectsStyleSection>,
+    editor: Entity<super::editor_section::EditorSection>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -69,7 +70,8 @@ impl SettingsPage {
         let chat_style = cx.new(super::chat_style_section::ChatStyleSection::new);
         let keys = cx.new(super::keys_section::KeysSection::new);
         let pstyles = cx.new(super::projects_style_section::ProjectsStyleSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes, typography, chat_style, keys, pstyles };
+        let editor = cx.new(super::editor_section::EditorSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes, typography, chat_style, keys, pstyles, editor };
         me.load_models(cx);
         me
     }
@@ -308,6 +310,9 @@ impl Render for SettingsPage {
             }
             if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.projects"), &i.t("ap.projects.logo")]) {
                 rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.projects"))).child(self.pstyles.clone()).into_any_element());
+            }
+            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.editor"), &i.t("ap.editor2.select")]) {
+                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.editor"))).child(self.editor.clone()).into_any_element());
             }
             if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.keys"), &i.t("ap.keys.change")]) {
                 rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.keys"))).child(self.keys.clone()).into_any_element());
