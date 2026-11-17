@@ -14,8 +14,13 @@ test("Pengaturan › Provider dan model: sembunyikan model, pilih/batalkan semua
   await page.getByRole("button", { name: "Provider dan model" }).first().click();
 
   // model bawaan chat
-  await page.getByRole("combobox", { name: "Model chat bawaan" }).click();
-  await page.getByRole("option", { name: "Mock · Model Dua" }).click();
+  // daftar model dikelompokkan per provider + kolom cari (Select standar, grup tunggal terbuka)
+  const chatModel = page.getByRole("combobox", { name: "Model chat bawaan" });
+  await chatModel.click();
+  await expect(page.getByRole("button", { name: /Mock/, expanded: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Cari" }).fill("dua");
+  await page.getByRole("option", { name: "Model Dua" }).click();
+  await expect(chatModel).toHaveText(/Mock · Model Dua/);
 
   // kelola model provider
   await page.getByRole("listitem", { name: "Mock" }).getByRole("button", { name: "Kelola model" }).click();

@@ -702,3 +702,66 @@
     display: none;
   }
 }
+
+/* ---------- Select dengan pencarian + grup (SearchSelect) ---------- */
+.z-sselect {
+  display: flex;
+  flex-direction: column;
+  gap: var(--z-space-1);
+  width: max(var(--anchor-width), calc(var(--z-space-7) * 5));
+  max-width: calc(100vw - var(--z-space-6));
+}
+.z-sselect__list {
+  max-height: min(calc(var(--z-space-7) * 8), 50vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.z-sselect__empty {
+  margin: 0;
+  padding: var(--z-space-3) var(--z-space-2);
+  color: var(--z-color-fg-muted);
+  font-size: var(--z-type-small-size);
+}
+.z-sselect__group {
+  display: flex;
+  align-items: center;
+  gap: var(--z-space-2);
+  width: 100%;
+  min-height: var(--z-control-sm);
+  padding: 0 var(--z-space-2);
+  border: 0;
+  border-radius: var(--z-radius-md);
+  background: transparent;
+  color: var(--z-color-fg-muted);
+  font: inherit;
+  font-size: var(--z-type-small-size);
+  font-weight: var(--z-type-h4-weight);
+  text-align: left;
+  cursor: pointer;
+}
+.z-sselect__group:hover {
+  color: var(--z-color-fg);
+}
+.z-sselect__group:disabled {
+  cursor: default;
+}
+.z-sselect__groupname {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.z-sselect__count {
+  color: var(--z-color-fg-subtle);
+  font-family: var(--z-font-mono);
+}
+.z-sselect__opt {
+  padding-left: var(--z-space-6);
+}
+.z-sselect__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

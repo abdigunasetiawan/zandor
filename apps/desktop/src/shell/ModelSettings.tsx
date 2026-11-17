@@ -90,7 +90,7 @@ function SmallModelRow() {
   const items = useMemo(() => {
     const list = [
       { value: AUTO, label: t("ms.smallAuto") },
-      ...chat.models.map((m) => ({ value: modelKey(m), label: `${m.providerName} · ${m.name}` })),
+      ...chat.models.map((m) => ({ value: modelKey(m), label: m.name, group: m.providerName })),
     ];
     // Model tersimpan yang tidak lagi tersedia tetap ditampilkan apa adanya (bukan diam-diam dianggap Otomatis).
     if (value && !list.some((i) => i.value === value)) list.push({ value, label: t("ms.smallMissing", { id: value }) });
@@ -146,7 +146,7 @@ function DefaultsSection() {
   const items = useMemo(
     () => [
       { value: AUTO, label: t("ms.auto") },
-      ...chat.models.map((m) => ({ value: modelKey(m), label: `${m.providerName} · ${m.name}` })),
+      ...chat.models.map((m) => ({ value: modelKey(m), label: m.name, group: m.providerName })),
     ],
     [chat.models, t],
   );

@@ -52,6 +52,16 @@ const MENU_ENTRIES = (log: (s: string) => void): MenuEntry[] => [
   { type: "item", id: "del", label: "Hapus sesi", danger: true, onSelect: () => log("Hapus sesi") },
 ];
 
+/** Daftar panjang/bergrup: Select otomatis memakai pencarian + grup yang bisa dilipat. */
+const GROUPED_MODELS = ["OpenAI", "Anthropic", "Google", "OpenRouter"].flatMap((p) =>
+  ["mini", "pro", "max"].map((m) => ({ value: `${p}/${m}`, label: `${p} ${m}`, group: p })),
+);
+
+function GroupedSelect() {
+  const [v, setV] = useState<string | null>("Google/pro");
+  return <Select aria-label="Model (bergrup)" value={v} onValueChange={setV} items={GROUPED_MODELS} />;
+}
+
 function ControlledSelect() {
   const [v, setV] = useState<string | null>("id");
   return (
@@ -275,6 +285,7 @@ export const ATOM_DEMOS: Record<AtomName, () => ReactNode> = {
   Select: () => (
     <div className="ds-narrow">
       <ControlledSelect />
+      <GroupedSelect />
     </div>
   ),
   Switch: ChoiceDemo,

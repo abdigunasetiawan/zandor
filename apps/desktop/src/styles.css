@@ -2664,9 +2664,13 @@
   display: flex;
   gap: var(--z-space-1);
 }
+/* Aktif = hijau (success), bukan hitam/putih: monokrom sulit dibedakan dari mati (preferensi pemilik 17-11-2026). */
 .composer__toggle[aria-pressed="true"] {
-  background: var(--z-color-active);
-  color: var(--z-color-fg);
+  background: color-mix(in srgb, var(--z-color-success) 18%, transparent);
+  color: var(--z-color-success);
+}
+.composer__toggle[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--z-color-success) 28%, transparent);
 }
 .mempage--embedded {
   max-width: none;

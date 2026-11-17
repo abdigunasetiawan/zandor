@@ -165,6 +165,51 @@ describe("Switch / Checkbox", () => {
 });
 
 describe("Select", () => {
+  test("daftar bergrup: cari, grup bisa dilipat, grup pilihan aktif terbuka, Enter memilih", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderUi(
+      <Select
+        aria-label="Model"
+        value="b/m2"
+        onValueChange={onChange}
+        items={[
+          { value: "auto", label: "Otomatis" },
+          { value: "a/m1", label: "Alpha 1", group: "Provider A" },
+          { value: "a/m2", label: "Alpha 2", group: "Provider A" },
+          { value: "b/m1", label: "Beta 1", group: "Provider B" },
+          { value: "b/m2", label: "Beta 2", group: "Provider B" },
+        ]}
+      />,
+    );
+    const trigger = screen.getByRole("combobox", { name: "Model" });
+    expect(trigger).toHaveTextContent("Provider B · Beta 2");
+    await user.click(trigger);
+    const groupA = await screen.findByRole("button", { name: /Provider A/ });
+    expect(groupA).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("option", { name: "Alpha 1" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Beta 2" })).toHaveAttribute("aria-selected", "true");
+    await user.click(groupA);
+    expect(screen.getByRole("option", { name: "Alpha 1" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Provider B/ }));
+    expect(screen.queryByRole("option", { name: "Beta 1" })).toBeNull();
+    // mencari membuka semua grup yang cocok
+    await user.type(screen.getByRole("combobox", { name: "Cari" }), "beta 1");
+    expect(screen.getByRole("option", { name: "Beta 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Alpha 1" })).toBeNull();
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledWith("b/m1");
+  });
+
+  test("tanpa hasil → pesan kosong", async () => {
+    const user = userEvent.setup();
+    const items = Array.from({ length: 20 }, (_, i) => ({ value: `v${i}`, label: `Item ${i}` }));
+    renderUi(<Select aria-label="Banyak" value={null} onValueChange={() => {}} items={items} />);
+    await user.click(screen.getByRole("combobox", { name: "Banyak" }));
+    await user.type(screen.getByRole("combobox", { name: "Cari" }), "zzz");
+    expect(screen.getByText("Tidak ada hasil")).toBeInTheDocument();
+  });
+
   test("memilih item lewat keyboard dan memanggil onValueChange", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

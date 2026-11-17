@@ -8,6 +8,7 @@ import { cx } from "../cx";
 import { CheckIcon, ChevronDownIcon } from "../icons";
 import { OFFSET_TIGHT } from "../layout";
 import type { ControlSize } from "./Button";
+import { SEARCH_THRESHOLD, SearchSelect } from "./SearchSelect";
 
 export type InputProps = Omit<ComponentPropsWithRef<"input">, "size"> & { invalid?: boolean; size?: ControlSize };
 
@@ -34,7 +35,15 @@ export function Textarea({ invalid, className, rows = 3, ...rest }: TextareaProp
  * `description` (opsional) tampil di bawah label hanya di daftar pilihan, tidak di pemicu. `icon` (opsional, dekoratif)
  * tampil di depan label di daftar; untuk menampilkannya di pemicu, teruskan ikon item terpilih lewat prop `icon`.
  */
-export type SelectItem = { value: string; label: string; description?: string; disabled?: boolean; icon?: ReactNode };
+export type SelectItem = {
+  value: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+  icon?: ReactNode;
+  /** Nama grup (mis. provider). Item bergrup dikelompokkan otomatis dalam grup yang bisa dibuka/ditutup. */
+  group?: string;
+};
 
 export type SelectProps = {
   items: SelectItem[];
@@ -48,9 +57,19 @@ export type SelectProps = {
   className?: string;
   /** Ikon di awal pemicu (dekoratif). */
   icon?: ReactNode;
+  /**
+   * Kolom cari + grup yang bisa dilipat. Bawaan: otomatis bila item lebih dari `SEARCH_THRESHOLD` atau ada item
+   * bergrup. `false` memaksa daftar biasa.
+   */
+  searchable?: boolean;
 };
 
-export function Select({
+export function Select(props: SelectProps) {
+  const auto = props.items.length > SEARCH_THRESHOLD || props.items.some((i) => i.group);
+  return (props.searchable ?? auto) ? <SearchSelect {...props} /> : <PlainSelect {...props} />;
+}
+
+function PlainSelect({
   items,
   value,
   onValueChange,
@@ -60,6 +79,7 @@ export function Select({
   size = "md",
   className,
   icon,
+  searchable: _searchable,
   ...aria
 }: SelectProps) {
   return (
