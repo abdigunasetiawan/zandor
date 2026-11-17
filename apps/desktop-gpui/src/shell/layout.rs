@@ -1,6 +1,6 @@
 //! Lima panel (ADR-015/025): P1 Sidebar | P2 Chat | P3 Dokumen | P4 Tools | P5 Rail — port ShellLayout.tsx.
 //! Ukuran panel = persentase lebar grup (bawaan 18/34/22/26), minimum dalam rem; separator bisa diseret.
-use super::state::{AppState, PanelId};
+use super::state::{AppState, PanelId, PANEL_IDS};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme, H4, P};
 use crate::ui::{icon_button, ButtonVariant, ControlSize, TypeExt};
@@ -86,16 +86,77 @@ pub struct ShellLayout {
     group: Option<Bounds<Pixels>>,
     dragging: Option<usize>,
     pub content: PanelContent,
+    saved: String,
+}
+
+fn layout_path() -> std::path::PathBuf {
+    crate::core::services::app_data_dir().join("layout.json")
+}
+
+fn remember(cx: &App) -> bool {
+    crate::core::settings::SettingsStore::global(cx).read(cx).get("rememberLayout").as_bool().unwrap_or(true)
 }
 
 impl ShellLayout {
     pub fn new(app: Entity<AppState>, content: PanelContent, cx: &mut Context<Self>) -> Self {
-        cx.observe(&app, |_, _, cx| cx.notify()).detach();
-        Self { app, sizes: DEFAULT_LAYOUT, active_tool: ToolId::Terminal, group: None, dragging: None, content }
+        cx.observe(&app, |s, _, cx| {
+            s.persist(cx);
+            cx.notify();
+        })
+        .detach();
+        let mut me = Self { app, sizes: DEFAULT_LAYOUT, active_tool: ToolId::Terminal, group: None, dragging: None, content, saved: String::new() };
+        if remember(cx) {
+            me.restore(cx);
+        }
+        me
+    }
+
+    /// Simpan ukuran panel, panel terlipat, dan alat aktif (pengaturan `rememberLayout`).
+    fn snapshot(&self, cx: &App) -> String {
+        let collapsed: Vec<String> = PANEL_IDS.iter().filter(|p| self.app.read(cx).is_collapsed(**p)).map(|p| format!("{p:?}")).collect();
+        serde_json::json!({ "version": 1, "sizes": self.sizes, "collapsed": collapsed, "tool": self.active_tool.key() }).to_string()
+    }
+
+    fn persist(&mut self, cx: &mut Context<Self>) {
+        if !remember(cx) {
+            return;
+        }
+        let snap = self.snapshot(cx);
+        if snap != self.saved {
+            let _ = std::fs::write(layout_path(), &snap);
+            self.saved = snap;
+        }
+    }
+
+    fn restore(&mut self, cx: &mut Context<Self>) {
+        let Ok(text) = std::fs::read_to_string(layout_path()) else { return };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+        if let Some(a) = v["sizes"].as_array() {
+            if a.len() == 4 && a.iter().all(|x| x.as_f64().is_some_and(|f| f.is_finite() && f > 0.)) {
+                for (n, x) in a.iter().enumerate() {
+                    self.sizes[n] = x.as_f64().unwrap_or(25.) as f32;
+                }
+            }
+        }
+        if let Some(k) = v["tool"].as_str() {
+            if let Some(t) = TOOL_IDS.iter().find(|t| t.key() == k) {
+                self.active_tool = *t;
+            }
+        }
+        let names: Vec<String> = v["collapsed"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+        self.app.update(cx, |a, _| {
+            for p in PANEL_IDS {
+                if names.contains(&format!("{p:?}")) {
+                    a.collapsed.insert(p);
+                }
+            }
+        });
+        self.saved = text;
     }
 
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.sizes = DEFAULT_LAYOUT;
+        self.persist(cx);
         cx.notify();
     }
 
@@ -111,6 +172,7 @@ impl ShellLayout {
         for i in 1..4 {
             self.sizes[i] = if open.contains(&i) { rest } else { self.sizes[i] };
         }
+        self.persist(cx);
         cx.notify();
     }
 
@@ -119,6 +181,7 @@ impl ShellLayout {
         if self.app.read(cx).is_collapsed(PanelId::Tools) {
             self.app.update(cx, |a, cx| a.toggle(PanelId::Tools, cx));
         }
+        self.persist(cx);
         cx.notify();
     }
 
@@ -325,12 +388,14 @@ impl Render for ShellLayout {
                         s.drag_to(sep, e.position.x, &open_for_move, cx);
                     } else {
                         s.dragging = None;
+                        s.persist(cx);
                         cx.notify();
                     }
                 }
             }))
             .on_mouse_up(MouseButton::Left, cx.listener(|s, _, _, cx| {
                 s.dragging = None;
+                s.persist(cx);
                 cx.notify();
             }))
             .child(group);
