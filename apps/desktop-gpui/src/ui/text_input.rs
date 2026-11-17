@@ -30,6 +30,7 @@ actions!(
         Cut,
         Copy,
         Quit,
+        Submit,
     ]
 );
 
@@ -678,6 +679,7 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(|this, _: &Submit, _, cx| cx.emit(InputSubmit(this.content.clone()))))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -689,6 +691,10 @@ impl Render for TextInput {
 /// Dipancarkan setiap isi berubah.
 pub struct InputChanged(pub SharedString);
 impl gpui::EventEmitter<InputChanged> for TextInput {}
+
+/// Dipancarkan saat Enter ditekan.
+pub struct InputSubmit(pub SharedString);
+impl gpui::EventEmitter<InputSubmit> for TextInput {}
 
 impl TextInput {
     pub fn new(cx: &mut Context<Self>, placeholder: impl Into<SharedString>) -> Self {
@@ -737,6 +743,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new(k("cmd-x", "ctrl-x"), Cut, ctx),
         KeyBinding::new("home", Home, ctx),
         KeyBinding::new("end", End, ctx),
+        KeyBinding::new("enter", Submit, ctx),
     ]);
 }
 

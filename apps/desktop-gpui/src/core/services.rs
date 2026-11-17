@@ -88,6 +88,7 @@ pub fn init(cx: &mut App) {
         cx,
     );
 
+    let chat = super::chat_store::ChatStore::init(cx);
     let manager = Arc::new(EngineManager::default());
     let initial = to_state(&manager.snapshot());
     let status = cx.new(|_| EngineStatus { state: initial, manager: manager.clone() });
@@ -114,6 +115,8 @@ pub fn init(cx: &mut App) {
             if changed_api {
                 let api2 = api.clone();
                 cx.update(|cx| projects.update(cx, |p, cx| p.set_api(api2, cx)));
+                let api3 = api.clone();
+                cx.update(|cx| chat.update(cx, |c, cx| c.set_api(api3, cx)));
             }
         }
     })
