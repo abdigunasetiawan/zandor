@@ -14,6 +14,7 @@ pub struct Root {
     layout: Entity<ShellLayout>,
     toasts: Entity<Toasts>,
     settings_page: Entity<super::settings_page::SettingsPage>,
+    memory_page: Entity<super::memory_page::MemoryPage>,
     palette: Option<Entity<super::command_center::CommandCenter>>,
 }
 
@@ -56,7 +57,8 @@ impl Root {
             }));
             p
         });
-        Self { app, titlebar, layout, toasts, palette: None, settings_page }
+        let memory_page = cx.new(|cx| super::memory_page::MemoryPage::new(app.clone(), cx));
+        Self { app, titlebar, layout, toasts, palette: None, settings_page, memory_page }
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -139,6 +141,8 @@ impl Render for Root {
             self.layout.clone().into_any_element()
         } else if route == "/settings" || route.starts_with("/settings/") {
             self.settings_page.clone().into_any_element()
+        } else if route == "/memory" {
+            self.memory_page.clone().into_any_element()
         } else {
             // Halaman lain (Pengaturan, Memori, Otomasi, Tampilan, Onboarding) — diport bertahap.
             div().size_full().into_any_element()
