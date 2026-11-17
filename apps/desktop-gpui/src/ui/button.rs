@@ -51,6 +51,7 @@ pub struct Button {
     loading: bool,
     disabled: bool,
     square: bool,
+    pressed: bool,
     tooltip: Option<SharedString>,
     children: Vec<AnyElement>,
     on_click: Option<OnClick>,
@@ -64,6 +65,7 @@ pub fn button(id: impl Into<ElementId>) -> Button {
         loading: false,
         disabled: false,
         square: false,
+        pressed: false,
         tooltip: None,
         children: Vec::new(),
         on_click: None,
@@ -85,6 +87,11 @@ impl Button {
     }
     pub fn size(mut self, s: ControlSize) -> Self {
         self.size = s;
+        self
+    }
+    /// aria-pressed: tombol toggle aktif berlatar `active`.
+    pub fn pressed(mut self, p: bool) -> Self {
+        self.pressed = p;
         self
     }
     pub fn loading(mut self, l: bool) -> Self {
@@ -127,6 +134,7 @@ impl RenderOnce for Button {
             _ => (c.active, c.border_strong),
         };
         let solid = self.variant == ButtonVariant::Solid;
+        let bg = if self.pressed { c.active } else { bg };
 
         let mut el = div()
             .id(self.id)
