@@ -41,6 +41,7 @@ actions!(
 
 pub struct TextInput {
     focus_handle: FocusHandle,
+    blur_sub: Option<gpui::Subscription>,
     content: SharedString,
     placeholder: SharedString,
     selected_range: Range<usize>,
@@ -796,6 +797,13 @@ impl Element for TextElement {
 
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.blur_sub.is_none() {
+            let fh = self.focus_handle.clone();
+            self.blur_sub = Some(cx.on_focus_out(&fh, window, |this, _, _, cx| {
+                let v: SharedString = this.text().to_string().into();
+                cx.emit(InputBlur(v));
+            }));
+        }
         let t = cx.global::<Theme>().clone();
         let focused = self.focus_handle.is_focused(window);
         let border = if self.invalid { t.colors.danger } else { t.colors.border_soft };
@@ -865,11 +873,15 @@ impl gpui::EventEmitter<InputChanged> for TextInput {}
 /// Dipancarkan saat Enter ditekan.
 pub struct InputSubmit(pub SharedString);
 impl gpui::EventEmitter<InputSubmit> for TextInput {}
+/// Fokus keluar dari kolom (nilai saat ini).
+pub struct InputBlur(pub SharedString);
+impl gpui::EventEmitter<InputBlur> for TextInput {}
 
 impl TextInput {
     pub fn new(cx: &mut Context<Self>, placeholder: impl Into<SharedString>) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
+            blur_sub: None,
             content: "".into(),
             placeholder: placeholder.into(),
             selected_range: 0..0,

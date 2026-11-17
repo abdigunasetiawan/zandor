@@ -65,6 +65,7 @@ impl ProjectsStyleSection {
                 });
                 let n = self.fields.len();
                 cx.subscribe(&input, move |this, _, e: &InputSubmit, cx| this.commit(n, e.0.to_string(), cx)).detach();
+                cx.subscribe(&input, move |this, _, e: &crate::ui::InputBlur, cx| this.commit(n, e.0.to_string(), cx)).detach();
                 cx.subscribe(&input, move |this, _, _: &InputChanged, cx| {
                     if let Some(f) = this.fields.get_mut(n) {
                         if f.error.take().is_some() {

@@ -48,6 +48,7 @@ impl TypeSection {
                 ti
             });
             cx.subscribe(&input, move |this, _, e: &InputSubmit, cx| this.commit(n, e.0.to_string(), cx)).detach();
+            cx.subscribe(&input, move |this, _, e: &crate::ui::InputBlur, cx| this.commit(n, e.0.to_string(), cx)).detach();
             cx.subscribe(&input, move |this, _, _: &InputChanged, cx| {
                 if this.fields[n].error.take().is_some() {
                     this.fields[n].input.update(cx, |ti, _| ti.invalid = false);
