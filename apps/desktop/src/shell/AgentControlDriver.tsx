@@ -6,7 +6,7 @@ import { useI18n } from "@zandor/i18n/react";
 import { useToast } from "@zandor/ui";
 import { useEffect, useRef } from "react";
 import { parseRoute } from "../App";
-import { type ControlDeps, type ControlRequest, executeControl, type ImageSize } from "./agent-control";
+import { type ControlDeps, type ControlRequest, executeControl, type ImageSize, locateDir } from "./agent-control";
 import { type ControlHost, loadControlHost } from "./control-host";
 import { type Services, useServices } from "./services";
 import { openInZandorBrowser, showBrowserTool } from "./tools/browser-bridge";
@@ -35,6 +35,26 @@ export function knownRoots(projects: Services["projects"]): string[] {
   return [...s.projects.map((p) => p.path), ...(s.chatDir ? [s.chatDir] : [])];
 }
 
+/**
+ * Buka `path` (relatif ke folder `dir`, atau absolut) di Panel 3. `dir` boleh folder project atau folder kerja sesi Chat
+ * (di dalam root Chat): Panel 3 membuka berkas lewat root terdaftar + awalan relatif folder sesi.
+ */
+export function openInDocs(docs: Services["docs"], projects: Services["projects"], path: string, dir: string): boolean {
+  const roots = knownRoots(projects);
+  const isAbs = /^([a-z]:[\\/]|\/)/i.test(path);
+  const target = isAbs ? locateDir(roots, path) : locateDir(roots, dir);
+  if (!target) return false;
+  if (isAbs) {
+    const rel = target.prefix.replace(/\/$/, "");
+    if (!rel) return false;
+    docs.open(target.root, rel);
+    return true;
+  }
+  if (path.split(/[\\/]/).includes("..")) return false;
+  docs.open(target.root, `${target.prefix}${path.replace(/\\/g, "/")}`);
+  return true;
+}
+
 export function AgentControlDriver() {
   const services = useServices();
   const { t } = useI18n();
@@ -48,19 +68,8 @@ export function AgentControlDriver() {
     let busy = false;
     let stopped = false;
 
-    const openFile = (path: string, root: string) => {
-      const roots = knownRoots(projects);
-      const base = roots.find((r) => r.toLowerCase() === root.toLowerCase()) ?? null;
-      if (!base) return false;
-      if (/^([a-z]:[\\/]|\/)/i.test(path)) {
-        const norm = path.replace(/\\/g, "/").toLowerCase();
-        const owner = roots.find((r) => norm.startsWith(`${r.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()}/`));
-        if (!owner) return false;
-        docs.open(owner, path.replace(/\\/g, "/").slice(owner.replace(/[\\/]+$/, "").length + 1));
-      } else {
-        if (path.split(/[\\/]/).includes("..")) return false;
-        docs.open(base, path);
-      }
+    const openFile = (path: string, dir: string) => {
+      if (!openInDocs(docs, projects, path, dir)) return false;
       panels.actions?.reveal("docs");
       return true;
     };

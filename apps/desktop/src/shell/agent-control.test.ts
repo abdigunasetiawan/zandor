@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { type ControlDeps, executeControl, imageFileName, safeRelPath } from "./agent-control";
+import { type ControlDeps, executeControl, imageFileName, locateDir, safeRelPath } from "./agent-control";
 import { toRequest } from "./control-host";
 
 function deps(over: Partial<ControlDeps> = {}): ControlDeps & { calls: string[] } {
@@ -95,8 +95,8 @@ describe("kontrol aplikasi oleh agent (ADR-077)", () => {
     const d = deps({ generateImage: gen });
     const r = await executeControl(req("generate_image", { prompt: "Kucing oranye!", path: "art/kucing.png" }), d);
     expect(r).toEqual({ ok: true, result: "Gambar disimpan: art/kucing.png (dibuka di Panel 3)." });
-    expect(gen).toHaveBeenCalledWith("Kucing oranye!", "1024x1024", "C:/proj", "art/kucing.png");
-    expect(d.calls).toEqual(["file:C:/proj:art/kucing.png"]);
+    expect(gen).toHaveBeenCalledWith("Kucing oranye!", "1024x1024", "C:/proj/", "art/kucing.png");
+    expect(d.calls).toEqual(["file:C:/proj/:art/kucing.png"]);
     expect((await executeControl(req("generate_image", { prompt: "x", path: "../luar.png" }), d)).ok).toBe(false);
     expect((await executeControl(req("generate_image", { prompt: "x", size: "9x9" }), d)).ok).toBe(false);
     const asing = await executeControl({ ...req("generate_image", { prompt: "x" }), directory: "D:/lain" }, d);
@@ -133,5 +133,26 @@ describe("kontrol aplikasi oleh agent (ADR-077)", () => {
       sessionID: "",
       directory: "",
     });
+  });
+});
+
+describe("folder sesi Chat (di dalam root Chat)", () => {
+  test("locateDir: root sendiri, folder sesi di dalamnya, dan folder asing", () => {
+    const roots = ["C:/proj", "C:/data/chats"];
+    expect(locateDir(roots, "C:/proj/")).toEqual({ root: "C:/proj", prefix: "" });
+    expect(locateDir(roots, "C:/Data/Chats/chat-abc")).toEqual({ root: "C:/data/chats", prefix: "chat-abc/" });
+    expect(locateDir(roots, "D:/lain")).toBeNull();
+    expect(locateDir(roots, "C:/projek")).toBeNull();
+  });
+
+  test("generate gambar di sesi Chat menulis ke folder sesi", async () => {
+    const gen = vi.fn(async (_p: string, _s: string, _r: string, rel: string) => rel);
+    const d = deps({ generateImage: gen, knownRoots: () => ["C:/data/chats"] });
+    const r = await executeControl(
+      { ...req("generate_image", { prompt: "x", path: "a.png" }), directory: "C:/data/chats/chat-1" },
+      d,
+    );
+    expect(r.ok).toBe(true);
+    expect(gen).toHaveBeenCalledWith("x", "1024x1024", "C:/data/chats/chat-1", "a.png");
   });
 });

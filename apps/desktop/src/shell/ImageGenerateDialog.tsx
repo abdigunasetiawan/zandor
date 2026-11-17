@@ -3,7 +3,7 @@
 import { useI18n } from "@zandor/i18n/react";
 import { Button, Dialog, Field, Select, Textarea, useToast } from "@zandor/ui";
 import { type FormEvent, useEffect, useState } from "react";
-import { generateWithDefault, knownRoots } from "./AgentControlDriver";
+import { generateWithDefault, knownRoots, openInDocs } from "./AgentControlDriver";
 import { type ImageSize, imageFileName } from "./agent-control";
 import { type ControlHost, loadControlHost } from "./control-host";
 import { useModelPrefs, useServices } from "./services";
@@ -40,7 +40,7 @@ export function ImageGenerateDialog({ open, onOpenChange }: { open: boolean; onO
         root,
         rel: imageFileName(prompt),
       });
-      docs.open(root, rel);
+      openInDocs(docs, projects, rel, root);
       panels.actions?.reveal("docs");
       toast.show({ title: t("img.saved", { path: rel }), tone: "success", timeoutMs: 5000 });
       setPrompt("");

@@ -44,17 +44,29 @@ export interface ControlDeps {
   knownRoots(): string[];
 }
 
+const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
+
+/**
+ * Letak folder `dir` terhadap root yang dikenal: root itu sendiri, atau folder di dalamnya (mis. folder kerja sesi Chat
+ * `chats/chat-…` di dalam root Chat). `prefix` = jalur relatif `dir` dari root ("" bila sama, selain itu berakhiran "/").
+ */
+export function locateDir(roots: readonly string[], dir: string): { root: string; prefix: string } | null {
+  const d = norm(dir);
+  const dl = d.toLowerCase();
+  let best: { root: string; prefix: string } | null = null;
+  for (const r of roots) {
+    const rl = norm(r).toLowerCase();
+    if (dl === rl) return { root: r, prefix: "" };
+    if (dl.startsWith(`${rl}/`) && (!best || norm(best.root).length < rl.length)) {
+      const rest = d.slice(rl.length + 1);
+      if (!rest.split("/").includes("..")) best = { root: r, prefix: `${rest}/` };
+    }
+  }
+  return best;
+}
+
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const fail = (error: string): ControlResponse => ({ ok: false, error });
-const sameDir = (a: string, b: string) =>
-  a
-    .replace(/[\\/]+$/, "")
-    .replace(/\\/g, "/")
-    .toLowerCase() ===
-  b
-    .replace(/[\\/]+$/, "")
-    .replace(/\\/g, "/")
-    .toLowerCase();
 
 /** Nama berkas aman dari prompt: huruf kecil, kebab, maks 40 karakter. */
 export function imageFileName(prompt: string, now = new Date()): string {
@@ -165,8 +177,10 @@ export async function executeControl(req: ControlRequest, deps: ControlDeps): Pr
         if (!prompt) return fail("prompt wajib.");
         const size = (str(a.size) || "1024x1024") as ImageSize;
         if (!IMAGE_SIZES.includes(size)) return fail(`size harus salah satu: ${IMAGE_SIZES.join(", ")}`);
-        const root = deps.knownRoots().find((r) => sameDir(r, req.directory));
-        if (!root) return fail("Folder sesi ini tidak dikenal Zandor; gambar tidak disimpan.");
+        // Folder sesi: folder project, atau folder kerja sesi Chat (di dalam root Chat).
+        if (!locateDir(deps.knownRoots(), req.directory))
+          return fail("Folder sesi ini tidak dikenal Zandor; gambar tidak disimpan.");
+        const root = req.directory;
         const rel = a.path === undefined ? imageFileName(prompt) : safeRelPath(str(a.path));
         if (!rel) return fail("path harus relatif di dalam folder project (tanpa ..).");
         const written = await deps.generateImage(prompt, size, root, rel);
