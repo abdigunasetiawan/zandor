@@ -8,7 +8,7 @@ use crate::core::types::*;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{
-    badge, button, icon, icon_button, markdown, working, BadgeTone, ButtonVariant, ControlSize, IconSize, InputSubmit, TextInput,
+    badge, icon, icon_button, markdown, working, BadgeTone, ButtonVariant, ControlSize, IconSize, InputSubmit, TextInput,
     TypeExt,
 };
 use gpui::{
@@ -23,6 +23,8 @@ mod composer_assist;
 mod queue_dock;
 #[path = "chat_parts.rs"]
 mod chat_parts;
+#[path = "prompt_dock.rs"]
+mod prompt_dock;
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -44,6 +46,7 @@ pub struct ChatPanel {
     voice_devices: Vec<crate::voice::AudioInput>,
     voice_device: String,
     queue: queue_dock::QueueState,
+    dock: prompt_dock::DockState,
 }
 
 impl ChatPanel {
@@ -95,6 +98,7 @@ impl ChatPanel {
             voice_devices: vec![],
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
+            dock: Default::default(),
         };
         me.sync(cx);
         me
@@ -279,18 +283,6 @@ fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, i: &I18n) -> AnyElemen
             ),
         )
         .into_any_element()
-}
-
-fn card(t: &Theme) -> gpui::Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(t.space(2))
-        .p(t.space(3))
-        .rounded(t.rem(rem::RADIUS_LG))
-        .border_1()
-        .border_color(t.colors.border)
-        .bg(t.colors.raised)
 }
 
 impl Render for ChatPanel {
@@ -576,6 +568,10 @@ impl Render for ChatPanel {
                 .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_permission_mode(&v, cx)))
         };
         let qdock = cur.as_ref().and_then(|c| self.render_queue(&c.1.clone(), cx));
+        let qdock = match (&state, &cur) {
+            (Some(st), Some(c)) => self.render_dock(st, &c.1.clone(), qdock, cx),
+            _ => qdock,
+        };
         let composer = div().w_full().px(t.space(3)).pb(t.space(3)).flex().flex_col().gap(t.space(2)).children(qdock).children(sug_el).children(chips).child(
             div()
                 .flex()
@@ -702,91 +698,6 @@ impl Render for ChatPanel {
         }
         if let Some(e) = &st.error {
             inner = inner.child(div().text_color(t.colors.danger).child(e.clone()));
-        }
-        // ---- izin ----
-        for p in &st.permissions {
-            let mk = |r: PermissionReply, label: &str, v: ButtonVariant| {
-                let (sid, rid) = (sid.clone(), p.id.clone());
-                button(SharedString::from(format!("pm-{}-{}", p.id, r.as_str())))
-                    .label(i.t(label))
-                    .variant(v)
-                    .size(ControlSize::Sm)
-                    .on_click(cx.listener(move |s, _, _, cx| s.chat.update(cx, |c, cx| c.reply_permission(&sid, &rid, r, cx))))
-            };
-            inner = inner.child(
-                card(&t)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(t.space(2))
-                            .child(icon("shield").size(IconSize::Md).color(t.colors.warning))
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(i.tp("chat.permission.title", &[("permission", &p.permission)]))),
-                    )
-                    .children((!p.patterns.is_empty()).then(|| div().code(&t).text_color(t.colors.fg_muted).child(p.patterns.join("\n"))))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(t.space(2))
-                            .child(mk(PermissionReply::Once, "chat.permission.once", ButtonVariant::Solid))
-                            .child(mk(PermissionReply::Always, "chat.permission.always", ButtonVariant::Outline))
-                            .child(mk(PermissionReply::Reject, "chat.permission.reject", ButtonVariant::Ghost)),
-                    ),
-            );
-        }
-        // ---- pertanyaan ----
-        for q in &st.questions {
-            let mut c = card(&t).child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(t.space(2))
-                    .child(icon("info").size(IconSize::Md).color(t.colors.accent))
-                    .child(div().font_weight(FontWeight::SEMIBOLD).child(i.t("q.title"))),
-            );
-            let total = q.questions.len();
-            for (qi, item) in q.questions.iter().enumerate() {
-                c = c
-                    .when(!item.header.is_empty(), |d| d.child(div().small(&t).text_color(t.colors.fg_subtle).child(item.header.clone())))
-                    .child(div().child(item.question.clone()))
-                    .child(div().small(&t).text_color(t.colors.fg_subtle).child(i.t(if item.multiple { "q.multiHint" } else { "q.singleHint" })));
-                let mut opts = div().flex().flex_col().gap(t.space(1));
-                for (oi, o) in item.options.iter().enumerate() {
-                    let (sid, rid, label) = (sid.clone(), q.id.clone(), o.label.clone());
-                    opts = opts.child(
-                        div()
-                            .id(SharedString::from(format!("qo-{}-{qi}-{oi}", q.id)))
-                            .flex()
-                            .flex_col()
-                            .px(t.space(2))
-                            .py(t.space(1))
-                            .rounded(t.rem(rem::RADIUS_MD))
-                            .border_1()
-                            .border_color(t.colors.border_soft)
-                            .cursor_pointer()
-                            .hover(|s| s.bg(t.colors.hover))
-                            .on_click(cx.listener(move |s, _, _, cx| {
-                                let mut ans = vec![vec![]; total];
-                                ans[qi] = vec![label.clone()];
-                                s.chat.update(cx, |c, cx| c.reply_question(&sid, &rid, Some(ans), cx));
-                            }))
-                            .child(div().font_weight(FontWeight::MEDIUM).child(o.label.clone()))
-                            .when(!o.description.is_empty(), |d| d.child(div().small(&t).text_color(t.colors.fg_muted).child(o.description.clone()))),
-                    );
-                }
-                c = c.child(opts);
-            }
-            let (sid2, rid2) = (sid.clone(), q.id.clone());
-            c = c.child(
-                div().flex().justify_end().child(
-                    button(SharedString::from(format!("qs-{}", q.id)))
-                        .label(i.t("q.skip"))
-                        .variant(ButtonVariant::Ghost)
-                        .size(ControlSize::Sm)
-                        .on_click(cx.listener(move |s, _, _, cx| s.chat.update(cx, |c, cx| c.reply_question(&sid2, &rid2, None, cx)))),
-                ),
-            );
-            inner = inner.child(c);
         }
         body = body.child(inner);
         if count != self.last_count && focus.is_none() {
