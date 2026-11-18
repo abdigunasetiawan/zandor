@@ -92,6 +92,87 @@ pub struct DocsPanel {
     body_scroll: gpui::ScrollHandle,
     /// Popover "Buka dengan": posisi + status daftar aplikasi.
     open_with: Option<(gpui::Point<gpui::Pixels>, OwLoad)>,
+    /// Popover Kustomisasi (DocCustomize): kontrol gaya untuk penampil aktif.
+    doc_style: Option<Entity<super::doc_style_section::DocStyleControls>>,
+    customize: bool,
+    look: DocLook,
+}
+
+/// Gaya Panel 3 yang sudah dihitung dari appearance.docs (port variabel CSS --z-doc-*).
+#[derive(Clone, Default)]
+struct DocLook {
+    code_size: Option<f32>,
+    code_lh: Option<f32>,
+    code_font: Option<SharedString>,
+    line_numbers: bool,
+    whitespace: bool,
+    /// (latar, teks, teks redup) tema baca.
+    theme: Option<(gpui::Hsla, gpui::Hsla, gpui::Hsla)>,
+    prose_font: Option<SharedString>,
+    prose_size: Option<f32>,
+    prose_line: Option<f32>,
+    prose_width: f32,
+    table_size: Option<f32>,
+    image_bg: String,
+}
+
+fn hex(s: &str) -> gpui::Hsla {
+    crate::core::appearance::parse_color(s).unwrap_or(gpui::black())
+}
+
+impl DocLook {
+    fn from(d: &serde_json::Map<String, serde_json::Value>) -> Self {
+        use super::doc_style_section::doc_num;
+        let has = |k: &str| d.contains_key(k);
+        let font = |k: &str| d.get(k).and_then(|v| v.as_str()).map(|f| SharedString::from(crate::core::appearance::first_family(f)));
+        let theme = match d.get("theme").and_then(|v| v.as_str()) {
+            Some("paper") => Some((hex("#ffffff"), hex("#1f1f1f"), hex("#5c5c5c"))),
+            Some("sepia") => Some((hex("#f4ecd8"), hex("#3b2f1e"), hex("#6b5a41"))),
+            Some("night") => Some((hex("#0f1115"), hex("#d8dbe0"), hex("#9aa0a8"))),
+            _ => None,
+        };
+        Self {
+            code_size: has("codeSize").then(|| doc_num(d, "codeSize", 13.)),
+            code_lh: has("codeLineHeight").then(|| doc_num(d, "codeLineHeight", 1.5)),
+            code_font: font("codeFont"),
+            line_numbers: d.get("lineNumbers").and_then(|v| v.as_bool()).unwrap_or(true),
+            whitespace: d.get("whitespace").and_then(|v| v.as_bool()).unwrap_or(false),
+            theme,
+            prose_font: font("proseFont"),
+            prose_size: has("proseSize").then(|| doc_num(d, "proseSize", 0.875)),
+            prose_line: has("proseLine").then(|| doc_num(d, "proseLine", 1.55)),
+            prose_width: doc_num(d, "proseWidth", 48.),
+            table_size: has("tableSize").then(|| doc_num(d, "tableSize", 0.8125)),
+            image_bg: d.get("imageBg").and_then(|v| v.as_str()).unwrap_or("auto").to_string(),
+        }
+    }
+
+    /// Tema dengan warna teks tema baca (dipakai penampil Markdown/Office).
+    fn themed(&self, t: &Theme) -> Theme {
+        let mut t2 = t.clone();
+        if let Some((_, fg, muted)) = self.theme {
+            t2.colors.fg = fg;
+            t2.colors.fg_muted = muted;
+        }
+        t2
+    }
+
+    /// Bungkus penampil prosa: lebar kolom baca, huruf, ukuran, tinggi baris, latar tema.
+    fn prose(&self, t: &Theme, el: AnyElement) -> AnyElement {
+        let inner = div()
+            .w_full()
+            .max_w(t.rem(self.prose_width))
+            .mx_auto()
+            .when_some(self.prose_font.clone(), |d, f| d.font_family(f))
+            .when_some(self.prose_size, |d, s| d.text_size(t.rem(s)))
+            .when_some(self.prose_line, |d, l| d.line_height(gpui::relative(l)))
+            .child(el);
+        div()
+            .w_full()
+            .when_some(self.theme, |d, (bg, fg, _)| d.bg(bg).text_color(fg))
+            .child(inner)
+            .into_any_element()
+    }
 }
 
 #[derive(Clone)]
@@ -124,7 +205,7 @@ impl DocsPanel {
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None }
+        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
     }
 
     /// Penampil mandiri untuk byte lampiran (port AttachmentPreview.tsx → PreviewBody).
@@ -137,7 +218,7 @@ impl DocsPanel {
         });
         let mut cache = HashMap::new();
         cache.insert(name, Loaded { kind, bytes: Ok(std::sync::Arc::new(bytes)), text });
-        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None }
+        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
     }
 
     fn load(path: &str) -> Loaded {
@@ -361,7 +442,11 @@ fn note(t: &Theme, s: String) -> AnyElement {
 }
 
 fn code_view(t: &Theme, text: &str, wrap: bool) -> AnyElement {
-    code_view_find(t, text, wrap, "", usize::MAX)
+    code_view_find(t, &DocLook { line_numbers: true, prose_width: 48., ..Default::default() }, text, wrap, "", usize::MAX)
+}
+
+fn code_view_look(t: &Theme, look: &DocLook, text: &str, wrap: bool) -> AnyElement {
+    code_view_find(t, look, text, wrap, "", usize::MAX)
 }
 
 /// Posisi temuan (baris, kolom byte) untuk kueri tanpa membedakan huruf besar/kecil.
@@ -382,7 +467,7 @@ pub fn find_matches(text: &str, q: &str) -> Vec<(usize, usize)> {
     out
 }
 
-fn code_view_find(t: &Theme, text: &str, wrap: bool, q: &str, current: usize) -> AnyElement {
+fn code_view_find(t: &Theme, look: &DocLook, text: &str, wrap: bool, q: &str, current: usize) -> AnyElement {
     let hits = find_matches(text, q);
     let ql = q.len();
     let lines: Vec<&str> = text.lines().collect();
@@ -393,8 +478,14 @@ fn code_view_find(t: &Theme, text: &str, wrap: bool, q: &str, current: usize) ->
         .p(t.space(3))
         .font_family(t.font_code.clone())
         .code(t)
+        .when_some(look.code_font.clone(), |d, f| d.font_family(f))
+        .when_some(look.code_size, |d, s| d.text_size(gpui::px(s * t.scale)))
+        .when_some(look.code_lh, |d, l| d.line_height(gpui::relative(l)))
         .children(lines.into_iter().take(50_000).enumerate().map(|(n, l)| {
-            let line = if l.is_empty() { " ".to_string() } else { l.replace('\t', "    ") };
+            let mut line = if l.is_empty() { " ".to_string() } else { l.replace('\t', "    ") };
+            if look.whitespace && q.is_empty() {
+                line = line.replace(' ', "\u{b7}");
+            }
             let hl: Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> = hits
                 .iter()
                 .enumerate()
@@ -405,7 +496,7 @@ fn code_view_find(t: &Theme, text: &str, wrap: bool, q: &str, current: usize) ->
             div()
                 .flex()
                 .gap(t.space(3))
-                .child(div().flex_none().text_color(t.colors.fg_subtle).child(format!("{:>w$}", n + 1, w = w)))
+                .when(look.line_numbers, |d| d.child(div().flex_none().text_color(t.colors.fg_subtle).child(format!("{:>w$}", n + 1, w = w))))
                 .child(if wrap { div().flex_1().min_w_0().child(content) } else { div().whitespace_nowrap().child(content) })
         }))
         .into_any_element()
@@ -549,12 +640,19 @@ impl DocsPanel {
         let trunc = truncated.then(|| note(t, i.t("doc.truncated")));
         let el: AnyElement = if (raw || kind == DocKind::Code) && is_text_kind(kind) {
             let q = self.find.as_ref().map(|f| f.read(cx).text().to_string()).unwrap_or_default();
-            code_view_find(t, &text, wrap, &q, self.find_at)
+            code_view_find(t, &self.look, &text, wrap, &q, self.find_at)
         } else {
             match kind {
-                DocKind::Markdown => div().p(t.space(4)).child(markdown(&text, t)).into_any_element(),
+                DocKind::Markdown => {
+                    let t2 = self.look.themed(t);
+                    self.look.prose(t, div().p(t.space(3)).child(markdown(&text, &t2)).into_any_element())
+                }
                 DocKind::Image | DocKind::Svg => div()
+                    .relative()
                     .p(t.space(3))
+                    .when(self.look.image_bg == "light", |d| d.bg(hex("#ffffff")))
+                    .when(self.look.image_bg == "dark", |d| d.bg(hex("#0f1115")))
+                    .when(self.look.image_bg == "checker", |d| d.child(checker(t)))
                     .flex()
                     .flex_col()
                     .items_center()
@@ -596,18 +694,18 @@ impl DocsPanel {
                     } else {
                         let info = i.tp("doc.tableInfo", &[("rows", &rows.len().to_string()), ("cols", &rows.iter().map(|r| r.len()).max().unwrap_or(0).to_string())]);
                         let clipped = rows.len() > MAX_TABLE_ROWS;
-                        div().flex().flex_col().child(note(t, info)).child(table(t, &rows, true)).when(clipped, |d| d.child(note(t, i.tp("doc.tableClipped", &[("max", &MAX_TABLE_ROWS.to_string())])))).into_any_element()
+                        div().flex().flex_col().child(note(t, info)).child(div().when_some(self.look.table_size, |d, sz| d.text_size(t.rem(sz))).child(table(t, &rows, true))).when(clipped, |d| d.child(note(t, i.tp("doc.tableClipped", &[("max", &MAX_TABLE_ROWS.to_string())])))).into_any_element()
                     }
                 }
                 DocKind::Json => match serde_json::from_str::<serde_json::Value>(&text) {
-                    Ok(v) => code_view(t, &serde_json::to_string_pretty(&v).unwrap_or_default(), wrap),
+                    Ok(v) => div().when_some(self.look.table_size, |d, sz| d.text_size(t.rem(sz))).child(code_view_look(t, &self.look, &serde_json::to_string_pretty(&v).unwrap_or_default(), wrap)).into_any_element(),
                     Err(e) => div().child(note(t, i.tp("doc.jsonInvalid", &[("error", &e.to_string())]))).child(code_view(t, &text, wrap)).into_any_element(),
                 },
                 DocKind::Html => {
                     div()
                         .flex()
                         .flex_col()
-                        .child(code_view(t, &text, wrap))
+                        .child(code_view_look(t, &self.look, &text, wrap))
                         .into_any_element()
                 }
                 DocKind::Notebook => match parse_notebook(&text) {
@@ -640,15 +738,21 @@ impl DocsPanel {
                 },
                 DocKind::Docx => match parse_docx(&bytes) {
                     Err(e) => note(t, i.tp("doc.officeFailed", &[("name", file_name(path)), ("error", &e)])),
-                    Ok(r) => div()
-                        .flex()
-                        .flex_col()
-                        .gap(t.space(2))
-                        .p(t.space(4))
-                        .child(div().small(t).text_color(t.colors.fg_muted).child(i.t("doc.officeBestEffort")))
-                        .children(docx_view(t, &r.blocks))
-                        .when(r.truncated, |d| d.child(note(t, i.t("doc.officeTruncated"))))
-                        .into_any_element(),
+                    Ok(r) => {
+                        let t2 = self.look.themed(t);
+                        self.look.prose(
+                            t,
+                            div()
+                                .flex()
+                                .flex_col()
+                                .gap(t.space(2))
+                                .p(t.space(4))
+                                .child(div().small(&t2).text_color(t2.colors.fg_muted).child(i.t("doc.officeBestEffort")))
+                                .children(docx_view(&t2, &r.blocks))
+                                .when(r.truncated, |d| d.child(note(&t2, i.t("doc.officeTruncated"))))
+                                .into_any_element(),
+                        )
+                    }
                 },
                 DocKind::Xlsx => match parse_xlsx(&bytes) {
                     Err(e) => note(t, i.tp("doc.officeFailed", &[("name", file_name(path)), ("error", &e)])),
@@ -745,6 +849,7 @@ impl Render for DocsPanel {
             self.cache.insert(active.clone(), l);
         }
         let kind = self.cache[&active].kind;
+        self.look = DocLook::from(&crate::core::appearance::AppearanceStore::global(cx).read(cx).docs);
         if self.preview {
             return self.body(&t, &i, &active, cx);
         }
@@ -793,6 +898,18 @@ impl Render for DocsPanel {
             );
         }
 
+        let viewer = viewer_name(kind, self.raw.contains(&active), self.state.read(cx).diffs.contains_key(&active), self.editors.contains_key(&active));
+        let tabs = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .border_b_1()
+            .border_color(t.colors.border)
+            .child(div().flex_1().min_w_0().child(tabs.border_b_0()))
+            .child(div().flex_none().px(t.space(1)).child(icon_button("doc-customize", "customize", i.t("docStyle.open")).size(ControlSize::Sm).pressed(self.customize).on_click(cx.listener(|s, _, _, cx| {
+                s.customize = !s.customize;
+                cx.notify();
+            }))));
         let raw = self.raw.contains(&active);
         let wrap = !self.nowrap.contains(&active);
         let (a1, a2, a3, a4, a5, a6, a7) = (active.clone(), active.clone(), active.clone(), active.clone(), active.clone(), active.clone(), active.clone());
@@ -889,6 +1006,7 @@ impl Render for DocsPanel {
             }
         };
         let ask = self.ask_dialog(&t, &i, cx);
+        let custom = self.customize_popup(&t, &i, super::doc_style_section::groups_for_viewer(viewer), cx);
         let ow = self.open_with_popup(&t, &i, &active, kind, cx);
         let find_bar = self.find.clone().filter(|_| can_find).map(|f| {
             let text = self.cache.get(&active).and_then(|l| l.text.as_ref()).map(|x| x.0.clone()).unwrap_or_default();
@@ -952,6 +1070,7 @@ impl Render for DocsPanel {
             .children(find_bar)
             .child(div().id("doc-body").flex_1().min_h_0().overflow_scroll().track_scroll(&self.body_scroll).child(body))
             .children(menu)
+            .children(custom)
             .children(ow)
             .children(ask)
             .into_any_element()
@@ -1358,6 +1477,115 @@ impl DocsPanel {
             crate::ui::overlay_deferred(gpui::anchored().position(pos).anchor(gpui::Anchor::TopRight).snap_to_window_with_margin(gpui::px(8.)).child(div().mt(t.space(2)).child(list.occlude().on_mouse_down_out(close))))
                 .with_priority(65)
                 .into_any_element(),
+        )
+    }
+}
+
+/// Latar kotak-kotak (transparansi) untuk penampil gambar: --z-doc-checker-a/b, sel space-4 / 2.
+fn checker(t: &Theme) -> AnyElement {
+    let cell = t.space(4) / 2.;
+    let (a, b) = (hex("#cfcfcf"), hex("#f2f2f2"));
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            window.paint_quad(gpui::fill(bounds, b));
+            let (w, h) = (f32::from(bounds.size.width), f32::from(bounds.size.height));
+            let c = f32::from(cell).max(2.);
+            let (cols, rows) = ((w / c).ceil() as i32, (h / c).ceil() as i32);
+            for r in 0..rows.min(400) {
+                for k in 0..cols.min(400) {
+                    if (r + k) % 2 == 0 {
+                        let o = bounds.origin + gpui::point(gpui::px(k as f32 * c), gpui::px(r as f32 * c));
+                        window.paint_quad(gpui::fill(gpui::Bounds::new(o, gpui::size(gpui::px(c), gpui::px(c))), a));
+                    }
+                }
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
+}
+
+/// Nama penampil untuk kelompok kustomisasi (port viewerFor).
+fn viewer_name(kind: DocKind, raw: bool, diff: bool, editing: bool) -> &'static str {
+    if diff && !editing && is_text_kind(kind) {
+        return "diff";
+    }
+    if kind == DocKind::Code || (raw && has_raw_mode(kind)) {
+        return "code";
+    }
+    match kind {
+        DocKind::Markdown => "markdown",
+        DocKind::Svg | DocKind::Image => "image",
+        DocKind::Pdf => "pdf",
+        DocKind::Csv | DocKind::Tsv => "table",
+        DocKind::Json => "json",
+        DocKind::Html => "html",
+        DocKind::Audio | DocKind::Video => "media",
+        DocKind::Docx => "docx",
+        DocKind::Xlsx => "xlsx",
+        DocKind::Pptx => "pptx",
+        DocKind::Notebook => "notebook",
+        _ => "binary",
+    }
+}
+
+impl DocsPanel {
+    fn customize_popup(&mut self, t: &Theme, i: &I18n, groups: Vec<&'static str>, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.customize {
+            return None;
+        }
+        let ds = self.doc_style.get_or_insert_with(|| cx.new(|cx| super::doc_style_section::DocStyleControls::new(vec![], cx))).clone();
+        ds.update(cx, |d, cx| {
+            if d.groups != groups {
+                d.groups = groups;
+                cx.notify();
+            }
+        });
+        let me = cx.entity().downgrade();
+        let me2 = me.clone();
+        Some(
+            crate::ui::overlay_deferred(
+                gpui::anchored().anchor(gpui::Anchor::TopRight).snap_to_window_with_margin(gpui::px(8.)).child(
+                    crate::ui::popup(t)
+                        .occlude()
+                        .mt(t.space(1))
+                        .w(t.rem(22.))
+                        .max_h(t.rem(32.))
+                        .flex()
+                        .flex_col()
+                        .on_mouse_down_out(move |_, _, cx| {
+                            me.update(cx, |s, cx| {
+                                s.customize = false;
+                                cx.notify();
+                            })
+                            .ok();
+                        })
+                        .child(div().px(t.space(3)).pt(t.space(3)).pb(t.space(2)).font_weight(FontWeight::SEMIBOLD).child(i.t("docStyle.title")))
+                        .child(div().id("dstyle-pop-body").flex_1().min_h_0().overflow_y_scroll().px(t.space(3)).pb(t.space(3)).child(ds))
+                        .child(
+                            div().flex().border_t_1().border_color(t.colors.border).p(t.space(2)).child(
+                                button("dstyle-all")
+                                    .size(ControlSize::Sm)
+                                    .variant(ButtonVariant::Ghost)
+                                    .child(icon("settings").size(IconSize::Sm))
+                                    .label(i.t("docStyle.allSettings"))
+                                    .on_click(move |_, _, cx| {
+                                        me2.update(cx, |s, cx| {
+                                            s.customize = false;
+                                            cx.notify();
+                                        })
+                                        .ok();
+                                        let app = super::state::AppState::global(cx);
+                                        app.update(cx, |a, cx| a.push("/settings/documents", cx));
+                                    }),
+                            ),
+                        ),
+                ),
+            )
+            .with_priority(50)
+            .into_any_element(),
         )
     }
 }

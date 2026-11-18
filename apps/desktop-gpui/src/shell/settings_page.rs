@@ -13,7 +13,7 @@ use crate::ui::{
 use gpui::{div, prelude::*, AnyElement, App, ClipboardItem, Context, Entity, FontWeight, IntoElement, ScrollHandle, SharedString, Window};
 use serde_json::Value;
 
-const SECTIONS: [(&str, &str, &str); 12] = [
+const SECTIONS: [(&str, &str, &str); 13] = [
     ("profile", "settings.profile", "user"),
     ("general", "settings.general", "settings"),
     ("appearance", "settings.appearance", "eye"),
@@ -21,6 +21,7 @@ const SECTIONS: [(&str, &str, &str); 12] = [
     ("notifications", "settings.notifications", "bell"),
     ("tools", "settings.tools", "wrench"),
     ("layout", "settings.layout", "layout"),
+    ("documents", "docStyle.section", "file"),
     ("models", "settings.models", "brain"),
     ("engines", "settings.engines", "globe"),
     ("memory", "settings.more.memory", "bookmark"),
@@ -46,6 +47,7 @@ pub struct SettingsPage {
     pstyles: Entity<super::projects_style_section::ProjectsStyleSection>,
     editor: Entity<super::editor_section::EditorSection>,
     remote: Entity<super::remote_section::RemoteSection>,
+    docs_style: Entity<super::doc_style_section::DocStyleControls>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -76,9 +78,10 @@ impl SettingsPage {
         let pstyles = cx.new(super::projects_style_section::ProjectsStyleSection::new);
         let editor = cx.new(super::editor_section::EditorSection::new);
         let remote = cx.new(super::remote_section::RemoteSection::new);
+        let docs_style = cx.new(|cx| super::doc_style_section::DocStyleControls::new(super::doc_style_section::GROUPS.to_vec(), cx));
         let models_sec = cx.new(super::models_section::ModelsSection::new);
         let notif = cx.new(super::notification_section::NotificationSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, themes, typography, chat_style, keys, pstyles, editor, remote };
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
         me.load_models(cx);
         me
     }
@@ -332,6 +335,13 @@ impl Render for SettingsPage {
             }
         }
 
+        if show("documents") && matches_q(&q, &[&i.t("docStyle.section"), &i.t("docStyle.body"), &i.t("docStyle.title")]) {
+            content = content.child(group(
+                &t,
+                i.t("docStyle.section"),
+                vec![div().flex().flex_col().gap(t.space(3)).py(t.space(2)).child(div().small(&t).text_color(t.colors.fg_muted).child(i.t("docStyle.body"))).child(self.docs_style.clone()).into_any_element()],
+            ));
+        }
         if show("models") && matches_q(&q, &[&i.t("settings.models"), &i.t("ms.defaults"), &i.t("ms.providers")]) {
             let rows = vec![
                 div().py(t.space(2)).child(self.models_sec.clone()).into_any_element(),

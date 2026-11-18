@@ -50,6 +50,40 @@ pub fn validate_project_style(key: &str, v: &str) -> Option<&'static str> {
     }
 }
 
+/// Kunci gaya Panel 3 (port DOC_STYLE_KEYS).
+pub const DOC_STYLE_KEYS: [&str; 14] = ["codeSize", "codeLineHeight", "codeFont", "minimap", "lineNumbers", "ligatures", "whitespace", "theme", "proseFont", "proseSize", "proseLine", "proseWidth", "tableSize", "imageBg"];
+pub const DOC_THEMES: [&str; 4] = ["auto", "paper", "sepia", "night"];
+pub const DOC_IMAGE_BGS: [&str; 4] = ["auto", "checker", "light", "dark"];
+/// (min, max, bawaan) ukuran huruf kode dokumen, px.
+pub const DOC_CODE_SIZE: (f64, f64, f64) = (8., 40., 13.);
+
+fn rem_in(v: &Value, lo: f64, hi: f64, what: &'static str) -> Option<&'static str> {
+    let Some(n) = v.as_str().and_then(|s| s.strip_suffix("rem")).and_then(|s| s.parse::<f64>().ok()) else { return Some("nilai harus dalam rem, mis. 0.9rem") };
+    if n >= lo && n <= hi { None } else { Some(what) }
+}
+
+/// Port validateDoc.
+pub fn validate_doc(key: &str, v: &Value) -> Option<&'static str> {
+    match key {
+        "codeSize" => match v.as_f64() {
+            Some(n) if n.fract() == 0. && n >= DOC_CODE_SIZE.0 && n <= DOC_CODE_SIZE.1 => None,
+            _ => Some("ukuran huruf kode harus 8–40"),
+        },
+        "codeLineHeight" | "proseLine" => match v.as_f64() {
+            Some(n) if (1. ..=2.4).contains(&n) => None,
+            _ => Some("tinggi baris harus 1–2.4"),
+        },
+        "codeFont" | "proseFont" => v.as_str().map(validate_font_family).unwrap_or(Some("nilai harus teks")),
+        "minimap" | "lineNumbers" | "ligatures" | "whitespace" => if v.is_boolean() { None } else { Some("nilai harus boolean") },
+        "theme" => if v.as_str().is_some_and(|x| DOC_THEMES.contains(&x)) { None } else { Some("tema dokumen tidak dikenal") },
+        "imageBg" => if v.as_str().is_some_and(|x| DOC_IMAGE_BGS.contains(&x)) { None } else { Some("latar gambar tidak dikenal") },
+        "proseSize" => rem_in(v, 0.6, 2., "ukuran harus 0.6rem–2rem"),
+        "proseWidth" => rem_in(v, 28., 120., "lebar harus 28rem–120rem"),
+        "tableSize" => rem_in(v, 0.6, 1.6, "ukuran harus 0.6rem–1.6rem"),
+        _ => Some("kunci tidak dikenal"),
+    }
+}
+
 pub const CHAT_STYLE_KEYS: [&str; 10] = ["width", "composerRatio", "font", "size", "weight", "opacity", "lineHeight", "tracking", "gap", "codeSize"];
 
 /// Port validateChat. None = valid.
@@ -355,6 +389,8 @@ pub struct AppearanceStore {
     pub typography: std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
     pub fonts: std::collections::BTreeMap<String, String>,
     pub chat: Map<String, Value>,
+    /// Kustomisasi Panel 3 (dokumen).
+    pub docs: Map<String, Value>,
     /// Override pintasan: id perintah → combo ("Ctrl+Shift+K").
     pub shortcuts: std::collections::BTreeMap<String, String>,
     /// Gaya project: id project → { logo, border, background, fg, … }.
@@ -407,6 +443,11 @@ impl AppearanceStore {
             .and_then(Value::as_object)
             .map(|o| o.iter().filter(|(k, v)| CHAT_STYLE_KEYS.contains(&k.as_str()) && validate_chat(k, v).is_none()).map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
+        let docs: Map<String, Value> = raw
+            .get("docs")
+            .and_then(Value::as_object)
+            .map(|o| o.iter().filter(|(k, v)| DOC_STYLE_KEYS.contains(&k.as_str()) && validate_doc(k, v).is_none()).map(|(k, v)| (k.clone(), v.clone())).collect())
+            .unwrap_or_default();
         let shortcuts = raw
             .get("shortcuts")
             .and_then(Value::as_object)
@@ -423,7 +464,7 @@ impl AppearanceStore {
             .and_then(Value::as_array)
             .map(|a| a.iter().filter_map(crate::core::editor_theme::sanitize_editor_theme).collect())
             .unwrap_or_default();
-        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat, shortcuts, projects, editor_theme, editor_themes });
+        let e = cx.new(|_| Self { path, raw, preset, custom, typography, fonts, chat, docs, shortcuts, projects, editor_theme, editor_themes });
         cx.set_global(Handle(e.clone()));
         e
     }
@@ -546,6 +587,31 @@ impl AppearanceStore {
         None
     }
 
+    /// Port setDoc: None = kembali ke bawaan. Mengembalikan galat validasi.
+    pub fn set_doc(&mut self, key: &str, value: Option<Value>, cx: &mut Context<Self>) -> Option<&'static str> {
+        match value {
+            Some(v) => {
+                if let Some(e) = validate_doc(key, &v) {
+                    return Some(e);
+                }
+                self.docs.insert(key.into(), v);
+            }
+            None => {
+                self.docs.remove(key);
+            }
+        }
+        self.save(cx);
+        None
+    }
+
+    /// Port resetDocs: hapus kunci tertentu.
+    pub fn reset_docs(&mut self, keys: &[&str], cx: &mut Context<Self>) {
+        for k in keys {
+            self.docs.remove(*k);
+        }
+        self.save(cx);
+    }
+
     /// None = kembali ke default. Mengembalikan galat.
     pub fn set_typography(&mut self, var: &str, prop: &str, value: Option<&str>, cx: &mut Context<Self>) -> Option<&'static str> {
         if let Some(v) = value {
@@ -589,6 +655,7 @@ impl AppearanceStore {
         self.raw.insert("typography".into(), serde_json::to_value(&self.typography).unwrap_or(json!({})));
         self.raw.insert("fonts".into(), serde_json::to_value(&self.fonts).unwrap_or(json!({})));
         self.raw.insert("chat".into(), Value::Object(self.chat.clone()));
+        self.raw.insert("docs".into(), Value::Object(self.docs.clone()));
         self.raw.insert("projects".into(), serde_json::to_value(&self.projects).unwrap_or(json!({})));
         self.raw.insert("shortcuts".into(), serde_json::to_value(&self.shortcuts).unwrap_or(json!({})));
         self.raw.insert("editorTheme".into(), json!(self.editor_theme));
@@ -661,6 +728,7 @@ impl AppearanceStore {
         self.typography.clear();
         self.fonts.clear();
         self.chat.clear();
+        self.docs.clear();
         self.shortcuts.clear();
         self.projects.clear();
         self.editor_theme = "auto".into();
@@ -768,5 +836,25 @@ mod tests {
         let mut c = Colors::dark();
         apply_colors(&mut c, &[("bg".into(), "#ff0000".into())], true);
         assert!((c.bg.to_rgb().r - 1.).abs() < 1e-3);
+    }
+}
+
+#[cfg(test)]
+mod doc_style_tests {
+    use super::validate_doc;
+    use serde_json::json;
+    #[test]
+    fn validasi_gaya_dokumen() {
+        assert!(validate_doc("codeSize", &json!(13)).is_none());
+        assert!(validate_doc("codeSize", &json!(7)).is_some());
+        assert!(validate_doc("codeSize", &json!(13.5)).is_some());
+        assert!(validate_doc("proseSize", &json!("0.9rem")).is_none());
+        assert!(validate_doc("proseSize", &json!("3rem")).is_some());
+        assert!(validate_doc("proseWidth", &json!("48rem")).is_none());
+        assert!(validate_doc("theme", &json!("sepia")).is_none());
+        assert!(validate_doc("theme", &json!("x")).is_some());
+        assert!(validate_doc("imageBg", &json!("checker")).is_none());
+        assert!(validate_doc("minimap", &json!(true)).is_none());
+        assert!(validate_doc("proseLine", &json!(2.5)).is_some());
     }
 }
