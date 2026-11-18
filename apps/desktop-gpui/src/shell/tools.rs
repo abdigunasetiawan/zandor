@@ -2,7 +2,7 @@
 //! bersama dan API engine; Terminal (terminal.rs) dan Browser (browser.rs, webview native) sebagai entity terpisah.
 use super::layout::ToolId;
 use crate::core::chat_store::ChatStore;
-use crate::core::engine::{FileNode, SessionFileDiff};
+use crate::core::engine::SessionFileDiff;
 use crate::core::projects::ProjectStore;
 use crate::core::services::app_data_dir;
 use crate::core::types::{PartKind, Role, TodoStatus, ToolStatus};
@@ -10,7 +10,6 @@ use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{badge, button, icon, icon_button, BadgeTone, ButtonVariant, ControlSize, IconSize, TextInput, TypeExt};
 use gpui::{div, prelude::*, AnyElement, Context, Entity, FontWeight, IntoElement, SharedString, Window};
-use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 pub struct ToolsHost {
@@ -20,9 +19,7 @@ pub struct ToolsHost {
     git_dir: Option<String>,
     diff: Option<(String, String)>,
     commit_msg: Entity<TextInput>,
-    files: HashMap<String, Result<Vec<FileNode>, String>>,
-    open_dirs: HashSet<String>,
-    files_root: Option<String>,
+    files_tree: Option<Entity<super::files_tree::FilesTree>>,
     changes: Option<Result<Vec<SessionFileDiff>, String>>,
     changes_for: Option<String>,
     open_change: Option<String>,
@@ -57,9 +54,7 @@ impl ToolsHost {
             git_dir: None,
             diff: None,
             commit_msg,
-            files: HashMap::new(),
-            open_dirs: HashSet::new(),
-            files_root: None,
+            files_tree: None,
             changes: None,
             changes_for: None,
             open_change: None,
@@ -95,14 +90,6 @@ impl ToolsHost {
             self.git = None;
             self.diff = None;
             self.refresh_git(cx);
-        }
-        if dir != self.files_root {
-            self.files_root = dir.clone();
-            self.files.clear();
-            self.open_dirs.clear();
-            if let Some(d) = dir {
-                self.load_dir(d, String::new(), cx);
-            }
         }
         let sid = ProjectStore::global(cx).read(cx).selection.session_id.clone();
         if sid != self.changes_for {
@@ -147,24 +134,6 @@ impl ToolsHost {
                     crate::ui::Toasts::show(crate::ui::ToastInput { title: msg.into(), description: None, tone, timeout_ms: Some(4000), action: None }, cx);
                 }
                 s.refresh_git(cx);
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn load_dir(&mut self, root: String, rel: String, cx: &mut Context<Self>) {
-        let Some(api) = ProjectStore::global(cx).read(cx).api() else { return };
-        let r2 = rel.clone();
-        let task = cx.background_spawn(async move { api.list_files(&root, &r2).map_err(|e| e.0) });
-        cx.spawn(async move |this, cx| {
-            let mut r = task.await;
-            if let Ok(v) = r.as_mut() {
-                v.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
-            }
-            this.update(cx, |s, cx| {
-                s.files.insert(rel, r);
-                cx.notify();
             })
             .ok();
         })
@@ -350,77 +319,9 @@ impl ToolsHost {
         col.into_any_element()
     }
 
-    fn file_rows(&self, t: &Theme, rel: &str, depth: usize, out: &mut Vec<AnyElement>, cx: &mut Context<Self>) {
-        let Some(r) = self.files.get(rel) else {
-            out.push(div().pl(t.rem(0.75 * depth as f32 + 0.5)).text_color(t.colors.fg_subtle).small(t).child("…").into_any_element());
-            return;
-        };
-        let nodes = match r {
-            Err(e) => {
-                out.push(div().pl(t.rem(0.75 * depth as f32 + 0.5)).text_color(t.colors.danger).small(t).child(e.clone()).into_any_element());
-                return;
-            }
-            Ok(n) => n.clone(),
-        };
-        for n in nodes {
-            let open = self.open_dirs.contains(&n.path);
-            let p = n.path.clone();
-            let abs = if n.absolute.is_empty() { format!("{}/{}", self.files_root.clone().unwrap_or_default(), n.path) } else { n.absolute.clone() };
-            let is_dir = n.is_dir;
-            out.push(
-                div()
-                    .id(SharedString::from(format!("fn-{}", n.path)))
-                    .flex()
-                    .items_center()
-                    .gap(t.space(1))
-                    .h(t.rem(rem::CONTROL_SM))
-                    .pl(t.rem(0.75 * depth as f32 + 0.25))
-                    .pr(t.space(2))
-                    .rounded(t.rem(rem::RADIUS_SM))
-                    .cursor_pointer()
-                    .text_color(if n.ignored { t.colors.fg_subtle } else { t.colors.fg })
-                    .hover(|s| s.bg(t.colors.hover))
-                    .on_click(cx.listener(move |s, _, _, cx| {
-                        if !is_dir {
-                            let abs = abs.clone();
-                            super::docs_panel::DocsState::global(cx).update(cx, |d, cx| d.open_file(abs, cx));
-                            return;
-                        }
-                        if !s.open_dirs.remove(&p) {
-                            s.open_dirs.insert(p.clone());
-                            if !s.files.contains_key(&p) {
-                                if let Some(root) = s.files_root.clone() {
-                                    s.load_dir(root, p.clone(), cx);
-                                }
-                            }
-                        }
-                        cx.notify();
-                    }))
-                    .child(if is_dir {
-                        icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm).color(t.colors.fg_subtle).into_any_element()
-                    } else {
-                        div().w(t.rem(rem::ICON_SM)).into_any_element()
-                    })
-                    .child(super::file_icons::file_type_icon(t, &n.name, is_dir, open, rem::ICON_SM))
-                    .child(div().flex_1().min_w_0().truncate().child(n.name.clone()))
-                    .into_any_element(),
-            );
-            if is_dir && open {
-                self.file_rows(t, &n.path, depth + 1, out, cx);
-            }
-        }
-    }
-
-    fn render_files(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
-        if self.files_root.is_none() {
-            return note(t, i.t("files.noProject"));
-        }
-        let mut rows = vec![];
-        self.file_rows(t, "", 0, &mut rows, cx);
-        if matches!(self.files.get(""), Some(Ok(v)) if v.is_empty()) {
-            return note(t, i.t("files.empty"));
-        }
-        div().flex().flex_col().p(t.space(2)).children(rows).into_any_element()
+    fn render_files(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let ft = self.files_tree.get_or_insert_with(|| cx.new(super::files_tree::FilesTree::new)).clone();
+        ft.into_any_element()
     }
 
     fn render_changes(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
@@ -776,7 +677,7 @@ impl Render for ToolsHost {
         }
         let body = match self.tool {
             ToolId::Git => self.render_git(&t, &i, cx),
-            ToolId::Files => self.render_files(&t, &i, cx),
+            ToolId::Files => self.render_files(cx),
             ToolId::Changes => self.render_changes(&t, &i, cx),
             ToolId::Jobs => self.render_jobs(&t, &i, cx),
             ToolId::Info => self.render_info(&t, &i, cx, false),

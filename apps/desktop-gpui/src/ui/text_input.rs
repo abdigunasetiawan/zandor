@@ -900,6 +900,9 @@ impl TextInput {
             intercept: false,
         }
     }
+    pub fn set_placeholder(&mut self, p: impl Into<SharedString>) {
+        self.placeholder = p.into();
+    }
     /// Posisi kursor (offset byte).
     pub fn caret(&self) -> usize {
         self.cursor_offset()

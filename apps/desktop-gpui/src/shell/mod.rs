@@ -35,3 +35,4 @@ pub mod trajectory_panel;
 pub mod type_section;
 pub mod titlebar;
 pub mod tools;
+pub mod files_tree;
