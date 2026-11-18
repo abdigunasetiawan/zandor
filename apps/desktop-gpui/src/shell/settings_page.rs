@@ -36,6 +36,7 @@ pub struct SettingsPage {
     scroll: ScrollHandle,
     models: Option<Result<Vec<ModelOption>, String>>,
     providers: Entity<super::providers_section::ProvidersSection>,
+    models_sec: Entity<super::models_section::ModelsSection>,
     profile: Entity<super::profile_section::ProfileSection>,
     themes: Entity<super::themes_section::ThemesSection>,
     typography: Entity<super::type_section::TypeSection>,
@@ -74,7 +75,8 @@ impl SettingsPage {
         let pstyles = cx.new(super::projects_style_section::ProjectsStyleSection::new);
         let editor = cx.new(super::editor_section::EditorSection::new);
         let remote = cx.new(super::remote_section::RemoteSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, profile, themes, typography, chat_style, keys, pstyles, editor, remote };
+        let models_sec = cx.new(super::models_section::ModelsSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, profile, themes, typography, chat_style, keys, pstyles, editor, remote };
         me.load_models(cx);
         me
     }
@@ -326,21 +328,10 @@ impl Render for SettingsPage {
         }
 
         if show("models") && matches_q(&q, &[&i.t("settings.models"), &i.t("ms.defaults"), &i.t("ms.providers")]) {
-            let rows: Vec<AnyElement> = match &self.models {
-                None => vec![div().text_color(t.colors.fg_muted).py(t.space(2)).child(i.t("chat.modelsLoading")).into_any_element()],
-                Some(Err(e)) => vec![div().text_color(t.colors.danger).py(t.space(2)).child(i.tp("chat.modelsError", &[("error", e)])).into_any_element()],
-                Some(Ok(list)) if list.is_empty() => vec![div().text_color(t.colors.fg_muted).py(t.space(2)).child(i.t("chat.noModel")).into_any_element()],
-                Some(Ok(list)) => list
-                    .iter()
-                    .map(|m| {
-                        let ctx = m.context_limit.map(|c| format!("{}k ctx", c / 1000)).unwrap_or_default();
-                        row(&t, m.name.clone(), Some(format!("{} · {}", m.provider_name, m.model_id)), div().small(&t).text_color(t.colors.fg_subtle).child(ctx), None)
-                            .into_any_element()
-                    })
-                    .collect(),
-            };
-            let mut rows = rows;
-            rows.insert(0, div().py(t.space(2)).child(self.providers.clone()).into_any_element());
+            let rows = vec![
+                div().py(t.space(2)).child(self.models_sec.clone()).into_any_element(),
+                div().py(t.space(2)).child(self.providers.clone()).into_any_element(),
+            ];
             content = content.child(group(&t, i.t("settings.models"), rows));
         }
 
