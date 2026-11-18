@@ -23,3 +23,5 @@ pub mod types;
 pub mod pings;
 pub mod attention;
 pub mod usage;
+pub mod doc_kinds;
+pub mod office;
