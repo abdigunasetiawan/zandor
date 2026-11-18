@@ -1,4 +1,4 @@
-//! Panel alat — port GitPanel, FilesTree, JobsPanel, ChangesPanel, SessionInfo, rencana sesi. Memakai git.rs/jobs.rs
+//! Panel alat — host GitPanel (git_panel.rs), FilesTree (files_tree.rs), JobsPanel, ChangesPanel, SessionInfo, rencana sesi. Memakai git.rs/jobs.rs
 //! bersama dan API engine; Terminal (terminal.rs) dan Browser (browser.rs, webview native) sebagai entity terpisah.
 use super::layout::ToolId;
 use crate::core::chat_store::ChatStore;
@@ -8,18 +8,14 @@ use crate::core::services::app_data_dir;
 use crate::core::types::{PartKind, Role, TodoStatus, ToolStatus};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
-use crate::ui::{badge, button, icon, icon_button, BadgeTone, ButtonVariant, ControlSize, IconSize, TextInput, TypeExt};
+use crate::ui::{badge, button, icon, icon_button, BadgeTone, ButtonVariant, ControlSize, IconSize, TypeExt};
 use gpui::{div, prelude::*, AnyElement, Context, Entity, FontWeight, IntoElement, SharedString, Window};
 use std::path::PathBuf;
 
 pub struct ToolsHost {
     pub tool: ToolId,
-    git: Option<Result<crate::git::GitStatus, String>>,
-    git_log: Vec<crate::git::CommitInfo>,
-    git_dir: Option<String>,
-    diff: Option<(String, String)>,
-    commit_msg: Entity<TextInput>,
     files_tree: Option<Entity<super::files_tree::FilesTree>>,
+    git_panel: Option<Entity<super::git_panel::GitPanel>>,
     changes: Option<Result<Vec<SessionFileDiff>, String>>,
     changes_for: Option<String>,
     open_change: Option<String>,
@@ -45,16 +41,10 @@ impl ToolsHost {
         })
         .detach();
         cx.observe(&ChatStore::global(cx), |_, _, cx| cx.notify()).detach();
-        let ph = cx.global::<I18n>().t("git.commitMsg");
-        let commit_msg = cx.new(|cx| TextInput::new(cx, ph));
         let mut me = Self {
             tool: ToolId::Terminal,
-            git: None,
-            git_log: vec![],
-            git_dir: None,
-            diff: None,
-            commit_msg,
             files_tree: None,
+            git_panel: None,
             changes: None,
             changes_for: None,
             open_change: None,
@@ -84,13 +74,6 @@ impl ToolsHost {
     }
 
     fn sync(&mut self, cx: &mut Context<Self>) {
-        let dir = self.dir(cx);
-        if dir != self.git_dir {
-            self.git_dir = dir.clone();
-            self.git = None;
-            self.diff = None;
-            self.refresh_git(cx);
-        }
         let sid = ProjectStore::global(cx).read(cx).selection.session_id.clone();
         if sid != self.changes_for {
             self.changes_for = sid;
@@ -98,46 +81,6 @@ impl ToolsHost {
             self.refresh_changes(cx);
         }
         self.jobs = crate::jobs::list(&jobs_dir());
-    }
-
-    fn refresh_git(&mut self, cx: &mut Context<Self>) {
-        let Some(dir) = self.git_dir.clone() else { return };
-        let task = cx.background_spawn(async move {
-            let p = PathBuf::from(&dir);
-            let st = crate::git::status(&p);
-            let log = crate::git::log(&p, 10).unwrap_or_default();
-            (st, log)
-        });
-        cx.spawn(async move |this, cx| {
-            let (st, log) = task.await;
-            this.update(cx, |s, cx| {
-                s.git = Some(st);
-                s.git_log = log;
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
-
-    fn git_op(&mut self, f: impl FnOnce(&std::path::Path) -> Result<String, String> + Send + 'static, cx: &mut Context<Self>) {
-        let Some(dir) = self.git_dir.clone() else { return };
-        let task = cx.background_spawn(async move { f(&PathBuf::from(dir)) });
-        cx.spawn(async move |this, cx| {
-            let r = task.await;
-            this.update(cx, |s, cx| {
-                let (msg, tone) = match r {
-                    Ok(m) => (m, crate::ui::ToastTone::Success),
-                    Err(e) => (e, crate::ui::ToastTone::Danger),
-                };
-                if !msg.trim().is_empty() {
-                    crate::ui::Toasts::show(crate::ui::ToastInput { title: msg.into(), description: None, tone, timeout_ms: Some(4000), action: None }, cx);
-                }
-                s.refresh_git(cx);
-            })
-            .ok();
-        })
-        .detach();
     }
 
     fn refresh_changes(&mut self, cx: &mut Context<Self>) {
@@ -160,7 +103,7 @@ fn note(t: &Theme, s: String) -> AnyElement {
     div().p(t.space(3)).text_color(t.colors.fg_muted).child(s).into_any_element()
 }
 
-fn diff_view(t: &Theme, patch: &str) -> AnyElement {
+pub(crate) fn diff_view(t: &Theme, patch: &str) -> AnyElement {
     let mut col = div().flex().flex_col().code(t).p(t.space(2)).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.raised);
     for l in patch.lines().take(800) {
         let c = if l.starts_with('+') && !l.starts_with("+++") {
@@ -178,145 +121,8 @@ fn diff_view(t: &Theme, patch: &str) -> AnyElement {
 }
 
 impl ToolsHost {
-    fn render_git(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
-        if self.git_dir.is_none() {
-            return note(t, i.t("git.noProject"));
-        }
-        let Some(st) = self.git.clone() else { return note(t, i.t("git.loading")) };
-        let st = match st {
-            Err(e) => return note(t, e),
-            Ok(s) if !s.is_repo => return note(t, i.t("git.notRepo")),
-            Ok(s) => s,
-        };
-        let mut col = div().flex().flex_col().gap(t.space(2)).p(t.space(3));
-        col = col.child(
-            div()
-                .flex()
-                .items_center()
-                .gap(t.space(2))
-                .child(icon("git").size(IconSize::Sm))
-                .child(div().flex_1().font_weight(FontWeight::SEMIBOLD).child(if st.detached { i.t("git.detached") } else { st.branch.clone().unwrap_or_default() }))
-                .when(st.ahead > 0 || st.behind > 0, |d| d.child(div().small(t).text_color(t.colors.fg_muted).child(format!("↑{} ↓{}", st.ahead, st.behind))))
-                .child(icon_button("git-pull", "download", i.t("git.pull")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.git_op(|d| crate::git::pull(d), cx))))
-                .child(icon_button("git-push", "upload", i.t("git.push")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.git_op(|d| crate::git::push(d), cx))))
-                .child(icon_button("git-refresh", "refresh", i.t("git.refresh")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.refresh_git(cx)))),
-        );
-        let staged: Vec<_> = st.files.iter().filter(|f| f.index != ' ' && f.index != '?').cloned().collect();
-        let changes: Vec<_> = st.files.iter().filter(|f| f.worktree != ' ' || f.index == '?').cloned().collect();
-        if st.files.is_empty() {
-            col = col.child(div().text_color(t.colors.fg_muted).child(i.t("git.clean")));
-        }
-        for (title, list, is_staged) in [(i.t("git.staged"), staged, true), (i.t("git.changes"), changes, false)] {
-            if list.is_empty() {
-                continue;
-            }
-            col = col.child(div().mt(t.space(2)).small(t).font_weight(FontWeight::SEMIBOLD).text_color(t.colors.fg_subtle).child(format!("{title} · {}", list.len())));
-            for f in list {
-                let code = if is_staged { f.index } else if f.index == '?' { 'A' } else { f.worktree };
-                let (p1, p2, p3) = (f.path.clone(), f.path.clone(), f.path.clone());
-                let untracked = f.index == '?';
-                col = col.child(
-                    div()
-                        .id(SharedString::from(format!("gf-{is_staged}-{}", f.path)))
-                        .group("gf")
-                        .flex()
-                        .items_center()
-                        .gap(t.space(2))
-                        .px(t.space(1))
-                        .h(t.rem(rem::CONTROL_SM))
-                        .rounded(t.rem(rem::RADIUS_SM))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(t.colors.hover))
-                        .on_click(cx.listener(move |s, _, _, cx| {
-                            let p = p1.clone();
-                            let Some(dir) = s.git_dir.clone() else { return };
-                            let text = crate::git::diff(&PathBuf::from(dir), &p, is_staged, untracked).unwrap_or_else(|e| e);
-                            s.diff = Some((p, text));
-                            cx.notify();
-                        }))
-                        .child(div().w(t.rem(1.)).code(t).text_color(match code {
-                            'A' => t.colors.code_add,
-                            'D' => t.colors.code_del,
-                            'U' => t.colors.danger,
-                            _ => t.colors.warning,
-                        }).child(code.to_string()))
-                        .child(div().flex_1().min_w_0().truncate().child(f.path.clone()))
-                        .child(
-                            div().invisible().group_hover("gf", |s| s.visible()).child(
-                                icon_button(SharedString::from(format!("gs-{is_staged}-{}", f.path)), if is_staged { "undo" } else { "plus" }, i.tp(if is_staged { "git.unstage" } else { "git.stage" }, &[("name", &f.path)]))
-                                    .size(ControlSize::Sm)
-                                    .variant(ButtonVariant::Ghost)
-                                    .on_click(cx.listener(move |s, _, _, cx| {
-                                        let p = vec![p2.clone()];
-                                        s.git_op(move |d| if is_staged { crate::git::unstage(d, &p) } else { crate::git::stage(d, &p) }.map(|_| String::new()), cx)
-                                    })),
-                            ),
-                        )
-                        .when(!is_staged, |d| {
-                            d.child(
-                                div().invisible().group_hover("gf", |s| s.visible()).child(
-                                    icon_button(SharedString::from(format!("gd-{}", f.path)), "trash", i.tp("git.discardFile", &[("name", &f.path)]))
-                                        .size(ControlSize::Sm)
-                                        .variant(ButtonVariant::Ghost)
-                                        .on_click(cx.listener(move |s, _, _, cx| {
-                                            let p = vec![p3.clone()];
-                                            s.git_op(move |d| crate::git::discard(d, &p).map(|_| String::new()), cx)
-                                        })),
-                                ),
-                            )
-                        }),
-                );
-            }
-        }
-        col = col.child(
-            div()
-                .flex()
-                .gap(t.space(2))
-                .mt(t.space(2))
-                .child(div().flex_1().child(self.commit_msg.clone()))
-                .child(button("git-commit").label(i.t("git.commit")).variant(ButtonVariant::Solid).on_click(cx.listener(|s, _, _, cx| {
-                    let msg = s.commit_msg.read(cx).text().trim().to_string();
-                    if msg.is_empty() {
-                        return;
-                    }
-                    s.commit_msg.update(cx, |m, cx| m.set_text("", cx));
-                    s.git_op(move |d| crate::git::commit(d, &msg), cx)
-                }))),
-        );
-        if let Some((path, text)) = self.diff.clone() {
-            col = col.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(t.space(1))
-                    .mt(t.space(2))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .child(div().flex_1().small(t).font_weight(FontWeight::SEMIBOLD).child(i.tp("git.diffTitle", &[("path", &path)])))
-                            .child(icon_button("git-closediff", "close", i.t("git.closeDiff")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| {
-                                s.diff = None;
-                                cx.notify();
-                            }))),
-                    )
-                    .child(if text.trim().is_empty() { note(t, i.t("git.diffEmpty")) } else { diff_view(t, &text) }),
-            );
-        }
-        if !self.git_log.is_empty() {
-            col = col.child(div().mt(t.space(2)).small(t).font_weight(FontWeight::SEMIBOLD).text_color(t.colors.fg_subtle).child(i.t("git.recent")));
-            for c in &self.git_log {
-                col = col.child(
-                    div()
-                        .flex()
-                        .gap(t.space(2))
-                        .small(t)
-                        .child(div().code(t).text_color(t.colors.fg_subtle).child(c.hash.chars().take(7).collect::<String>()))
-                        .child(div().flex_1().min_w_0().truncate().child(c.subject.clone())),
-                );
-            }
-        }
-        col.into_any_element()
+    fn render_git(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        self.git_panel.get_or_insert_with(|| cx.new(super::git_panel::GitPanel::new)).clone().into_any_element()
     }
 
     fn render_files(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -676,7 +482,7 @@ impl Render for ToolsHost {
             return div().size_full().children(self.terminal.clone()).into_any_element();
         }
         let body = match self.tool {
-            ToolId::Git => self.render_git(&t, &i, cx),
+            ToolId::Git => self.render_git(cx),
             ToolId::Files => self.render_files(cx),
             ToolId::Changes => self.render_changes(&t, &i, cx),
             ToolId::Jobs => self.render_jobs(&t, &i, cx),
