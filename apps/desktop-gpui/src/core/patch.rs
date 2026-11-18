@@ -94,7 +94,8 @@ fn locate(lines: &[String], want: &[String], hint: i64) -> Option<usize> {
     found
 }
 
-/// Baris 1-based awal + jumlah baris sisi "sesudah".
+/// Baris 1-based awal + jumlah baris sisi "sesudah" (dipakai tes; DiffViewer GPUI belum menggulir editor).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn locate_hunk(text: &str, h: &Hunk) -> Option<(usize, usize)> {
     let (lines, _) = split_lines(text);
     let (_, after) = hunk_sides(h);

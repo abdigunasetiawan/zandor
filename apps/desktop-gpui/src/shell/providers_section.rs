@@ -33,6 +33,8 @@ pub struct ProvidersSection {
     catalog: Vec<CatalogProvider>,
     form: Option<Form>,
     confirm_delete: Option<(String, String)>,
+    /// Onboarding: hanya formulir (tanpa judul dan daftar), seperti ConnectionPanel.
+    pub form_only: bool,
 }
 
 impl ProvidersSection {
@@ -42,7 +44,7 @@ impl ProvidersSection {
             cx.notify();
         })
         .detach();
-        let mut me = Self { views: store().views(), catalog: vec![], form: None, confirm_delete: None };
+        let mut me = Self { views: store().views(), catalog: vec![], form: None, confirm_delete: None, form_only: false };
         me.load_catalog(cx);
         me
     }
@@ -70,7 +72,10 @@ impl ProvidersSection {
         })
     }
 
-    fn open_form(&mut self, p: Option<ProviderView>, cx: &mut Context<Self>) {
+    pub fn form_open(&self) -> bool {
+        self.form.is_some()
+    }
+    pub fn open_form(&mut self, p: Option<ProviderView>, cx: &mut Context<Self>) {
         let pv = p.as_ref();
         let models = pv.map(|p| p.models.iter().map(|m| m.id.clone()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
         let tab = match pv.map(|p| p.kind) {
@@ -163,6 +168,7 @@ impl Render for ProvidersSection {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
         let mut col = div().flex().flex_col().gap(t.space(2));
+        if !self.form_only {
         col = col.child(
             div()
                 .flex()
@@ -171,6 +177,7 @@ impl Render for ProvidersSection {
                 .child(button("pv-add").label(i.t("pv.add")).size(ControlSize::Sm).variant(ButtonVariant::Solid).on_click(cx.listener(|s, _, _, cx| s.open_form(None, cx)))),
         );
         col = col.child(div().small(&t).text_color(t.colors.fg_subtle).child(i.t("pv.secure.yes")));
+        }
 
         // ---- formulir ----
         if let Some(f) = &self.form {
@@ -249,6 +256,9 @@ impl Render for ProvidersSection {
         }
 
         // ---- daftar ----
+        if self.form_only {
+            return col;
+        }
         match &self.views {
             Err(e) => col = col.child(div().text_color(t.colors.danger).child(e.clone())),
             Ok(v) if v.is_empty() => col = col.child(div().text_color(t.colors.fg_muted).child(i.t("pv.empty"))),
