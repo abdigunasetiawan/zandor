@@ -64,7 +64,30 @@ pub struct TextInput {
     pub intercept: bool,
     /// Tanpa border/latar/padding/ring fokus (port `.composer__input`): dipakai di dalam kartu composer.
     pub bare: bool,
+    /// Kursor halus ala Monkeytype (port `.composer__caret`): batang meluncur ke posisi baru, berkedip saat diam,
+    /// menyala terus saat mengetik.
+    pub smooth_caret: bool,
+    caret: CaretAnim,
 }
+
+/// Status animasi kursor halus.
+#[derive(Default)]
+struct CaretAnim {
+    /// Posisi asal & tujuan (relatif terhadap bounds elemen) dan awal luncuran.
+    from: Option<Point<Pixels>>,
+    to: Option<Point<Pixels>>,
+    start: Option<std::time::Instant>,
+    /// Waktu isi terakhir berubah (mengetik → tidak berkedip).
+    typed: Option<std::time::Instant>,
+    last_content: SharedString,
+    /// Bangun tertunda yang sudah dijadwalkan (fase kedip berikutnya) — hindari frame terus-menerus saat diam.
+    wake_at: Option<std::time::Instant>,
+}
+
+/// `.composer__caret`: transform calc(--z-duration-fast * 1.1) var(--z-ease).
+const CARET_SLIDE_MS: f32 = crate::theme::DURATION_FAST_MS as f32 * 1.1 + 70.;
+/// Setelah berhenti mengetik selama ini, kursor mulai berkedip (siklus 1 s: 0–40% nyala, 60–100% padam).
+const CARET_TYPING_MS: u128 = 500;
 
 /// Tombol navigasi yang disalurkan ke pemilik input saat `intercept` aktif.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -568,6 +591,87 @@ struct PrepaintState {
     selection: Option<PaintQuad>,
 }
 
+impl TextElement {
+    /// Lukis kursor; bila `smooth_caret`, meluncur dari posisi sebelumnya (ease-out) dan berkedip saat diam.
+    fn paint_caret(&self, mut q: PaintQuad, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+        let (smooth, content) = {
+            let i = self.input.read(cx);
+            (i.smooth_caret, i.content.clone())
+        };
+        let reduce = false;
+        if !smooth || reduce {
+            window.paint_quad(q);
+            return;
+        }
+        let now = std::time::Instant::now();
+        let target = q.bounds.origin - bounds.origin;
+        let (pos, opacity, animating) = self.input.update(cx, |input, _| {
+            let a = &mut input.caret;
+            if a.last_content != content {
+                a.last_content = content.clone();
+                a.typed = Some(now);
+            }
+            let cur = match (a.from, a.to, a.start) {
+                (Some(f), Some(t), Some(s)) => {
+                    let k = (s.elapsed().as_secs_f32() * 1000. / CARET_SLIDE_MS).min(1.);
+                    let e = 1. - (1. - k).powi(3);
+                    gpui::point(f.x + (t.x - f.x) * e, f.y + (t.y - f.y) * e)
+                }
+                _ => target,
+            };
+            if a.to != Some(target) {
+                a.from = Some(if a.to.is_some() { cur } else { target });
+                a.to = Some(target);
+                a.start = Some(now);
+            }
+            let sliding = a.start.is_some_and(|s| s.elapsed().as_secs_f32() * 1000. < CARET_SLIDE_MS);
+            let typing = a.typed.is_some_and(|t| t.elapsed().as_millis() < CARET_TYPING_MS);
+            let base = a.typed.unwrap_or(now);
+            let since = base.elapsed().as_millis();
+            let ph = (since % 1000) as f32 / 1000.;
+            let (op, wake_ms) = if sliding {
+                (1., None)
+            } else if typing {
+                (1., Some(CARET_TYPING_MS - since))
+            } else if ph < 0.4 {
+                // composer-caret-blink: 0–40% nyala, 40–60% memudar, 60–100% padam (siklus 1 s)
+                (1., Some(((0.4 - ph) * 1000.) as u128))
+            } else if ph < 0.6 {
+                (1. - (ph - 0.4) / 0.2, None)
+            } else {
+                (0., Some(((1. - ph) * 1000.) as u128 + 1))
+            };
+            let frame = sliding || (!typing && (0.4..0.6).contains(&ph));
+            let wake = wake_ms.map(|ms| now + std::time::Duration::from_millis(ms as u64 + 1));
+            let schedule = match (wake, a.wake_at) {
+                (Some(w), Some(old)) if old > now && old <= w => None,
+                (Some(w), _) => {
+                    a.wake_at = Some(w);
+                    Some(w)
+                }
+                _ => None,
+            };
+            (if sliding { cur } else { target }, op, (frame, schedule))
+        });
+        q.bounds.origin = bounds.origin + pos;
+        q.background = q.background.opacity(opacity);
+        window.paint_quad(q);
+        let (frame, schedule) = animating;
+        if frame {
+            window.request_animation_frame();
+        } else if let Some(w) = schedule {
+            let input = self.input.clone();
+            let dur = w.saturating_duration_since(now);
+            window
+                .spawn(cx, async move |cx| {
+                    cx.background_executor().timer(dur).await;
+                    cx.update(|_, cx| input.update(cx, |_, cx| cx.notify())).ok();
+                })
+                .detach();
+        }
+    }
+}
+
 impl Element for TextElement {
     type RequestLayoutState = ();
     type PrepaintState = PrepaintState;
@@ -607,7 +711,9 @@ impl Element for TextElement {
         let input = self.input.read(cx);
         let content = input.content.clone();
         let selected_range = input.selected_range.clone();
-        let cursor = input.cursor_offset();
+        // Isi kosong: kursor selalu di awal (offset lama bisa basi dan terukur terhadap teks placeholder).
+        let cursor = if content.is_empty() { 0 } else { input.cursor_offset() };
+        let selected_range = if content.is_empty() { 0..0 } else { selected_range };
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
@@ -661,6 +767,7 @@ impl Element for TextElement {
             let mut sel_c = fg;
             sel_c.a = 0.25;
             let (mut lines, mut quads, mut start) = (vec![], vec![], 0usize);
+            let mut mcursor: Option<PaintQuad> = None;
             for (row, l) in display_text.split('\n').enumerate() {
                 let end = start + l.len();
                 let shaped = window.text_system().shape_line(
@@ -671,8 +778,8 @@ impl Element for TextElement {
                 );
                 let top = bounds.top() + lh * row as f32;
                 if selected_range.is_empty() {
-                    if cursor >= start && cursor <= end {
-                        quads.push(fill(Bounds::new(point(bounds.left() + shaped.x_for_index(cursor - start), top), size(px(2.), lh)), fg));
+                    if cursor >= start && cursor <= end && mcursor.is_none() {
+                        mcursor = Some(fill(Bounds::new(point(bounds.left() + shaped.x_for_index(cursor - start), top), size(px(2.), lh)), fg));
                     }
                 } else if selected_range.start <= end && selected_range.end >= start {
                     let a = selected_range.start.max(start);
@@ -689,8 +796,7 @@ impl Element for TextElement {
                 lines.push((start, shaped));
                 start = end + 1;
             }
-            let caret = selected_range.is_empty();
-            return PrepaintState { lines, quads, line: None, cursor: if caret { Some(fill(Bounds::default(), fg)) } else { None }, selection: None };
+            return PrepaintState { lines, quads, line: None, cursor: mcursor, selection: None };
         }
         let line = window
             .text_system()
@@ -754,10 +860,12 @@ impl Element for TextElement {
         if prepaint.line.is_none() {
             let lh = window.line_height();
             let focused = focus_handle.is_focused(window);
-            let caret = prepaint.cursor.is_some();
             for q in prepaint.quads.drain(..) {
-                if !caret || focused {
-                    window.paint_quad(q);
+                window.paint_quad(q);
+            }
+            if focused {
+                if let Some(c) = prepaint.cursor.take() {
+                    self.paint_caret(c, bounds, window, cx);
                 }
             }
             for (row, (_, l)) in prepaint.lines.iter().enumerate() {
@@ -788,7 +896,7 @@ impl Element for TextElement {
         if focus_handle.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
         {
-            window.paint_quad(cursor);
+            self.paint_caret(cursor, bounds, window, cx);
         }
 
         self.input.update(cx, |input, _cx| {
@@ -900,6 +1008,8 @@ impl TextInput {
             last_lines: vec![],
             intercept: false,
             bare: false,
+            smooth_caret: false,
+            caret: CaretAnim::default(),
         }
     }
     /// Rentang byte yang aman: dibatasi panjang isi dan batas karakter (rentang IME/seleksi bisa basi setelah set_text).

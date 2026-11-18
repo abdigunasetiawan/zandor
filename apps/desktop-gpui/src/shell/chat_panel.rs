@@ -91,6 +91,7 @@ impl ChatPanel {
             let mut ti = TextInput::new(cx, ph);
             ti.multiline = true; // Enter kirim, Shift+Enter baris baru
             ti.bare = true;
+            ti.smooth_caret = true;
             ti
         });
         cx.observe(&store, |this, _, cx| {
