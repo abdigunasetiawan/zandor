@@ -372,7 +372,7 @@ impl GitPanel {
 }
 
 fn notice(t: &Theme, ic: &'static str, text: String) -> AnyElement {
-    div().flex().flex_col().items_center().gap(t.space(2)).p(t.space(6)).text_color(t.colors.fg_muted).child(icon(ic).size(IconSize::Lg)).child(div().text_center().child(text)).into_any_element()
+    super::widgets::tool_notice(t, ic, text)
 }
 
 impl Render for GitPanel {

@@ -153,3 +153,13 @@ mod tests {
         assert!(!safe_image_uri("https://x/a.png"));
     }
 }
+
+/// Pesan keadaan panel alat (port tools/ToolNotice.tsx): ikon besar + teks di tengah panel.
+pub fn tool_notice(t: &Theme, ic: &'static str, text: impl Into<SharedString>) -> AnyElement {
+    div().flex().flex_col().items_center().gap(t.space(2)).p(t.space(6)).text_color(t.colors.fg_muted).child(icon(ic).size(IconSize::Lg)).child(div().small(t).text_center().child(text.into())).into_any_element()
+}
+
+/// Varian `inline` ToolNotice: satu baris ringkas di atas daftar.
+pub fn tool_notice_inline(t: &Theme, text: impl Into<SharedString>) -> AnyElement {
+    div().px(t.space(3)).py(t.space(2)).small(t).text_color(t.colors.fg_muted).child(text.into()).into_any_element()
+}

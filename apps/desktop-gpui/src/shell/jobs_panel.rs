@@ -123,11 +123,10 @@ impl JobsPanel {
 }
 
 fn notice(t: &Theme, text: String, big: bool) -> AnyElement {
-    let d = div().flex().flex_col().items_center().gap(t.space(2)).text_color(t.colors.fg_muted).small(t);
     if big {
-        d.p(t.space(6)).child(icon("server").size(IconSize::Lg)).child(div().text_center().child(text)).into_any_element()
+        super::widgets::tool_notice(t, "server", text)
     } else {
-        d.px(t.space(3)).py(t.space(1)).child(text).into_any_element()
+        super::widgets::tool_notice_inline(t, text)
     }
 }
 

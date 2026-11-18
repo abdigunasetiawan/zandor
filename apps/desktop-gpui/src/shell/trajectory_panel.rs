@@ -169,8 +169,8 @@ impl Render for TrajectoryPanel {
     fn render(&mut self, _w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
-        let note = |s: String| div().p(t.space(4)).small(&t).text_color(t.colors.fg_muted).child(s).into_any_element();
-        let Some((_, sess, _)) = ProjectStore::global(cx).read(cx).selected() else { return note(i.t("info.empty")) };
+        let note = |s: String| super::widgets::tool_notice_inline(&t, s);
+        let Some((_, sess, _)) = ProjectStore::global(cx).read(cx).selected() else { return super::widgets::tool_notice(&t, "trajectory", i.t("info.empty")) };
         if self.session.as_deref() != Some(sess.id.as_str()) {
             self.session = Some(sess.id.clone());
             self.selected = None;

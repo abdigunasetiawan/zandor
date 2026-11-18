@@ -156,7 +156,7 @@ impl ToolsHost {
 
     fn render_changes(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
         if self.changes_for.is_none() {
-            return note(t, i.t("info.empty"));
+            return super::widgets::tool_notice(t, "diff", i.t("info.empty"));
         }
         let dir = self.dir(cx).unwrap_or_default();
         let list = match self.changes.clone() {
@@ -178,7 +178,7 @@ impl ToolsHost {
                 .child(icon_button("ch-refresh", "refresh", i.t("git.refresh")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.refresh_changes(cx)))),
         );
         if matches!(self.changes, Some(Ok(ref l)) if l.is_empty()) {
-            col = col.child(div().p(t.space(2)).small(t).text_color(t.colors.fg_muted).child(i.t("chg.empty")));
+            col = col.child(super::widgets::tool_notice_inline(t, i.t("chg.empty")));
         }
         for d in list {
             let open = self.open_change.contains(&d.file);
@@ -353,7 +353,7 @@ impl ToolsHost {
             .child(button("act-clear").label(i.t("act.clear")).size(ControlSize::Sm).disabled(all.is_empty()).on_click(move |_, _, cx| act2.update(cx, |a, cx| a.clear(cx))));
         let mut list = div().flex().flex_col().px(t.space(2)).pb(t.space(2));
         if shown.is_empty() {
-            list = list.child(note(t, i.t("act.empty")));
+            list = list.child(super::widgets::tool_notice_inline(t, i.t("act.empty")));
         }
         for e in shown.iter() {
             let color = match e.level {
@@ -378,7 +378,7 @@ impl ToolsHost {
 
     fn render_trajectory(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
         let st = ProjectStore::global(cx).read(cx);
-        let Some((_, s, _)) = st.selected() else { return note(t, i.t("info.empty")) };
+        let Some((_, s, _)) = st.selected() else { return super::widgets::tool_notice(t, "trajectory", i.t("info.empty")) };
         let Some(chat) = ChatStore::global(cx).read(cx).sessions.get(&s.id).cloned() else { return note(t, i.t("traj.empty")) };
         if chat.messages.is_empty() {
             return note(t, i.t("traj.empty"));

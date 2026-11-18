@@ -11,7 +11,7 @@ use crate::core::types::{Role, SessionRunStatus, TodoStatus};
 use crate::core::usage::session_usage;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
-use crate::ui::{button, icon, select, ButtonVariant, ControlSize, IconSize, TypeExt};
+use crate::ui::{button, select, ButtonVariant, ControlSize, TypeExt};
 use gpui::{div, prelude::*, AnyElement, App, Context, IntoElement, SharedString, Window};
 use std::collections::HashSet;
 
@@ -33,10 +33,10 @@ fn selected(cx: &App) -> Option<Sel> {
 }
 
 fn notice(t: &Theme, ic: &'static str, text: String) -> AnyElement {
-    div().flex().flex_col().items_center().gap(t.space(2)).p(t.space(6)).text_color(t.colors.fg_muted).child(icon(ic).size(IconSize::Lg)).child(div().text_center().child(text)).into_any_element()
+    super::widgets::tool_notice(t, ic, text)
 }
 fn inline_note(t: &Theme, text: String) -> AnyElement {
-    div().px(t.space(3)).py(t.space(2)).small(t).text_color(t.colors.fg_muted).child(text).into_any_element()
+    super::widgets::tool_notice_inline(t, text)
 }
 fn busy(c: &ChatState) -> bool {
     c.status != SessionRunStatus::Idle

@@ -245,7 +245,7 @@ impl TerminalPanel {
 }
 
 fn notice(t: &Theme, text: String) -> AnyElement {
-    div().flex().flex_col().items_center().gap(t.space(2)).p(t.space(6)).text_color(t.colors.fg_muted).child(icon("terminal").size(IconSize::Lg)).child(div().text_center().child(text)).into_any_element()
+    super::widgets::tool_notice(t, "terminal", text)
 }
 
 impl Render for TerminalPanel {
