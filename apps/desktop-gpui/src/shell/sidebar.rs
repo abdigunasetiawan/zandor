@@ -40,7 +40,7 @@ pub struct Sidebar {
     open_menu: Option<String>,
     dialog: Option<SbDialog>,
     pstyle: Option<Entity<super::project_style_dialog::ProjectStyleDialog>>,
-    files: Entity<super::tools::ToolsHost>,
+    files: Entity<super::files_tree::FilesTree>,
 }
 
 
@@ -71,11 +71,7 @@ impl Sidebar {
             open_menu: None,
             dialog: None,
             pstyle: None,
-            files: cx.new(|cx| {
-                let mut h = super::tools::ToolsHost::new(cx);
-                h.tool = super::layout::ToolId::Files;
-                h
-            }),
+            files: cx.new(super::files_tree::FilesTree::new),
         }
     }
 

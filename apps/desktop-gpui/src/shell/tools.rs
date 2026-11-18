@@ -4,17 +4,17 @@ use super::layout::ToolId;
 use crate::core::chat_store::ChatStore;
 use crate::core::engine::SessionFileDiff;
 use crate::core::projects::ProjectStore;
-use crate::core::services::app_data_dir;
 use crate::core::types::{PartKind, Role, TodoStatus, ToolStatus};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{button, icon, icon_button, ButtonVariant, ControlSize, IconSize, TypeExt};
 use gpui::{div, prelude::*, AnyElement, Context, Entity, FontWeight, IntoElement, SharedString, Window};
-use std::path::PathBuf;
 
 pub struct ToolsHost {
     pub tool: ToolId,
-    files_tree: Option<Entity<super::files_tree::FilesTree>>,
+    session_files: Option<Entity<super::session_tools::SessionFiles>>,
+    session_activity: Option<Entity<super::session_tools::SessionActivity>>,
+    info_panel: Option<Entity<super::session_tools::InfoPanel>>,
     git_panel: Option<Entity<super::git_panel::GitPanel>>,
     changes: Option<Result<Vec<SessionFileDiff>, String>>,
     changes_for: Option<String>,
@@ -39,7 +39,9 @@ impl ToolsHost {
         cx.observe(&ChatStore::global(cx), |_, _, cx| cx.notify()).detach();
         let mut me = Self {
             tool: ToolId::Terminal,
-            files_tree: None,
+            session_files: None,
+            session_activity: None,
+            info_panel: None,
             git_panel: None,
             changes: None,
             changes_for: None,
@@ -120,8 +122,7 @@ impl ToolsHost {
     }
 
     fn render_files(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let ft = self.files_tree.get_or_insert_with(|| cx.new(super::files_tree::FilesTree::new)).clone();
-        ft.into_any_element()
+        self.session_files.get_or_insert_with(|| cx.new(super::session_tools::SessionFiles::new)).clone().into_any_element()
     }
 
     fn render_changes(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
@@ -221,6 +222,7 @@ impl ToolsHost {
         self.jobs_panel.clone().unwrap().into_any_element()
     }
 
+    #[allow(dead_code)]
     fn render_info(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>, plan: bool) -> AnyElement {
         let st = ProjectStore::global(cx).read(cx);
         let Some((_, s, p)) = st.selected() else { return note(t, i.t("info.empty")) };
@@ -422,8 +424,8 @@ impl Render for ToolsHost {
             ToolId::Files => self.render_files(cx),
             ToolId::Changes => self.render_changes(&t, &i, cx),
             ToolId::Jobs => self.render_jobs(cx),
-            ToolId::Info => self.render_info(&t, &i, cx, false),
-            ToolId::Session => self.render_info(&t, &i, cx, true),
+            ToolId::Info => self.info_panel.get_or_insert_with(|| cx.new(super::session_tools::InfoPanel::new)).clone().into_any_element(),
+            ToolId::Session => self.session_activity.get_or_insert_with(|| cx.new(super::session_tools::SessionActivity::new)).clone().into_any_element(),
             ToolId::Trajectory => self.render_trajectory(&t, &i, cx),
             ToolId::Log => self.render_log(&t, &i, cx),
             other => note(&t, format!("{} — belum tersedia di versi GPUI.", other.key())),

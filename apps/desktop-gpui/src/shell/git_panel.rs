@@ -1,7 +1,6 @@
 //! Panel 4 — Git: port GitPanel.tsx + GitStore (packages/core/src/tools/git.ts). Status, stage/unstage (per berkas dan
 //! semua), buang perubahan (dengan konfirmasi), diff, commit, cabang (pilih/buat), pull/push dengan ↓/↑, stash/pop,
 //! konflik, pilih repo di anak folder (monorepo), dan riwayat commit. Menjalankan `git` CLI lewat git.rs bersama.
-use crate::core::chat_store::ChatStore;
 use crate::core::projects::{ProjectStore, CHAT_KEY};
 use crate::git::{Branch, CommitInfo, FileChange, GitStatus};
 use crate::i18n::I18n;
@@ -80,13 +79,8 @@ pub struct GitPanel {
 }
 
 fn activity(cx: &mut gpui::App, msg: String) {
-    ChatStore::global(cx).update(cx, |s, cx| {
-        s.activity.push_back((crate::core::projects::now_ms(), format!("git · {msg}")));
-        while s.activity.len() > 500 {
-            s.activity.pop_front();
-        }
-        cx.notify();
-    });
+    let level = if msg.starts_with("error") { "error" } else { "info" };
+    crate::core::activity::log(cx, "git", level, msg);
 }
 
 impl GitPanel {

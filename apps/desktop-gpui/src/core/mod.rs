@@ -26,5 +26,6 @@ pub mod usage;
 pub mod doc_kinds;
 pub mod office;
 pub mod session_search;
+pub mod session_timeline;
 pub mod patch;
 pub mod mem_import;
