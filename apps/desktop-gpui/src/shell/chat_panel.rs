@@ -97,6 +97,9 @@ impl ChatPanel {
         })
         .detach();
         cx.observe(&chat, |_, _, cx| cx.notify()).detach();
+        cx.observe_global::<crate::theme::Theme>(|_, cx| cx.notify()).detach();
+        cx.observe_global::<crate::i18n::I18n>(|_, cx| cx.notify()).detach();
+        cx.observe(&crate::core::appearance::AppearanceStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &InputSubmit, cx| this.submit(e.0.to_string(), cx)).detach();

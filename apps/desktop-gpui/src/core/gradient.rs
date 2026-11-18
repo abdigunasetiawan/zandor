@@ -82,18 +82,18 @@ pub fn validate_gradient_css(v: &str) -> Option<String> {
     if v.is_empty() || v.chars().count() > 400 {
         return Some("gradien tidak valid".into());
     }
-    let re = regex::Regex::new(r"(?s)^(linear|radial)-gradient\((.*)\)$").expect("regex");
+    let re = crate::core::re::re(r"(?s)^(linear|radial)-gradient\((.*)\)$");
     let Some(m) = re.captures(v).and_then(|c| c.get(2)).filter(|m| !m.as_str().is_empty()) else {
         return Some("gradien harus linear-gradient(...) atau radial-gradient(...)".into());
     };
-    let f = regex::Regex::new(r"(?i)(?:rgb|rgba|hsl|hsla)\(\s*[\d.,%\s/-]+\)").expect("regex");
+    let f = crate::core::re::re(r"(?i)(?:rgb|rgba|hsl|hsla)\(\s*[\d.,%\s/-]+\)");
     let stripped = f.replace_all(m.as_str(), "0");
     if stripped.contains('(') || stripped.contains(')') {
         return Some("gradien mengandung fungsi yang tidak diizinkan".into());
     }
-    let num = regex::Regex::new(r"^-?\d{1,4}(\.\d+)?(deg|%|px|rem)?$").expect("regex");
-    let kw = regex::Regex::new(r"(?i)^(circle|ellipse|at|to|center|top|bottom|left|right|closest-side|farthest-side|closest-corner|farthest-corner)$").expect("regex");
-    let word = regex::Regex::new(r"(?i)^[a-z]{3,20}$").expect("regex");
+    let num = crate::core::re::re(r"^-?\d{1,4}(\.\d+)?(deg|%|px|rem)?$");
+    let kw = crate::core::re::re(r"(?i)^(circle|ellipse|at|to|center|top|bottom|left|right|closest-side|farthest-side|closest-corner|farthest-corner)$");
+    let word = crate::core::re::re(r"(?i)^[a-z]{3,20}$");
     for tok in stripped.split(|c: char| c.is_whitespace() || c == ',').filter(|s| !s.is_empty()) {
         if is_hex(tok) || num.is_match(tok) || kw.is_match(tok) || word.is_match(tok) {
             continue;
@@ -224,7 +224,7 @@ pub fn image_to_data_url(path: &std::path::Path, max_side: u32, fmt: OutFmt, max
 
 /// Port validateImageDataUrl.
 pub fn validate_image_data_url(v: &str, max_chars: usize) -> Option<&'static str> {
-    let re = regex::Regex::new(r"^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$").expect("regex");
+    let re = crate::core::re::re(r"^data:image/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$");
     if !re.is_match(v) {
         return Some("gambar harus berupa data URL png/jpeg/webp/gif");
     }

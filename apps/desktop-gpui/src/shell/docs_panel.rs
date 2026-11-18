@@ -206,6 +206,9 @@ enum DiscardThen {
 impl DocsPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let state = DocsState::global(cx);
+        cx.observe_global::<crate::theme::Theme>(|_, cx| cx.notify()).detach();
+        cx.observe_global::<crate::i18n::I18n>(|_, cx| cx.notify()).detach();
+        cx.observe(&crate::core::appearance::AppearanceStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&state, |s, st, cx| {
             let open = st.read(cx).open.clone();
             s.cache.retain(|k, _| open.contains(k));

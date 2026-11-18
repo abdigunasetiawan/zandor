@@ -37,7 +37,7 @@ fn has(key: &str) -> bool {
 
 /// MODEL_PATTERNS (urutan penting). `(?<!o)llama` dicek manual karena regex Rust tanpa lookbehind.
 fn model_family(t: &str) -> Option<&'static str> {
-    let re = |p: &str| regex::Regex::new(p).expect("regex").is_match(t);
+    let re = |p: &'static str| crate::core::re::re(p).is_match(t);
     let llama = t.match_indices("llama").any(|(i, _)| i == 0 || t.as_bytes()[i - 1] != b'o') || t.contains("llava");
     let pats: [(&dyn Fn() -> bool, &str); 31] = [
         (&|| t.contains("gpt-oss"), "openai"),
@@ -146,7 +146,7 @@ pub fn model_logo_key(provider: Option<&str>, model: Option<&str>, name: Option<
         if has(&p) {
             return Some(p);
         }
-        let trimmed = regex::Regex::new(r"(ai|cn|api)$").expect("regex").replace(&p, "").to_string();
+        let trimmed = crate::core::re::re(r"(ai|cn|api)$").replace(&p, "").to_string();
         if !trimmed.is_empty() && has(&trimmed) {
             return Some(trimmed);
         }

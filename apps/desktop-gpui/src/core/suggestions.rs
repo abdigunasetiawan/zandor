@@ -20,7 +20,7 @@ pub struct Suggestion {
 }
 
 fn is_code(path: &str) -> bool {
-    let re = regex::Regex::new(r"(?i)\.(?:[cm]?[jt]sx?|py|rs|go|java|kt|cs|cpp|c|h|rb|php|swift|dart|vue|svelte)$").expect("regex");
+    let re = crate::core::re::re(r"(?i)\.(?:[cm]?[jt]sx?|py|rs|go|java|kt|cs|cpp|c|h|rb|php|swift|dart|vue|svelte)$");
     re.is_match(path)
 }
 
@@ -50,17 +50,17 @@ pub fn suggest_prompts(ctx: &SuggestionContext, max: usize) -> Vec<Suggestion> {
         if kind == "code" || kind == "markdown" {
             add("explain-file", vec![("name", name.clone()), ("path", path.clone())]);
         }
-        let test_re = regex::Regex::new(r"(?i)\.(?:test|spec)\.").expect("regex");
+        let test_re = crate::core::re::re(r"(?i)\.(?:test|spec)\.");
         if kind == "code" && is_code(path) && !test_re.is_match(path) {
             add("write-tests", vec![("name", name), ("path", path.clone())]);
         }
     }
     if let Some(root) = &ctx.root_files {
-        let readme = regex::Regex::new(r"(?i)^readme(?:\.[a-z]+)?$").expect("regex");
+        let readme = crate::core::re::re(r"(?i)^readme(?:\.[a-z]+)?$");
         if !root.iter().any(|f| readme.is_match(f)) {
             add("write-readme", vec![]);
         }
-        let manifest = regex::Regex::new(r"(?i)^(?:package\.json|cargo\.toml|pyproject\.toml|go\.mod|pom\.xml)$").expect("regex");
+        let manifest = crate::core::re::re(r"(?i)^(?:package\.json|cargo\.toml|pyproject\.toml|go\.mod|pom\.xml)$");
         if root.iter().any(|f| manifest.is_match(f)) {
             add("run-tests", vec![]);
         }

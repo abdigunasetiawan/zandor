@@ -41,8 +41,7 @@ impl AttentionEvent {
 }
 
 pub fn is_limit_error(message: &str) -> bool {
-    regex::Regex::new(r"(?i)rate.?limit|too many requests|\b429\b|quota|insufficient|credit|billing|usage limit|limit (reached|exceeded)|overloaded|context (length|window)|maximum context|token limit")
-        .expect("regex")
+    crate::core::re::re(r"(?i)rate.?limit|too many requests|\b429\b|quota|insufficient|credit|billing|usage limit|limit (reached|exceeded)|overloaded|context (length|window)|maximum context|token limit")
         .is_match(message)
 }
 

@@ -56,6 +56,13 @@ impl Sidebar {
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&crate::core::appearance::AppearanceStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
+        cx.observe_global::<crate::theme::Theme>(|_, cx| cx.notify()).detach();
+        cx.observe_global::<crate::i18n::I18n>(|_, cx| cx.notify()).detach();
+        // titik status sesi membaca ChatStore + Attention (panel di-cache: perlu notify eksplisit)
+        cx.observe(&crate::core::chat_store::ChatStore::global(cx), |_, _, cx| cx.notify()).detach();
+        if let Some(a) = super::notification_driver::Attention::global(cx) {
+            cx.observe(&a, |_, _, cx| cx.notify()).detach();
+        }
         cx.observe(&search, |_, _, cx| cx.notify()).detach();
         cx.subscribe(&search, |_, _, _: &crate::ui::InputChanged, cx| cx.notify()).detach();
         Self {

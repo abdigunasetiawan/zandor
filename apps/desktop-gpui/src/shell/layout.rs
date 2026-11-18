@@ -310,15 +310,15 @@ impl Render for ShellLayout {
             let pid = RESIZABLE[*idx];
             let inner: gpui::AnyElement = match pid {
                 PanelId::Sidebar => match &self.content.sidebar {
-                    Some(v) => v.clone().into_any_element(),
+                    Some(v) => v.clone().cached(gpui::StyleRefinement::default().flex().flex_col().size_full()).into_any_element(),
                     None => div().into_any_element(),
                 },
                 PanelId::Chat => match &self.content.chat {
-                    Some(v) => v.clone().into_any_element(),
+                    Some(v) => v.clone().cached(gpui::StyleRefinement::default().flex().flex_col().size_full()).into_any_element(),
                     None => div().into_any_element(),
                 },
                 PanelId::Docs => match &self.content.docs {
-                    Some(v) => v.clone().into_any_element(),
+                    Some(v) => v.clone().cached(gpui::StyleRefinement::default().flex().flex_col().size_full()).into_any_element(),
                     None => panel_empty(&t, empty_p3.0.clone(), empty_p3.1.clone()).into_any_element(),
                 },
                 _ => {
