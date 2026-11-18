@@ -32,6 +32,8 @@ pub struct ChatStore {
     pub queue_paused: std::collections::HashSet<String>,
     force_next: std::collections::HashSet<String>,
     q_seq: u64,
+    /// Pesan yang disematkan per sesi (port pinnedMessages, kunci prefs zandor.pinnedMessages).
+    pub pinned_messages: HashMap<String, Vec<String>>,
 }
 
 pub const MAX_QUEUE: usize = 50;
@@ -64,13 +66,30 @@ pub fn write_pref(key: &str, val: &str) {
     }
 }
 
+const PINNED_MSG_PREF: &str = "zandor.pinnedMessages";
+
+/// Port parsePinnedMessages: objek sesi → daftar id pesan (string saja).
+pub fn parse_pinned(raw: Option<&str>) -> HashMap<String, Vec<String>> {
+    let Some(v) = raw.and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok()) else { return HashMap::new() };
+    v.as_object()
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, ids)| {
+                    let ids: Vec<String> = ids.as_array()?.iter().filter_map(|x| x.as_str().map(str::to_string)).collect();
+                    (!ids.is_empty()).then(|| (k.clone(), ids))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 struct ChatHandle(Entity<ChatStore>);
 impl Global for ChatHandle {}
 
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0 });
+        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()) });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -350,6 +369,56 @@ impl ChatStore {
         };
         let sid = id.to_string();
         self.bg(id, cx, move |api, dir| api.summarize(dir, &sid, &model));
+    }
+
+    pub fn toggle_message_pin(&mut self, sid: &str, mid: &str, cx: &mut Context<Self>) {
+        let cur = self.pinned_messages.entry(sid.to_string()).or_default();
+        if let Some(p) = cur.iter().position(|x| x == mid) {
+            cur.remove(p);
+        } else {
+            cur.push(mid.to_string());
+        }
+        self.pinned_messages.retain(|_, v| !v.is_empty());
+        let json: serde_json::Map<String, serde_json::Value> = self.pinned_messages.iter().map(|(k, v)| (k.clone(), serde_json::json!(v))).collect();
+        write_pref(PINNED_MSG_PREF, &serde_json::Value::Object(json).to_string());
+        cx.notify();
+    }
+
+    /// Ulangi jawaban: kembalikan sesi ke pesan pengguna terakhir lalu kirim ulang isinya (port regenerate).
+    pub fn regenerate(&mut self, id: &str, cx: &mut Context<Self>) -> Result<(), String> {
+        let Some(st) = self.sessions.get(id) else { return Err("engine belum siap".into()) };
+        if st.busy() {
+            return Err("sesi sedang berjalan".into());
+        }
+        let user = st.visible().filter(|m| m.info.role == super::types::Role::User).last().cloned().ok_or("tidak ada pesan pengguna untuk diulang")?;
+        let text = super::chat::message_text(&user);
+        let files: Vec<super::attachments::FileAttachment> = user
+            .parts
+            .iter()
+            .filter_map(|p| match &p.kind {
+                super::types::PartKind::File { mime, filename, url } if !url.is_empty() => Some(super::attachments::FileAttachment { mime: mime.clone(), url: url.clone(), filename: filename.clone() }),
+                _ => None,
+            })
+            .collect();
+        if let Some(st) = self.sessions.get_mut(id) {
+            st.revert = Some(user.info.id.clone());
+            st.error = None;
+            st.status = super::types::SessionRunStatus::Busy;
+        }
+        let (sid, mid, model, variant) = (id.to_string(), user.info.id.clone(), self.model.clone(), self.variant.clone());
+        self.bg(id, cx, move |api, dir| {
+            api.revert(dir, &sid, &mid)?;
+            api.send_prompt(dir, &sid, &text, model.as_ref(), variant.as_deref(), &files)
+        });
+        cx.notify();
+        Ok(())
+    }
+
+    /// Cabang baru dari pesan ini (port fork).
+    pub fn fork(&self, id: &str, message_id: &str, cx: &mut Context<Self>) -> gpui::Task<Result<super::engine::SessionInfo, String>> {
+        let (Some(api), Some(dir)) = (self.api.clone(), self.dirs.get(id).cloned()) else { return gpui::Task::ready(Err("engine belum siap".into())) };
+        let (sid, mid) = (id.to_string(), message_id.to_string());
+        cx.background_spawn(async move { api.fork(&dir, &sid, Some(&mid)).map_err(|e| e.0) })
     }
 
     pub fn revert_to(&mut self, id: &str, message_id: &str, cx: &mut Context<Self>) {

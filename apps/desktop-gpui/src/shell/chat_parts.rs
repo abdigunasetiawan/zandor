@@ -548,3 +548,294 @@ pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatP
     }
     col.into_any_element()
 }
+
+// ---------------- MessageToolbar.tsx + PinnedBar ----------------
+
+/// Nama berkas ekspor `respons-YYYYMMDD-HHMMSS.md` (exportFileName).
+pub(super) fn export_file_name(ext: &str) -> String {
+    format!("respons-{}.{ext}", chrono::Local::now().format("%Y%m%d-%H%M%S"))
+}
+
+/// zandor://chat/{key}/{sessionId}/{messageId} (messageLink, encodeURIComponent).
+pub(super) fn message_link(key: &str, sid: &str, mid: &str) -> String {
+    const KEEP: &[u8] = b"-_.!~*'()";
+    let enc = |s: &str| s.bytes().map(|b| if b.is_ascii_alphanumeric() || KEEP.contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect::<String>();
+    format!("zandor://chat/{}/{}/{}", enc(key), enc(sid), enc(mid))
+}
+
+fn toast(cx: &mut App, title: String, tone: crate::ui::ToastTone, ms: Option<u64>) {
+    crate::ui::Toasts::show(crate::ui::ToastInput { title: title.into(), description: None, tone, timeout_ms: ms, action: None }, cx);
+}
+pub(super) fn fail(cx: &mut App, e: impl std::fmt::Display) {
+    let title = cx.global::<I18n>().tp("sb.error", &[("error", &e.to_string())]);
+    toast(cx, title, crate::ui::ToastTone::Danger, None);
+}
+
+fn dirs_home() -> std::path::PathBuf {
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(std::path::PathBuf::from).unwrap_or_default()
+}
+
+impl ChatPanel {
+    /// Simpan teks pesan ke berkas memori (catatan project/global, atau sematan konteks sesi).
+    fn save_note(&self, scope: &'static str, text: String, sid: String, cx: &mut Context<Self>) {
+        use crate::core::mem;
+        let i = cx.global::<I18n>().clone();
+        if text.trim().is_empty() {
+            return fail(cx, i.t("msg.noContent"));
+        }
+        if !mem::scan_secrets(&text).is_empty() {
+            return fail(cx, i.t("msg.noteSecret"));
+        }
+        let rel = match scope {
+            "project" => match self.store.read(cx).selected().and_then(|s| s.2) {
+                Some(p) => mem::project_file(&mem::project_key(&p.path)),
+                None => return fail(cx, i.t("msg.noProject")),
+            },
+            "session" => mem::pin_file(&sid),
+            _ => mem::FILE_GLOBAL.to_string(),
+        };
+        let path = crate::core::services::app_data_dir().join("memory").join(&rel);
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let stamp = chrono::Utc::now().format("%Y-%m-%d %H:%M").to_string();
+        let r = match path.parent() {
+            Some(d) => std::fs::create_dir_all(d),
+            None => Ok(()),
+        }
+        .and_then(|_| std::fs::write(&path, mem::append_note(&existing, &stamp, &text)));
+        match r {
+            Ok(_) => {
+                let scope_l = i.t(&format!("msg.scope.{scope}"));
+                toast(cx, i.tp("msg.noteSaved", &[("scope", &scope_l)]), crate::ui::ToastTone::Success, None);
+            }
+            Err(e) => fail(cx, e),
+        }
+    }
+
+    fn toggle_msg_menu(&mut self, mid: &str, which: u8, cx: &mut Context<Self>) {
+        self.msg_menu = if self.msg_menu.as_ref().is_some_and(|(a, w)| a == mid && *w == which) { None } else { Some((mid.to_string(), which)) };
+        cx.notify();
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn message_toolbar(&self, t: &Theme, i: &I18n, turn: &crate::core::chat::Turn, sid: &str, key: &str, is_last_assistant: bool, cx: &mut Context<Self>) -> AnyElement {
+        let m = &turn.message;
+        let mid = m.info.id.clone();
+        let text = message_text(m);
+        let assistant = m.info.role == Role::Assistant;
+        let pinned = self.chat.read(cx).pinned_messages.get(sid).is_some_and(|ids| turn.source_ids.iter().any(|x| ids.contains(x)));
+        let ib = |id: &str, ic: &'static str, label: String| icon_button(SharedString::from(format!("{id}-{mid}")), ic, label).size(ControlSize::Sm).variant(ButtonVariant::Ghost);
+        let mut row = div().flex().flex_none().gap(t.space(1)).text_color(t.colors.fg_muted);
+        if assistant {
+            let link = message_link(if key.is_empty() { "chat" } else { key }, sid, &mid);
+            row = row.child(ib("mlink", "link", i.t("msg.copyLink")).on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(link.clone()));
+                let ti = cx.global::<I18n>().t("msg.linkCopied");
+                toast(cx, ti, crate::ui::ToastTone::Success, Some(1500));
+            }));
+        }
+        if !text.is_empty() {
+            let tx = text.clone();
+            row = row.child(ib("mcopy", "copy", i.t("chat.copy")).on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(tx.clone()));
+                let ti = cx.global::<I18n>().t("chat.copied");
+                toast(cx, ti, crate::ui::ToastTone::Success, Some(1500));
+            }));
+        }
+        let menu_open = |which: u8| self.msg_menu.as_ref().is_some_and(|(id, w)| *id == mid && *w == which);
+        let me = cx.entity().downgrade();
+        if assistant && !text.is_empty() {
+            // Simpan sebagai: Teks (Markdown). PNG/SVG di aplikasi TS merender DOM lewat html-to-image; GPUI tidak punya
+            // perender elemen ke gambar di luar layar, jadi pilihan itu belum tersedia di port ini.
+            let tx = text.clone();
+            let entries = vec![crate::ui::entry(i.t("msg.saveText"), move |_, cx| {
+                let body = if tx.ends_with('\n') { tx.clone() } else { format!("{tx}\n") };
+                let rx = cx.prompt_for_new_path(&dirs_home(), Some(&export_file_name("md")));
+                cx.spawn(async move |cx| {
+                    let Ok(Ok(Some(dest))) = rx.await else { return };
+                    let r = std::fs::write(&dest, body);
+                    cx.update(|cx| match r {
+                        Ok(_) => {
+                            let ti = cx.global::<I18n>().t("msg.saved");
+                            toast(cx, ti, crate::ui::ToastTone::Success, Some(2000));
+                        }
+                        Err(e) => fail(cx, e),
+                    });
+                })
+                .detach();
+            })
+            .icon("file_text")];
+            let (mid2, me2) = (mid.clone(), me.clone());
+            row = row.child(
+                div()
+                    .relative()
+                    .child(ib("msave", "image_down", i.t("msg.saveAs")).on_click(cx.listener(move |s, _, _, cx| s.toggle_msg_menu(&mid2, 1, cx))))
+                    .when(menu_open(1), |d| {
+                        d.child(crate::ui::menu_popup(SharedString::from(format!("msave-{mid}")), t, entries, gpui::Anchor::BottomRight, move |_, cx| {
+                            me2.update(cx, |s, cx| {
+                                s.msg_menu = None;
+                                cx.notify();
+                            })
+                            .ok();
+                        }))
+                    }),
+            );
+            let mut notes = vec![];
+            let has_project = self.store.read(cx).selected().is_some_and(|s| s.2.is_some());
+            for scope in ["project", "global", "session"] {
+                if scope == "project" && !has_project {
+                    continue;
+                }
+                let (me, tx, sid) = (me.clone(), text.clone(), sid.to_string());
+                notes.push(crate::ui::entry(i.t(&format!("msg.scope.{scope}")), move |_, cx| {
+                    me.update(cx, |s, cx| s.save_note(scope, tx.clone(), sid.clone(), cx)).ok();
+                }));
+            }
+            let (mid3, me3) = (mid.clone(), me.clone());
+            row = row.child(
+                div()
+                    .relative()
+                    .child(ib("mnote", "bookmark", i.t("msg.saveNote")).on_click(cx.listener(move |s, _, _, cx| s.toggle_msg_menu(&mid3, 2, cx))))
+                    .when(menu_open(2), |d| {
+                        d.child(crate::ui::menu_popup(SharedString::from(format!("mnote-{mid}")), t, notes, gpui::Anchor::BottomRight, move |_, cx| {
+                            me3.update(cx, |s, cx| {
+                                s.msg_menu = None;
+                                cx.notify();
+                            })
+                            .ok();
+                        }))
+                    }),
+            );
+        }
+        if assistant {
+            let (sid2, mid2) = (sid.to_string(), mid.clone());
+            let mut pin = ib("mpin", "pin", i.t(if pinned { "msg.unpin" } else { "msg.pin" })).on_click(cx.listener(move |s, _, _, cx| s.chat.update(cx, |c, cx| c.toggle_message_pin(&sid2, &mid2, cx))));
+            if pinned {
+                pin = pin.variant(ButtonVariant::Outline);
+            }
+            row = row.child(pin);
+            let (sid2, mid2, key2) = (sid.to_string(), mid.clone(), key.to_string());
+            row = row.child(ib("mfork", "git", i.t("chat.fork")).on_click(cx.listener(move |s, _, _, cx| {
+                let task = s.chat.update(cx, |c, cx| c.fork(&sid2, &mid2, cx));
+                let key = key2.clone();
+                cx.spawn(async move |this, cx| {
+                    let r = task.await;
+                    this.update(cx, |s, cx| match r {
+                        Ok(info) if !key.is_empty() => s.store.update(cx, |p, cx| p.adopt_session(&key, info, cx)),
+                        Ok(_) => {}
+                        Err(e) => fail(cx, e),
+                    })
+                    .ok();
+                })
+                .detach();
+            })));
+        }
+        if m.info.role == Role::User {
+            let (sid2, mid2) = (sid.to_string(), mid.clone());
+            row = row.child(ib("mrev", "undo", i.t("chat.revert")).on_click(cx.listener(move |s, _, _, cx| {
+                if s.chat.read(cx).sessions.get(&sid2).is_some_and(|x| x.busy()) {
+                    return fail(cx, "hentikan sesi sebelum revert");
+                }
+                s.chat.update(cx, |c, cx| c.revert_to(&sid2, &mid2, cx));
+            })));
+        }
+        if is_last_assistant {
+            let sid2 = sid.to_string();
+            row = row.child(ib("mregen", "refresh", i.t("chat.regenerate")).on_click(cx.listener(move |s, _, _, cx| {
+                if let Err(e) = s.chat.update(cx, |c, cx| c.regenerate(&sid2, cx)) {
+                    fail(cx, e);
+                }
+            })));
+        }
+        row.into_any_element()
+    }
+
+    /// PinnedBar: daftar pesan yang disematkan (dapat dilipat); klik → gulir ke pesan.
+    pub(super) fn pinned_bar(&self, t: &Theme, i: &I18n, sid: &str, turns: &[crate::core::chat::Turn], cx: &mut Context<Self>) -> Option<AnyElement> {
+        let ids = self.chat.read(cx).pinned_messages.get(sid).cloned().unwrap_or_default();
+        let pinned: Vec<&crate::core::chat::Turn> = ids.iter().filter_map(|id| turns.iter().find(|x| x.source_ids.contains(id))).collect();
+        if pinned.is_empty() {
+            return None;
+        }
+        let open = self.pins_open;
+        let mut col = div()
+            .flex()
+            .flex_col()
+            .mb(t.space(2))
+            .px(t.space(2))
+            .py(t.space(1))
+            .border_1()
+            .border_color(t.colors.border)
+            .rounded(t.rem(rem::RADIUS_LG))
+            .bg(t.colors.surface)
+            .child(
+                div()
+                    .id("pins-sum")
+                    .flex()
+                    .items_center()
+                    .gap(t.space(1))
+                    .cursor_pointer()
+                    .typo(t, crate::theme::LABEL)
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        s.pins_open = !s.pins_open;
+                        cx.notify();
+                    }))
+                    .child(icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
+                    .child(icon("pin").size(IconSize::Sm))
+                    .child(i.tp("msg.pinned", &[("n", &pinned.len().to_string())])),
+            );
+        if open {
+            for tr in pinned {
+                let m = &tr.message;
+                let ex: String = message_text(m).split_whitespace().collect::<Vec<_>>().join(" ").chars().take(90).collect();
+                let ex = if ex.is_empty() { i.t("sb.untitled") } else { ex };
+                let (go_id, sid2) = (m.info.id.clone(), sid.to_string());
+                let unpin: Vec<String> = tr.source_ids.iter().filter(|x| ids.contains(x)).cloned().collect();
+                col = col.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t.space(1))
+                        .mt(t.space(1))
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("pin-go-{}", m.info.id)))
+                                .flex()
+                                .flex_1()
+                                .items_baseline()
+                                .gap(t.space(2))
+                                .min_w_0()
+                                .px(t.space(2))
+                                .py(t.space(1))
+                                .rounded(t.rem(rem::RADIUS_MD))
+                                .cursor_pointer()
+                                .hover(|s| s.bg(t.colors.hover))
+                                .on_click(move |_, _, cx| cx.set_global(MessageFocus(Some(go_id.clone()))))
+                                .child(div().flex_none().small(t).text_color(t.colors.fg_subtle).child(i.t(if m.info.role == Role::User { "chat.you" } else { "chat.assistant" })))
+                                .child(div().min_w_0().truncate().child(ex)),
+                        )
+                        .child(
+                            icon_button(SharedString::from(format!("pin-un-{}", m.info.id)), "pin", i.t("msg.unpin"))
+                                .size(ControlSize::Sm)
+                                .variant(ButtonVariant::Outline)
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    for id in &unpin {
+                                        s.chat.update(cx, |c, cx| c.toggle_message_pin(&sid2, id, cx));
+                                    }
+                                })),
+                        ),
+                );
+            }
+        }
+        Some(col.into_any_element())
+    }
+}
+
+#[cfg(test)]
+mod toolbar_tests {
+    use super::*;
+    #[test]
+    fn tautan() {
+        assert_eq!(message_link("chat", "ses 1", "msg/2"), "zandor://chat/chat/ses%201/msg%2F2");
+        assert!(export_file_name("md").starts_with("respons-"));
+    }
+}

@@ -43,6 +43,8 @@ pub struct ChatPanel {
     attach_menu: bool,
     voice_menu: bool,
     ticking: bool,
+    msg_menu: Option<(String, u8)>,
+    pins_open: bool,
     voice_devices: Vec<crate::voice::AudioInput>,
     voice_device: String,
     queue: queue_dock::QueueState,
@@ -95,6 +97,8 @@ impl ChatPanel {
             attach_menu: false,
             voice_menu: false,
             ticking: false,
+            msg_menu: None,
+            pins_open: false,
             voice_devices: vec![],
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
@@ -254,35 +258,93 @@ fn chat_width(t: &Theme, cx: &App) -> f32 {
     })
 }
 
-fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, i: &I18n) -> AnyElement {
+/// Pesan pengguna: chip lampiran, gelembung teks, dan baris bawah (waktu + aksi) yang muncul saat hover.
+fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, toolbar: AnyElement) -> Option<AnyElement> {
     let text = message_text(m);
-    let copy = text.clone();
-    div()
-        .id(id.clone())
-        .group("umsg")
-        .flex()
-        .flex_col()
-        .items_end()
-        .gap(t.space(2))
-        .self_end()
-        .max_w(gpui::relative(0.85))
-        .child(
-            div()
-                .px(t.space(3))
-                .py(t.space(2))
-                .rounded(t.rem(rem::RADIUS_LG))
-                .bg(t.colors.bubble)
-                .child(chat_text(div(), t).child(text)),
-        )
-        .child(
-            div().flex().justify_end().h(t.rem(rem::CONTROL_SM)).invisible().group_hover("umsg", |s| s.visible()).child(
-                icon_button(SharedString::from(format!("{id}-copy")), "copy", i.t("chat.copy"))
-                    .variant(ButtonVariant::Ghost)
-                    .size(ControlSize::Sm)
-                    .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))),
-            ),
-        )
-        .into_any_element()
+    let files: Vec<String> = m
+        .parts
+        .iter()
+        .filter_map(|p| match &p.kind {
+            PartKind::File { filename, url, .. } => Some(filename.clone().unwrap_or_else(|| url.rsplit('/').next().unwrap_or("").to_string())),
+            _ => None,
+        })
+        .collect();
+    let noted: Vec<(String, Option<String>)> = m
+        .parts
+        .iter()
+        .flat_map(|p| match &p.kind {
+            PartKind::Text { text, synthetic: true } => crate::core::attachments::attachments_from_note(text),
+            _ => vec![],
+        })
+        .collect();
+    if text.is_empty() && files.is_empty() && noted.is_empty() {
+        return None;
+    }
+    use chrono::TimeZone;
+    let created = chrono::Local.timestamp_millis_opt(m.info.created as i64).single();
+    let short = created.map(|d| d.format("%-d %b %H.%M").to_string()).unwrap_or_default();
+    let full = created.map(|d| d.format("%A, %-d %B %Y %H.%M.%S %Z").to_string()).unwrap_or_default();
+    let chip = |name: String| {
+        div()
+            .flex()
+            .items_center()
+            .gap(t.space(1))
+            .max_w_full()
+            .px(t.space(2))
+            .border_1()
+            .border_color(t.colors.border)
+            .rounded_full()
+            .text_size(t.rem(t.ty(crate::theme::SMALL).size))
+            .child(icon("paperclip").size(IconSize::Sm))
+            .child(div().truncate().child(name))
+    };
+    let mut bubble = div().max_w_full().px(t.space(3)).py(t.space(2)).rounded(t.rem(rem::RADIUS_LG)).bg(t.colors.bubble);
+    if !files.is_empty() || !noted.is_empty() {
+        let mut chips = div().flex().flex_wrap().gap(t.space(1)).mb(t.space(1));
+        for f in files {
+            chips = chips.child(chip(f));
+        }
+        for (n, _) in noted {
+            chips = chips.child(chip(n));
+        }
+        bubble = bubble.child(chips);
+    }
+    if !text.is_empty() {
+        bubble = bubble.child(chat_text(div(), t).child(text));
+    }
+    Some(
+        div()
+            .id(id.clone())
+            .group("umsg")
+            .flex()
+            .flex_col()
+            .items_end()
+            .gap(t.space(2))
+            .self_end()
+            .max_w(gpui::relative(0.85))
+            .child(bubble)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap(t.space(2))
+                    .min_h(t.rem(rem::CONTROL_SM))
+                    .invisible()
+                    .group_hover("umsg", |s| s.visible())
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("{id}-time")))
+                            .small(t)
+                            .text_color(t.colors.fg_subtle)
+                            .whitespace_nowrap()
+                            .tooltip(crate::ui::tooltip::text_tooltip(full.into()))
+                            .child(short),
+                    )
+                    .child(toolbar),
+            )
+            .into_any_element(),
+    )
 }
 
 impl Render for ChatPanel {
@@ -653,16 +715,26 @@ impl Render for ChatPanel {
         let last_assistant = turns.iter().rposition(|x| x.message.info.role == Role::Assistant);
         let active_ix = if busy && last_assistant.is_some() && last_assistant == Some(turns.len().saturating_sub(1)) { last_assistant } else { None };
         let models = self.models.clone();
+        if let Some(pb) = self.pinned_bar(&t, i, &sid, &turns, cx) {
+            body = body.child(div().w_full().max_w(t.rem(cw)).mx_auto().child(pb));
+        }
         for (ix, turn) in turns.iter().enumerate() {
             let m = &turn.message;
             count += m.parts.len() + 1;
             let streaming = active_ix == Some(ix);
+            let key = cur.as_ref().map(|c| c.0.clone()).unwrap_or_default();
             let el = match m.info.role {
-                Role::User => user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), i),
+                Role::User => {
+                    let tb = self.message_toolbar(&t, i, turn, &sid, &key, false, cx);
+                    let Some(el) = user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), tb) else { continue };
+                    el
+                }
                 Role::Assistant => {
                     let pid = m.info.provider_id.clone();
                     let provider_name = models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
-                    chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, has_project, &provider_name, None)
+                    let is_last = last_assistant == Some(ix) && !busy;
+                    let tb = (m.info.completed.is_some() && !streaming).then(|| self.message_toolbar(&t, i, turn, &sid, &key, is_last, cx));
+                    chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, has_project, &provider_name, tb)
                 }
             };
             if focus.as_ref().is_some_and(|f| turn.source_ids.contains(f)) {

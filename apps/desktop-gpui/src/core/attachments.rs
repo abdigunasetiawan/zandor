@@ -177,3 +177,30 @@ mod tests {
         assert!(p[0]["text"].as_str().unwrap().contains("- laporan.docx: C:/x/laporan.docx"));
     }
 }
+
+/// Port attachmentsFromNote: lampiran yang dikirim sebagai path (catatan sintetis `<zandor-attachments>`).
+pub fn attachments_from_note(text: &str) -> Vec<(String, Option<String>)> {
+    if !text.starts_with("<zandor-attachments>") {
+        return vec![];
+    }
+    text.split('\n')
+        .filter_map(|l| l.strip_prefix("- "))
+        .map(|body| match body.find(": ") {
+            None => (body.to_string(), None),
+            Some(at) => {
+                let rest = &body[at + 2..];
+                (body[..at].to_string(), (!rest.starts_with('(')).then(|| rest.to_string()))
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod note_tests {
+    #[test]
+    fn note() {
+        let n = super::attachments_from_note("<zandor-attachments>\n- a.docx: C:/x/a.docx\n- b.pdf: (terlalu besar)\n- c");
+        assert_eq!(n, vec![("a.docx".into(), Some("C:/x/a.docx".into())), ("b.pdf".into(), None), ("c".into(), None)]);
+        assert!(super::attachments_from_note("biasa").is_empty());
+    }
+}
