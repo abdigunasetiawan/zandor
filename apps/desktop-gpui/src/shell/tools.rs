@@ -427,40 +427,79 @@ impl ToolsHost {
         if self.changes_for.is_none() {
             return note(t, i.t("info.empty"));
         }
-        let Some(r) = self.changes.clone() else { return note(t, i.t("mem.loading")) };
-        let list = match r {
-            Err(e) => return note(t, e),
-            Ok(l) if l.is_empty() => return note(t, i.t("git.clean")),
-            Ok(l) => l,
+        let dir = self.dir(cx).unwrap_or_default();
+        let list = match self.changes.clone() {
+            None => vec![],
+            Some(Err(e)) => return note(t, i.tp("chg.error", &[("error", &e)])),
+            Some(Ok(l)) => l,
+        };
+        let (add, del) = list.iter().fold((0, 0), |a, d| (a.0 + d.additions, a.1 + d.deletions));
+        let summary: AnyElement = if self.changes.is_none() {
+            crate::ui::spinner(IconSize::Sm).into_any_element()
+        } else {
+            div().small(t).text_color(t.colors.fg_muted).child(i.tp("chg.summary", &[("n", &list.len().to_string()), ("add", &add.to_string()), ("del", &del.to_string())])).into_any_element()
         };
         let mut col = div().flex().flex_col().gap(t.space(1)).p(t.space(2)).child(
-            div().flex().justify_end().child(icon_button("ch-refresh", "refresh", i.t("git.refresh")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.refresh_changes(cx)))),
+            div()
+                .flex()
+                .items_center()
+                .child(div().flex_1().child(summary))
+                .child(icon_button("ch-refresh", "refresh", i.t("git.refresh")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.refresh_changes(cx)))),
         );
+        if matches!(self.changes, Some(Ok(ref l)) if l.is_empty()) {
+            col = col.child(div().p(t.space(2)).small(t).text_color(t.colors.fg_muted).child(i.t("chg.empty")));
+        }
         for d in list {
             let open = self.open_change.as_deref() == Some(d.file.as_str());
             let f = d.file.clone();
-            col = col.child(
-                div()
-                    .id(SharedString::from(format!("ch-{}", d.file)))
-                    .flex()
-                    .items_center()
-                    .gap(t.space(2))
-                    .px(t.space(1))
-                    .h(t.rem(rem::CONTROL_SM))
-                    .rounded(t.rem(rem::RADIUS_SM))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(t.colors.hover))
-                    .on_click(cx.listener(move |s, _, _, cx| {
-                        s.open_change = if s.open_change.as_deref() == Some(f.as_str()) { None } else { Some(f.clone()) };
-                        cx.notify();
-                    }))
-                    .child(icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
-                    .child(div().flex_1().min_w_0().truncate().child(d.file.clone()))
-                    .child(div().code(t).text_color(t.colors.code_add).child(format!("+{}", d.additions)))
-                    .child(div().code(t).text_color(t.colors.code_del).child(format!("-{}", d.deletions))),
-            );
+            let rel = std::path::Path::new(&d.file).strip_prefix(&dir).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| d.file.clone());
+            let (key, color) = match d.status.as_str() {
+                "added" => ("chg.status.added", t.colors.code_add),
+                "deleted" => ("chg.status.deleted", t.colors.code_del),
+                _ => ("chg.status.modified", t.colors.warning),
+            };
+            let mut row = div()
+                .flex()
+                .items_center()
+                .gap(t.space(1))
+                .child(
+                    div()
+                        .id(SharedString::from(format!("ch-{}", d.file)))
+                        .flex()
+                        .flex_1()
+                        .min_w_0()
+                        .items_center()
+                        .gap(t.space(2))
+                        .px(t.space(1))
+                        .h(t.rem(rem::CONTROL_SM))
+                        .rounded(t.rem(rem::RADIUS_SM))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(t.colors.hover))
+                        .tooltip(crate::ui::tooltip::text_tooltip(d.file.clone().into()))
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            s.open_change = if s.open_change.as_deref() == Some(f.as_str()) { None } else { Some(f.clone()) };
+                            cx.notify();
+                        }))
+                        .child(div().flex_none().small(t).font_weight(gpui::FontWeight::SEMIBOLD).text_color(color).child(i.t(key)))
+                        .child(div().flex_1().min_w_0().truncate().child(rel)),
+                )
+                .child(div().flex_none().code(t).text_color(t.colors.code_add).child(format!("+{}", d.additions)))
+                .child(div().flex_none().code(t).text_color(t.colors.code_del).child(format!("\u{2212}{}", d.deletions)));
+            if d.status != "deleted" && !d.patch.is_empty() {
+                let (f, p) = (d.file.clone(), d.patch.clone());
+                row = row.child(crate::ui::button(SharedString::from(format!("chd-{}", d.file))).size(ControlSize::Sm).label(i.t("diff.open")).on_click(move |_, _, cx| {
+                    super::docs_panel::DocsState::global(cx).update(cx, |s, cx| s.open_diff(f.clone(), p.clone(), cx));
+                }));
+            }
+            if d.status != "deleted" {
+                let f = d.file.clone();
+                row = row.child(crate::ui::button(SharedString::from(format!("cho-{}", d.file))).size(ControlSize::Sm).label(i.t("chg.open")).on_click(move |_, _, cx| {
+                    super::docs_panel::DocsState::global(cx).update(cx, |s, cx| s.open_file(f.clone(), cx));
+                }));
+            }
+            col = col.child(row);
             if open {
-                col = col.child(diff_view(t, &d.patch));
+                col = col.child(if d.patch.is_empty() { div().small(t).text_color(t.colors.fg_muted).child(i.t("chg.noPatch")).into_any_element() } else { diff_view(t, &d.patch) });
             }
         }
         col.into_any_element()
