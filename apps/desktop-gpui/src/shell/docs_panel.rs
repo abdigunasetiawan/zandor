@@ -947,7 +947,20 @@ impl Render for DocsPanel {
         let can_find = textual && !editing;
         if kind == DocKind::Html {
             let p = active.clone();
-            bar = bar.child(icon_button("doc-live", "globe", i.t("doc.openInBrowser")).size(ControlSize::Sm).on_click(move |_, _, cx| cx.open_url(&format!("file:///{}", p.replace('\\', "/")))));
+            bar = bar.child(icon_button("doc-live", "globe", i.t("doc.openInBrowser")).size(ControlSize::Sm).on_click(move |_, _, cx| {
+                // live server (aset relatif, skrip, muat ulang otomatis) di Browser Panel 4
+                let file = std::path::PathBuf::from(&p);
+                let project = crate::core::projects::ProjectStore::global(cx).read(cx).projects.iter().map(|x| std::path::PathBuf::from(&x.path)).find(|d| file.starts_with(d));
+                let dir = project.or_else(|| file.parent().map(|d| d.to_path_buf())).unwrap_or_default();
+                let rel = file.strip_prefix(&dir).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                match crate::liveserver::start(&dir, &rel) {
+                    Ok(url) => super::layout::open_in_zandor_browser(url, cx),
+                    Err(e) => {
+                        let i = cx.global::<I18n>().clone();
+                        toast_err(cx, i.tp("sb.error", &[("error", &e)]));
+                    }
+                }
+            }));
         }
         bar = bar
             .child(icon_button("doc-find", "search", i.t(if can_find { "doc.find" } else { "doc.findUnavailable" })).size(ControlSize::Sm).disabled(!can_find).pressed(self.find.is_some()).on_click(cx.listener(|s, _, w, cx| s.toggle_find(w, cx))))

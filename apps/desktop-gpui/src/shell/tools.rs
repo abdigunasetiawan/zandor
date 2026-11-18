@@ -38,6 +38,17 @@ impl ToolsHost {
             cx.notify();
         })
         .detach();
+        if !cx.has_global::<super::layout::BrowserOpenRequest>() {
+            cx.set_global(super::layout::BrowserOpenRequest(None));
+        }
+        cx.observe_global::<super::layout::BrowserOpenRequest>(|s, cx| {
+            let Some(url) = cx.global::<super::layout::BrowserOpenRequest>().0.clone() else { return };
+            cx.set_global(super::layout::BrowserOpenRequest(None));
+            let b = s.browser.get_or_insert_with(|| cx.new(super::browser::BrowserPanel::new)).clone();
+            b.update(cx, |b, cx| b.go(url, cx));
+            cx.notify();
+        })
+        .detach();
         cx.observe(&ChatStore::global(cx), |s, _, cx| {
             // ulangi setiap giliran agent selesai (idle) atau pesan bertambah
             if let Some(sid) = s.changes_for.clone() {

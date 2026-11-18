@@ -62,6 +62,9 @@ mod netprobe;
 #[path = "../../desktop/src-tauri/src/openwork.rs"]
 mod openwork;
 #[allow(dead_code)]
+#[path = "../../desktop/src-tauri/src/liveserver.rs"]
+mod liveserver;
+#[allow(dead_code)]
 #[path = "host/engine.rs"]
 mod engine;
 #[path = "host/voice.rs"]

@@ -56,6 +56,15 @@ pub enum ToolId {
 pub struct OpenToolRequest(pub Option<ToolId>);
 impl gpui::Global for OpenToolRequest {}
 
+/// Minta buka URL di Browser Panel 4 (port openInZandorBrowser); diamati ToolsHost.
+pub struct BrowserOpenRequest(pub Option<String>);
+impl gpui::Global for BrowserOpenRequest {}
+
+pub fn open_in_zandor_browser(url: String, cx: &mut gpui::App) {
+    cx.set_global(BrowserOpenRequest(Some(url)));
+    cx.set_global(OpenToolRequest(Some(ToolId::Browser)));
+}
+
 pub const TOOL_IDS: [ToolId; 10] = [
     ToolId::Terminal, ToolId::Jobs, ToolId::Git, ToolId::Changes, ToolId::Files,
     ToolId::Browser, ToolId::Info, ToolId::Session, ToolId::Trajectory, ToolId::Log,
