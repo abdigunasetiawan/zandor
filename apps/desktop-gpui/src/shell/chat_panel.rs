@@ -25,6 +25,8 @@ mod queue_dock;
 mod chat_parts;
 #[path = "prompt_dock.rs"]
 mod prompt_dock;
+#[path = "model_picker.rs"]
+mod model_picker;
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -45,6 +47,8 @@ pub struct ChatPanel {
     ticking: bool,
     msg_menu: Option<(String, u8)>,
     pins_open: bool,
+    picker: model_picker::PickerState,
+    mp_search: Entity<TextInput>,
     voice_devices: Vec<crate::voice::AudioInput>,
     voice_device: String,
     queue: queue_dock::QueueState,
@@ -73,6 +77,10 @@ impl ChatPanel {
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &InputSubmit, cx| this.submit(e.0.to_string(), cx)).detach();
+        let mp_ph = cx.global::<I18n>().t("mp.search");
+        let mp_search = cx.new(|cx| TextInput::new(cx, mp_ph));
+        cx.subscribe(&mp_search, |_, _, _: &crate::ui::InputChanged, cx| cx.notify()).detach();
+        cx.observe(&crate::core::pings::PingStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &crate::ui::InputNav, cx| this.on_nav(*e, cx)).detach();
         cx.subscribe(&input, |this, _, _: &crate::ui::InputChanged, cx| {
             this.assist.active = 0;
@@ -99,6 +107,8 @@ impl ChatPanel {
             ticking: false,
             msg_menu: None,
             pins_open: false,
+            picker: model_picker::PickerState { tab: "models".into(), sort: "status".into(), group: "provider".into(), ..Default::default() },
+            mp_search,
             voice_devices: vec![],
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
@@ -521,17 +531,7 @@ impl Render for ChatPanel {
                 s.submit(text, cx);
             }))
         });
-        let model_sel = (!self.models.is_empty()).then(|| {
-            let cur = self.chat.read(cx).model.clone().map(|m| format!("{}/{}", m.provider_id, m.model_id)).unwrap_or_default();
-            let items = self.models.iter().map(|m| (SharedString::from(format!("{}/{}", m.provider_id, m.model_id)), SharedString::from(format!("{} · {}", m.name, m.provider_name)))).collect();
-            let chat = self.chat.clone();
-            crate::ui::select("chat-model", items, cur).on_change(move |v, _, cx| {
-                if let Some((p, m)) = v.split_once('/') {
-                    let r = crate::core::engine::ModelRef { provider_id: p.to_string(), model_id: m.to_string() };
-                    chat.update(cx, |c, cx| c.select_model(r, cx));
-                }
-            })
-        });
+        let model_sel = self.model_picker(&t, i, cx);
         let cw = chat_width(&t, cx);
         let ratio = t.chat.composer_ratio.unwrap_or(rem::CHAT_COMPOSER_RATIO);
         let sug = self.suggest(cx);

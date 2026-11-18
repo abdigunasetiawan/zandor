@@ -20,3 +20,4 @@ pub mod model_prefs;
 pub mod tool_view;
 pub mod trajectory;
 pub mod types;
+pub mod pings;

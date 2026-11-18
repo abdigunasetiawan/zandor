@@ -34,9 +34,25 @@ pub struct ChatStore {
     q_seq: u64,
     /// Pesan yang disematkan per sesi (port pinnedMessages, kunci prefs zandor.pinnedMessages).
     pub pinned_messages: HashMap<String, Vec<String>>,
+    /// Model yang disematkan (zandor.pinnedModels) dan terakhir dipakai (zandor.recentModels, maks 3), kunci provider/model.
+    pub pinned_models: Vec<String>,
+    pub recent_models: Vec<String>,
 }
 
 pub const MAX_QUEUE: usize = 50;
+pub const MAX_RECENT: usize = 3;
+
+/// Port parsePinned: array string unik; selain itu kosong.
+pub fn parse_keys(raw: Option<&str>) -> Vec<String> {
+    let v: serde_json::Value = raw.and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+    let mut out: Vec<String> = vec![];
+    for x in v.as_array().into_iter().flatten().filter_map(|x| x.as_str()) {
+        if !out.iter().any(|o| o == x) {
+            out.push(x.to_string());
+        }
+    }
+    out
+}
 
 #[derive(Clone, Debug)]
 pub struct QueuedMessage {
@@ -89,7 +105,7 @@ impl Global for ChatHandle {}
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()) });
+        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect() });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -286,6 +302,30 @@ impl ChatStore {
         true
     }
 
+    fn touch_recent(&mut self, m: &ModelRef) {
+        let key = format!("{}/{}", m.provider_id, m.model_id);
+        if self.recent_models.first() == Some(&key) {
+            return;
+        }
+        let mut r = vec![key.clone()];
+        r.extend(self.recent_models.iter().filter(|k| **k != key).cloned());
+        r.truncate(MAX_RECENT);
+        write_pref("zandor.recentModels", &serde_json::to_string(&r).unwrap_or_default());
+        self.recent_models = r;
+    }
+
+    /// Sematkan/lepas model (kunci tetap tersimpan walau model hilang dari daftar).
+    pub fn toggle_model_pin(&mut self, m: &ModelRef, cx: &mut Context<Self>) {
+        let key = format!("{}/{}", m.provider_id, m.model_id);
+        if let Some(i) = self.pinned_models.iter().position(|k| *k == key) {
+            self.pinned_models.remove(i);
+        } else {
+            self.pinned_models.push(key);
+        }
+        write_pref("zandor.pinnedModels", &serde_json::to_string(&self.pinned_models).unwrap_or_default());
+        cx.notify();
+    }
+
     pub fn set_variant(&mut self, v: Option<String>, cx: &mut Context<Self>) {
         write_pref("zandor.variant", v.as_deref().unwrap_or(""));
         self.variant = v;
@@ -294,6 +334,7 @@ impl ChatStore {
 
     /// Pilih model dan simpan sebagai preferensi.
     pub fn select_model(&mut self, m: ModelRef, cx: &mut Context<Self>) {
+        self.touch_recent(&m);
         write_pref("zandor.model", &format!("{}/{}", m.provider_id, m.model_id));
         self.model = Some(m);
         cx.notify();
@@ -450,6 +491,9 @@ impl ChatStore {
         }
         let sid = id.to_string();
         let model = self.model.clone();
+        if let Some(m) = model.clone() {
+            self.touch_recent(&m);
+        }
         let variant = self.variant.clone();
         self.bg(id, cx, move |api, dir| api.send_prompt(dir, &sid, &text, model.as_ref(), variant.as_deref(), &files));
         cx.notify();
@@ -588,5 +632,15 @@ impl ChatStore {
             None => api.reject_question(dir, &req),
         });
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod keys_tests {
+    #[test]
+    fn keys() {
+        assert_eq!(super::parse_keys(Some(r#"["a",1,"a",null,"b"]"#)), vec!["a", "b"]);
+        assert!(super::parse_keys(Some("{rusak")).is_empty());
+        assert!(super::parse_keys(None).is_empty());
     }
 }

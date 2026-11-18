@@ -91,6 +91,7 @@ pub fn init(cx: &mut App) {
 
     super::profile::Profile::init(cx);
     super::model_prefs::ModelPrefsStore::init(cx);
+    super::pings::PingStore::init(cx);
     super::appearance::AppearanceStore::init(data.join("appearance.json"), cx);
     super::settings::SettingsStore::init(data.join("settings.json"), cx);
     super::automation::AutomationStore::init(data.join("automation.json"), cx);
