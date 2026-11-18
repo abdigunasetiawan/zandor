@@ -324,3 +324,22 @@ mod tests {
         assert_eq!(step_scale(0.9, 1), 1.125);
     }
 }
+
+/// Port `prefers-reduced-motion`: di Windows = "Tampilkan animasi di Windows" dimatikan
+/// (SPI_GETCLIENTAREAANIMATION). Dibaca sekali per proses.
+pub fn reduced_motion() -> bool {
+    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        #[cfg(windows)]
+        unsafe {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION};
+            let mut on: i32 = 1;
+            if SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&mut on as *mut i32).cast(), 0) != 0 {
+                return on == 0;
+            }
+            false
+        }
+        #[cfg(not(windows))]
+        false
+    })
+}

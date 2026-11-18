@@ -598,7 +598,7 @@ impl TextElement {
             let i = self.input.read(cx);
             (i.smooth_caret, i.content.clone())
         };
-        let reduce = false;
+        let reduce = crate::theme::reduced_motion();
         if !smooth || reduce {
             window.paint_quad(q);
             return;
