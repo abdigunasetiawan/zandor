@@ -1,7 +1,7 @@
 //! Penampil PDF (port PdfViewer.tsx) dengan perender bawaan Windows (core/pdf.rs): bilah halaman "n dari total",
 //! zoom −/+/100% (tahap sama dengan React), halaman digambar di thread latar sesuai lebar × zoom dan di-cache.
 //! Cari teks: Windows.Data.Pdf tidak memberi lapisan teks, jadi teks tiap halaman dibaca dengan OCR bawaan Windows
-//! (core::pdf::page_text) di thread latar; temuan disorot di atas gambar halaman. Pilih/salin teks belum tersedia.
+//! (core::pdf::page_text) di thread latar; temuan disorot di atas gambar halaman. Pilih teks dengan seret di atas halaman (per kata OCR), salin lewat tombol Salin.
 use crate::i18n::I18n;
 use crate::theme::Theme;
 use crate::ui::{button, icon_button, ControlSize, TypeExt};
@@ -27,6 +27,49 @@ pub struct PdfView {
     texts: Option<Vec<Vec<crate::core::pdf::TextLine>>>,
     texts_started: bool,
     hit: usize,
+    /// Pilihan teks: (halaman, indeks kata awal, indeks kata akhir) atas kata-kata OCR.
+    sel: Option<(usize, usize, usize)>,
+    dragging: bool,
+    /// Batas layar tiap halaman (diisi saat digambar) untuk mengubah posisi mouse ke koordinat halaman.
+    page_bounds: std::rc::Rc<std::cell::RefCell<HashMap<usize, gpui::Bounds<gpui::Pixels>>>>,
+}
+
+/// Semua kata satu halaman berurutan baca.
+fn words(lines: &[crate::core::pdf::TextLine]) -> Vec<&(String, [f32; 4])> {
+    lines.iter().flat_map(|l| l.words.iter()).collect()
+}
+
+/// Kata terdekat dari titik ternormalisasi (x, y).
+fn nearest(ws: &[&(String, [f32; 4])], x: f32, y: f32) -> Option<usize> {
+    let d = |b: &[f32; 4]| {
+        let dx = if x < b[0] { b[0] - x } else if x > b[0] + b[2] { x - b[0] - b[2] } else { 0. };
+        let dy = if y < b[1] { b[1] - y } else if y > b[1] + b[3] { y - b[1] - b[3] } else { 0. };
+        dx * dx + dy * dy * 16.
+    };
+    (0..ws.len()).min_by(|a, b| d(&ws[*a].1).total_cmp(&d(&ws[*b].1)))
+}
+
+/// Teks pilihan, baris dipisah baris baru.
+pub fn selected_text(lines: &[crate::core::pdf::TextLine], a: usize, b: usize) -> String {
+    let (a, b) = (a.min(b), a.max(b));
+    let mut out = String::new();
+    let mut k = 0;
+    for l in lines {
+        let mut first = true;
+        for (w, _) in &l.words {
+            if k >= a && k <= b {
+                if first && !out.is_empty() {
+                    out.push('\n');
+                } else if !first {
+                    out.push(' ');
+                }
+                out.push_str(w);
+                first = false;
+            }
+            k += 1;
+        }
+    }
+    out
 }
 
 impl PdfView {
@@ -42,7 +85,7 @@ impl PdfView {
             .ok();
         })
         .detach();
-        Self { path, info: None, scale: 1., pages: HashMap::new(), pending: HashSet::new(), scroll: ScrollHandle::new(), find: None, texts: None, texts_started: false, hit: 0 }
+        Self { path, info: None, scale: 1., pages: HashMap::new(), pending: HashSet::new(), scroll: ScrollHandle::new(), find: None, texts: None, texts_started: false, hit: 0, sel: None, dragging: false, page_bounds: Default::default() }
     }
 
     fn request(&mut self, page: usize, w: u32, cx: &mut Context<Self>) {
@@ -111,6 +154,22 @@ impl PdfView {
         self.hit = ((self.hit as isize + d).rem_euclid(n as isize)) as usize;
         self.scroll_to_hit(cx);
         cx.notify();
+    }
+
+    /// Kata di bawah posisi mouse pada halaman `n` (None bila teks belum dibaca).
+    fn word_at(&self, n: usize, pos: gpui::Point<gpui::Pixels>) -> Option<usize> {
+        let b = *self.page_bounds.borrow().get(&n)?;
+        let x = f32::from(pos.x - b.origin.x) / f32::from(b.size.width).max(1.);
+        let y = f32::from(pos.y - b.origin.y) / f32::from(b.size.height).max(1.);
+        nearest(&words(self.texts.as_ref()?.get(n)?), x, y)
+    }
+
+    fn copy_selection(&self, cx: &mut Context<Self>) {
+        let (Some((n, a, b)), Some(texts)) = (self.sel, &self.texts) else { return };
+        let txt = selected_text(&texts[n], a, b);
+        if !txt.is_empty() {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(txt));
+        }
     }
 
     fn set_scale(&mut self, v: f32, cx: &mut Context<Self>) {
@@ -208,6 +267,7 @@ impl Render for PdfView {
             .border_color(t.colors.border_soft)
             .child(div().small(&t).child(i.tp("doc.pdfPage", &[("n", &cur.to_string()), ("total", &total.to_string())])))
             .child(div().flex_1())
+            .when(self.sel.is_some(), |d| d.child(button("pdf-copy").size(ControlSize::Sm).label(i.t("doc.copy")).on_click(cx.listener(|s, _, _, cx| s.copy_selection(cx)))))
             .child(div().w(t.rem(11.)).child(find.clone()))
             .child(div().small(&t).text_color(t.colors.fg_muted).child(find_status))
             .child(icon_button("pdf-fprev", "chevron_up", i.t("diff.prev")).size(ControlSize::Sm).disabled(hits.is_empty()).on_click(cx.listener(|s, _, _, cx| s.step(-1, cx))))
@@ -235,7 +295,38 @@ impl Render for PdfView {
                     .bg(gpui::white())
                     .shadow(t.shadow_1())
                     .relative()
+                    .cursor_text()
                     .children(img.map(|im| gpui::img(im).size_full()))
+                    .child({
+                        let pb = self.page_bounds.clone();
+                        gpui::canvas(move |b, _, _| { pb.borrow_mut().insert(n, b); }, |_, _, _, _| {}).absolute().size_full()
+                    })
+                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |s, e: &gpui::MouseDownEvent, _, cx| {
+                        s.load_texts(total, cx);
+                        s.sel = s.word_at(n, e.position).map(|k| (n, k, k));
+                        s.dragging = s.sel.is_some();
+                        cx.notify();
+                    }))
+                    .on_mouse_move(cx.listener(move |s, e: &gpui::MouseMoveEvent, _, cx| {
+                        if !s.dragging || e.pressed_button != Some(gpui::MouseButton::Left) {
+                            s.dragging = false;
+                            return;
+                        }
+                        if let (Some((pg, a, _)), Some(k)) = (s.sel, s.word_at(n, e.position)) {
+                            if pg == n {
+                                s.sel = Some((n, a, k));
+                                cx.notify();
+                            }
+                        }
+                    }))
+                    .on_mouse_up(gpui::MouseButton::Left, cx.listener(|s, _, _, _| s.dragging = false))
+                    .children(self.sel.filter(|x| x.0 == n).and_then(|(_, a, b)| {
+                        let ws = words(self.texts.as_ref()?.get(n)?);
+                        let (a, b) = (a.min(b), a.max(b));
+                        let (pw, ph) = (page_w, *h);
+                        let c = t.colors.accent.opacity(0.3);
+                        Some(ws.into_iter().enumerate().filter(move |(k, _)| *k >= a && *k <= b).map(move |(_, w)| div().absolute().left(px(w.1[0] * pw)).top(px(w.1[1] * ph)).w(px(w.1[2] * pw)).h(px(w.1[3] * ph)).bg(c)).collect::<Vec<_>>())
+                    }).into_iter().flatten())
                     .children(hits.iter().enumerate().filter(|(_, x)| x.0 == n).flat_map(|(k, x)| {
                         let c = if k == cur_hit { t.colors.warning.opacity(0.55) } else { t.colors.warning.opacity(0.25) };
                         let (pw, ph) = (page_w, *h);
@@ -250,5 +341,18 @@ impl Render for PdfView {
             .child(bar)
             .child(div().id("pdf-pages").flex_1().min_h_0().overflow_scroll().track_scroll(&self.scroll).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify())).child(list))
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::pdf::TextLine;
+    #[test]
+    fn teks_pilihan_lintas_baris() {
+        let l = |a: &[&str]| TextLine { words: a.iter().map(|w| (w.to_string(), [0.; 4])).collect() };
+        let lines = vec![l(&["a", "b"]), l(&["c", "d"])];
+        assert_eq!(super::selected_text(&lines, 3, 1), "b\nc d");
+        let ws = super::words(&lines);
+        assert_eq!(super::nearest(&ws, 0.5, 0.5), Some(0));
     }
 }
