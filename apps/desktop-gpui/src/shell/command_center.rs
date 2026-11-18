@@ -24,6 +24,8 @@ pub fn bind_keys(cx: &mut App) {
 pub enum PaletteAction {
     Command(&'static str),
     Session(String, String),
+    /// Tautan pesan: (key, sessionId, messageId).
+    MessageLink(String, String, String),
 }
 
 pub enum PaletteEvent {
@@ -71,6 +73,10 @@ impl CommandCenter {
         let i = cx.global::<I18n>();
         let q = self.input.read(cx).text().to_string();
         let mut out = vec![];
+        if let Some((k, si, m)) = super::chat_panel::chat_parts::parse_message_link(&q) {
+            out.push(Row { group: "App".into(), title: i.t("msg.openLink"), hint: None, icon: "link", action: PaletteAction::MessageLink(k, si, m) });
+            return out;
+        }
         for c in COMMANDS {
             if c.id == "app.palette" {
                 continue;

@@ -578,6 +578,33 @@ pub(super) fn message_link(key: &str, sid: &str, mid: &str) -> String {
     format!("zandor://chat/{}/{}/{}", enc(key), enc(sid), enc(mid))
 }
 
+/// Urai tautan pesan (parseMessageLink): (key, sessionId, messageId); None bila bukan tautan valid.
+pub(crate) fn parse_message_link(text: &str) -> Option<(String, String, String)> {
+    let rest = text.trim().strip_prefix("zandor://chat/")?;
+    let parts: Vec<&str> = rest.split('/').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let dec = |s: &str| -> Option<String> {
+        let b = s.as_bytes();
+        let mut out = vec![];
+        let mut i = 0;
+        while i < b.len() {
+            if b[i] == b'%' {
+                let h = s.get(i + 1..i + 3)?;
+                out.push(u8::from_str_radix(h, 16).ok()?);
+                i += 3;
+            } else {
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+        String::from_utf8(out).ok()
+    };
+    let (k, si, m) = (dec(parts[0])?, dec(parts[1])?, dec(parts[2])?);
+    (!k.is_empty() && !si.is_empty() && !m.is_empty()).then_some((k, si, m))
+}
+
 fn toast(cx: &mut App, title: String, tone: crate::ui::ToastTone, ms: Option<u64>) {
     crate::ui::Toasts::show(crate::ui::ToastInput { title: title.into(), description: None, tone, timeout_ms: ms, action: None }, cx);
 }
@@ -851,6 +878,9 @@ mod toolbar_tests {
     #[test]
     fn tautan() {
         assert_eq!(message_link("chat", "ses 1", "msg/2"), "zandor://chat/chat/ses%201/msg%2F2");
+        assert_eq!(parse_message_link(" zandor://chat/chat/ses%201/msg%2F2 "), Some(("chat".into(), "ses 1".into(), "msg/2".into())));
+        assert_eq!(parse_message_link("zandor://chat/a/b"), None);
+        assert_eq!(parse_message_link("zandor://chat/a/b/%ZZ"), None);
         assert!(export_file_name("md").starts_with("respons-"));
     }
 }

@@ -133,6 +133,19 @@ impl Root {
                                 crate::core::projects::ProjectStore::global(cx).update(cx, |st, cx| st.select(Some(k), Some(s), cx));
                                 r.app.update(cx, |a, cx| a.push("/", cx));
                             }
+                            PaletteEvent::Run(PaletteAction::MessageLink(k, s, m)) => {
+                                let store = crate::core::projects::ProjectStore::global(cx);
+                                let missing = store.read(cx).sessions.get(k).is_some_and(|g| g.status == crate::core::projects::LoadStatus::Ready && !g.items.iter().any(|x| &x.id == s));
+                                if missing {
+                                    let title = cx.global::<crate::i18n::I18n>().t("msg.linkMissing");
+                                    crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Warning, ..crate::ui::ToastInput::new(title) }, cx);
+                                } else {
+                                    let (k, s) = (k.clone(), s.clone());
+                                    store.update(cx, |st, cx| st.select(Some(k), Some(s), cx));
+                                    r.app.update(cx, |a, cx| a.push("/", cx));
+                                    cx.set_global(super::chat_panel::MessageFocus(Some(m.clone())));
+                                }
+                            }
                         }
                         cx.notify();
                     })
