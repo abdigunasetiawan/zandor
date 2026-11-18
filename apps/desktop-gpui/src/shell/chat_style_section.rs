@@ -36,6 +36,7 @@ fn round(n: f32) -> f32 {
 pub struct ChatStyleSection {
     store: Entity<AppearanceStore>,
     sliders: Vec<Entity<Slider>>,
+    font: Entity<super::font_picker::FontPicker>,
 }
 
 fn width_def(cx: &gpui::App) -> f32 {
@@ -73,7 +74,15 @@ impl ChatStyleSection {
             cx.notify();
         })
         .detach();
-        Self { store, sliders }
+        let cur_font = chat.get("font").and_then(Value::as_str).map(str::to_string);
+        let label = i.t("chatStyle.font");
+        let font = cx.new(|cx| super::font_picker::FontPicker::new("cs-font", cur_font, FONTS.to_vec(), label, cx));
+        cx.subscribe(&font, |this, _, e: &super::font_picker::FontPicked, cx| {
+            let v = e.0.clone();
+            this.store.update(cx, |s, cx| s.set_chat("font", v.map(|v| json!(v)), cx));
+        })
+        .detach();
+        Self { store, sliders, font }
     }
 
     fn def_of(&self, n: usize, cx: &gpui::App) -> f32 {
@@ -82,6 +91,8 @@ impl ChatStyleSection {
 
     fn sync(&mut self, cx: &mut Context<Self>) {
         let chat = self.store.read(cx).chat.clone();
+        let f = chat.get("font").and_then(Value::as_str).map(str::to_string);
+        self.font.update(cx, |p, cx| p.set_value(f, cx));
         for n in 0..SPECS.len() {
             let v = current(&chat, SPECS[n].0, self.def_of(n, cx));
             self.sliders[n].update(cx, |s, cx| {
@@ -133,11 +144,7 @@ impl Render for ChatStyleSection {
             );
         }
 
-        let store = self.store.clone();
-        let fonts = FONTS.iter().map(|(v, l)| (SharedString::from(*v), SharedString::from(i.t(l)))).collect();
-        let font_sel = select("cs-font", fonts, chat.get("font").and_then(Value::as_str).unwrap_or("").to_string()).on_change(move |v, _, cx| {
-            store.update(cx, |s, cx| s.set_chat("font", (!v.is_empty()).then(|| json!(v.to_string())), cx));
-        });
+        let font_sel = self.font.clone();
         let store = self.store.clone();
         let weights = WEIGHTS.iter().map(|w| (SharedString::from(w.to_string()), SharedString::from(i.t(&format!("chatStyle.weight.{w}"))))).collect();
         let cur_w = chat.get("weight").and_then(Value::as_u64).unwrap_or(400).to_string();

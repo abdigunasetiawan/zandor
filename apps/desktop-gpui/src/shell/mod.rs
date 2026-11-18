@@ -36,3 +36,4 @@ pub mod type_section;
 pub mod titlebar;
 pub mod tools;
 pub mod files_tree;
+pub mod font_picker;
