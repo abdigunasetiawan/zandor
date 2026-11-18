@@ -86,6 +86,10 @@ pub struct DocsPanel {
     /// Zoom gambar per berkas (1.0 = pas); `actual` = ukuran asli.
     zoom: HashMap<String, f32>,
     actual: HashSet<String>,
+    /// Bilah cari (port find widget Monaco): input + indeks temuan aktif.
+    find: Option<Entity<crate::ui::TextInput>>,
+    find_at: usize,
+    body_scroll: gpui::ScrollHandle,
 }
 
 /// Dialog konfirmasi yang menunggu jawaban.
@@ -111,7 +115,7 @@ impl DocsPanel {
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new() }
+        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new() }
     }
 
     /// Penampil mandiri untuk byte lampiran (port AttachmentPreview.tsx → PreviewBody).
@@ -124,7 +128,7 @@ impl DocsPanel {
         });
         let mut cache = HashMap::new();
         cache.insert(name, Loaded { kind, bytes: Ok(std::sync::Arc::new(bytes)), text });
-        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new() }
+        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new() }
     }
 
     fn load(path: &str) -> Loaded {
@@ -348,6 +352,30 @@ fn note(t: &Theme, s: String) -> AnyElement {
 }
 
 fn code_view(t: &Theme, text: &str, wrap: bool) -> AnyElement {
+    code_view_find(t, text, wrap, "", usize::MAX)
+}
+
+/// Posisi temuan (baris, kolom byte) untuk kueri tanpa membedakan huruf besar/kecil.
+pub fn find_matches(text: &str, q: &str) -> Vec<(usize, usize)> {
+    if q.is_empty() {
+        return vec![];
+    }
+    let ql = q.to_lowercase();
+    let mut out = vec![];
+    for (n, l) in text.lines().take(50_000).enumerate() {
+        let line = l.replace('\t', "    ").to_lowercase();
+        let mut from = 0;
+        while let Some(k) = line[from..].find(&ql) {
+            out.push((n, from + k));
+            from += k + ql.len().max(1);
+        }
+    }
+    out
+}
+
+fn code_view_find(t: &Theme, text: &str, wrap: bool, q: &str, current: usize) -> AnyElement {
+    let hits = find_matches(text, q);
+    let ql = q.len();
     let lines: Vec<&str> = text.lines().collect();
     let w = lines.len().to_string().len().max(2);
     div()
@@ -358,11 +386,18 @@ fn code_view(t: &Theme, text: &str, wrap: bool) -> AnyElement {
         .code(t)
         .children(lines.into_iter().take(50_000).enumerate().map(|(n, l)| {
             let line = if l.is_empty() { " ".to_string() } else { l.replace('\t', "    ") };
+            let hl: Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> = hits
+                .iter()
+                .enumerate()
+                .filter(|(_, h)| h.0 == n && h.1 + ql <= line.len() && line.is_char_boundary(h.1) && line.is_char_boundary(h.1 + ql))
+                .map(|(k, h)| (h.1..h.1 + ql, gpui::HighlightStyle { background_color: Some(if k == current { t.colors.warning.opacity(0.6) } else { t.colors.warning.opacity(0.25) }), ..Default::default() }))
+                .collect();
+            let content: AnyElement = if hl.is_empty() { line.into_any_element() } else { gpui::StyledText::new(line).with_highlights(hl).into_any_element() };
             div()
                 .flex()
                 .gap(t.space(3))
                 .child(div().flex_none().text_color(t.colors.fg_subtle).child(format!("{:>w$}", n + 1, w = w)))
-                .child(if wrap { div().flex_1().min_w_0().child(line) } else { div().whitespace_nowrap().child(line) })
+                .child(if wrap { div().flex_1().min_w_0().child(content) } else { div().whitespace_nowrap().child(content) })
         }))
         .into_any_element()
 }
@@ -504,7 +539,8 @@ impl DocsPanel {
         let text = l.text.as_ref().map(|x| x.0.clone()).unwrap_or_default();
         let trunc = truncated.then(|| note(t, i.t("doc.truncated")));
         let el: AnyElement = if (raw || kind == DocKind::Code) && is_text_kind(kind) {
-            code_view(t, &text, wrap)
+            let q = self.find.as_ref().map(|f| f.read(cx).text().to_string()).unwrap_or_default();
+            code_view_find(t, &text, wrap, &q, self.find_at)
         } else {
             match kind {
                 DocKind::Markdown => div().p(t.space(4)).child(markdown(&text, t)).into_any_element(),
@@ -781,6 +817,8 @@ impl Render for DocsPanel {
         }
         let editing = self.editors.contains_key(&active);
         let dirty = self.is_dirty(&active, cx);
+        let can_find = is_text_kind(kind) && (raw || kind == DocKind::Code) && !self.editors.contains_key(&active);
+        bar = bar.child(icon_button("doc-find", "search", i.t(if can_find { "doc.find" } else { "doc.findUnavailable" })).size(ControlSize::Sm).disabled(!can_find).pressed(self.find.is_some()).on_click(cx.listener(|s, _, w, cx| s.toggle_find(w, cx))));
         let a_dl = active.clone();
         bar = bar.child(icon_button("doc-dl", "download", i.t("doc.download")).size(ControlSize::Sm).disabled(self.cache.get(&active).is_none_or(|l| l.bytes.is_err())).on_click(cx.listener(move |s, _, _, cx| s.save_copy(&a_dl, cx))));
         let textual = is_text_kind(kind) && (raw || kind == DocKind::Code);
@@ -837,6 +875,30 @@ impl Render for DocsPanel {
             }
         };
         let ask = self.ask_dialog(&t, &i, cx);
+        let find_bar = self.find.clone().filter(|_| can_find).map(|f| {
+            let text = self.cache.get(&active).and_then(|l| l.text.as_ref()).map(|x| x.0.clone()).unwrap_or_default();
+            let n = find_matches(&text, f.read(cx).text().as_ref()).len();
+            let pos = if n == 0 { "0/0".to_string() } else { format!("{}/{}", self.find_at.min(n - 1) + 1, n) };
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(t.space(1))
+                .px(t.space(2))
+                .py(t.space(1))
+                .border_b_1()
+                .border_color(t.colors.border)
+                .on_key_down(cx.listener(move |s, e: &gpui::KeyDownEvent, w, cx| match e.keystroke.key.as_str() {
+                    "enter" => s.find_step(if e.keystroke.modifiers.shift { -1 } else { 1 }, n, cx),
+                    "escape" => s.toggle_find(w, cx),
+                    _ => {}
+                }))
+                .child(div().flex_1().child(f))
+                .child(div().small(&t).text_color(t.colors.fg_muted).child(pos))
+                .child(icon_button("doc-find-prev", "chevron_up", i.t("diff.prev")).size(ControlSize::Sm).disabled(n == 0).on_click(cx.listener(move |s, _, _, cx| s.find_step(-1, n, cx))))
+                .child(icon_button("doc-find-next", "chevron_down", i.t("diff.next")).size(ControlSize::Sm).disabled(n == 0).on_click(cx.listener(move |s, _, _, cx| s.find_step(1, n, cx))))
+                .child(icon_button("doc-find-close", "close", i.t("ui.close")).size(ControlSize::Sm).on_click(cx.listener(|s, _, w, cx| s.toggle_find(w, cx))))
+        });
         let menu = self.tab_menu.clone().map(|(anchor, pos)| {
             let idx = open.iter().position(|p| *p == anchor).unwrap_or(0);
             let last = open.len().saturating_sub(1);
@@ -872,7 +934,8 @@ impl Render for DocsPanel {
             .size_full()
             .child(tabs)
             .child(bar)
-            .child(div().id("doc-body").flex_1().min_h_0().overflow_scroll().child(body))
+            .children(find_bar)
+            .child(div().id("doc-body").flex_1().min_h_0().overflow_scroll().track_scroll(&self.body_scroll).child(body))
             .children(menu)
             .children(ask)
             .into_any_element()
@@ -1081,6 +1144,14 @@ impl DocsPanel {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn cari_temuan_tanpa_huruf_besar() {
+        let m = super::find_matches("Satu dua
+DUA tiga dua", "dua");
+        assert_eq!(m, vec![(0, 5), (1, 0), (1, 9)]);
+        assert!(super::find_matches("abc", "").is_empty());
+    }
+
+    #[test]
     fn csv() {
         let r = super::parse_delimited("a,\"b,c\",\"d\"\"e\"\r\n1,2\n", ',');
         assert_eq!(r, vec![vec!["a", "b,c", "d\"e"], vec!["1", "2"]]);
@@ -1091,4 +1162,47 @@ mod tests {
 /// Ukuran piksel gambar raster (PNG/JPEG/GIF/WebP) dari header-nya.
 fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
     image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()
+}
+
+impl DocsPanel {
+    fn toggle_find(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        if self.find.take().is_none() {
+            let ph = cx.global::<I18n>().t("doc.find");
+            let f = cx.new(|cx| crate::ui::TextInput::new(cx, ph));
+            cx.observe(&f, |s, _, cx| {
+                s.find_at = 0;
+                s.scroll_to_hit(cx);
+                cx.notify();
+            })
+            .detach();
+            let fh = gpui::Focusable::focus_handle(f.read(cx), cx);
+            fh.focus(w, cx);
+            self.find = Some(f);
+            self.find_at = 0;
+        }
+        cx.notify();
+    }
+
+    fn find_step(&mut self, d: isize, n: usize, cx: &mut Context<Self>) {
+        if n == 0 {
+            return;
+        }
+        self.find_at = ((self.find_at.min(n - 1) as isize + d).rem_euclid(n as isize)) as usize;
+        self.scroll_to_hit(cx);
+        cx.notify();
+    }
+
+    /// Gulir ke baris temuan aktif (tinggi baris kode tetap; tepat untuk tampilan tanpa bungkus baris).
+    fn scroll_to_hit(&mut self, cx: &mut Context<Self>) {
+        let Some(active) = self.state.read(cx).active.clone() else { return };
+        let Some(f) = &self.find else { return };
+        let text = self.cache.get(&active).and_then(|l| l.text.as_ref()).map(|x| x.0.clone()).unwrap_or_default();
+        let hits = find_matches(&text, f.read(cx).text().as_ref());
+        let Some((line, _)) = hits.get(self.find_at).copied() else { return };
+        let t = cx.global::<Theme>();
+        let ty = t.ty(crate::theme::CODE);
+        let lh = t.rem(ty.size) * ty.lh;
+        let y = t.space(3) + lh * line as f32 - gpui::px(80.);
+        self.body_scroll.set_offset(gpui::point(self.body_scroll.offset().x, -y.max(gpui::px(0.))));
+    }
 }
