@@ -39,6 +39,7 @@ pub struct Sidebar {
     workspace_open: bool,
     open_menu: Option<String>,
     dialog: Option<SbDialog>,
+    pstyle: Option<Entity<super::project_style_dialog::ProjectStyleDialog>>,
     files: Entity<super::tools::ToolsHost>,
 }
 
@@ -69,6 +70,7 @@ impl Sidebar {
             workspace_open: true,
             open_menu: None,
             dialog: None,
+            pstyle: None,
             files: cx.new(|cx| {
                 let mut h = super::tools::ToolsHost::new(cx);
                 h.tool = super::layout::ToolId::Files;
@@ -173,11 +175,17 @@ struct Ctx<'a> {
 /// Lapisan latar baris project: gambar (posisi/zoom) > gradien, lalu overlay. Port rowStyle + CSS overlay (Sidebar.tsx).
 /// Gradien dirasterisasi penuh (semua titik, sudut, radial) sesuai ukuran baris — lihat `gradient_layer`.
 fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Vec<gpui::AnyElement> {
+    style_layers(&|k| ap.project_style(id, k))
+}
+
+/// Lapisan latar gaya project (gambar/gradien + overlay) dari pembaca nilai gaya — dipakai baris sidebar dan
+/// pratinjau dialog Kustomisasi project.
+pub(crate) fn style_layers(get: &dyn Fn(&str) -> Option<String>) -> Vec<gpui::AnyElement> {
     use crate::core::appearance::parse_color;
     use gpui::{linear_color_stop, linear_gradient, relative};
     let mut out = vec![];
-    let num = |k: &str, d: f32| ap.project_style(id, k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(d);
-    if let Some(img) = ap.project_style(id, "image").and_then(|u| crate::core::gradient::image_of(&u)) {
+    let num = |k: &str, d: f32| get(k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(d);
+    if let Some(img) = get("image").and_then(|u| crate::core::gradient::image_of(&u)) {
         let z = num("imageZoom", 100.) / 100.;
         let y = num("imageY", 50.) / 100.;
         out.push(
@@ -190,7 +198,7 @@ fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Ve
                 .object_fit(gpui::ObjectFit::Cover)
                 .into_any_element(),
         );
-    } else if let Some(spec) = ap.project_style(id, "gradient").and_then(|g| crate::core::gradient::parse_gradient(&g)) {
+    } else if let Some(spec) = get("gradient").and_then(|g| crate::core::gradient::parse_gradient(&g)) {
         let stops: Vec<(f32, [f32; 4])> = spec
             .stops
             .iter()
@@ -201,8 +209,8 @@ fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Ve
             out.push(gradient_layer(stops, spec.radial, spec.angle));
         }
     }
-    if let Some(kind) = ap.project_style(id, "overlay") {
-        let mut c = ap.project_style(id, "overlayColor").and_then(|v| parse_color(&v)).unwrap_or(gpui::black());
+    if let Some(kind) = get("overlay") {
+        let mut c = get("overlayColor").and_then(|v| parse_color(&v)).unwrap_or(gpui::black());
         c.a = num("overlayOpacity", 50.) / 100.;
         let clear = gpui::Hsla { a: 0., ..c };
         let layer = div().absolute().inset_0();
@@ -622,6 +630,17 @@ impl Render for Sidebar {
                     let entries = vec![
                         entry(i.t("sb.newSession"), mkp(|sb, id, _, _, cx| sb.new_session(id, cx))).icon("plus"),
                         entry(i.t("sb.rename"), mkp(|sb, id, n, w, cx| sb.open_rename(SbDialog::RenameProject(id), n, w, cx))).icon("edit"),
+                        entry(i.t("sb.customize"), mkp(|sb, id, n, _, cx| {
+                            let d = cx.new(|cx| super::project_style_dialog::ProjectStyleDialog::new(id, n, cx));
+                            cx.subscribe(&d, |sb, _, _: &super::project_style_dialog::StyleClosed, cx| {
+                                sb.pstyle = None;
+                                cx.notify();
+                            })
+                            .detach();
+                            sb.pstyle = Some(d);
+                            cx.notify();
+                        }))
+                        .icon("image"),
                         entry(i.t("sb.refresh"), mkp(|sb, id, _, _, cx| sb.store.update(cx, |s, cx| s.refresh(&id, cx)))).icon("refresh"),
                         MenuEntry::Separator,
                         entry(i.t("sb.removeProject"), mkp(|sb, id, n, _, cx| {
@@ -862,5 +881,6 @@ impl Render for Sidebar {
             .child(list)
             .child(foot)
             .children(dlg)
+            .children(self.pstyle.clone())
     }
 }

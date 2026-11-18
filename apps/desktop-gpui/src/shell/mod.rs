@@ -21,6 +21,7 @@ pub mod notification_section;
 pub mod global_search;
 pub mod image_dialog;
 pub mod signin_tab;
+pub mod project_style_dialog;
 pub mod root;
 pub mod sidebar;
 pub mod settings_page;
