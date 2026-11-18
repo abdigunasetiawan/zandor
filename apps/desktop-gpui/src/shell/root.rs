@@ -18,6 +18,7 @@ pub struct Root {
     automation_page: Entity<super::automation_page::AutomationPage>,
     onboarding_page: Entity<super::onboarding_page::OnboardingPage>,
     palette: Option<Entity<super::command_center::CommandCenter>>,
+    gsearch: Option<Entity<super::global_search::GlobalSearch>>,
 }
 
 impl Root {
@@ -85,7 +86,7 @@ impl Root {
         if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
             app.update(cx, |a, cx| a.push("/welcome", cx));
         }
-        Self { app, titlebar, layout, toasts, palette: None, settings_page, memory_page, automation_page, onboarding_page }
+        Self { app, titlebar, layout, toasts, palette: None, gsearch: None, settings_page, memory_page, automation_page, onboarding_page }
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -93,7 +94,19 @@ impl Root {
         let app = self.app.clone();
         let toggle = |p: PanelId, cx: &mut Context<Self>| app.update(cx, |a, cx| a.toggle(p, cx));
         match id {
-            "app.palette" | "app.searchSessions" => {
+            "app.searchSessions" => {
+                if self.gsearch.take().is_none() {
+                    let g = cx.new(|cx| super::global_search::GlobalSearch::new(window, cx));
+                    cx.subscribe(&g, |r, _, _: &super::global_search::SearchEvent, cx| {
+                        r.gsearch = None;
+                        cx.notify();
+                    })
+                    .detach();
+                    self.gsearch = Some(g);
+                }
+                cx.notify();
+            }
+            "app.palette" => {
                 if self.palette.take().is_none() {
                     let p = cx.new(|cx| super::command_center::CommandCenter::new(window, cx));
                     cx.subscribe_in(&p, window, |r, _, e: &super::command_center::PaletteEvent, w, cx| {
@@ -191,6 +204,7 @@ impl Render for Root {
             .child(self.titlebar.clone())
             .child(div().flex().flex_1().min_h_0().child(content))
             .children(self.palette.clone())
+            .children(self.gsearch.clone())
             .child(self.toasts.clone())
     }
 }
