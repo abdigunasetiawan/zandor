@@ -19,6 +19,7 @@ pub struct Root {
     onboarding_page: Entity<super::onboarding_page::OnboardingPage>,
     palette: Option<Entity<super::command_center::CommandCenter>>,
     gsearch: Option<Entity<super::global_search::GlobalSearch>>,
+    imagegen: Option<Entity<super::image_dialog::ImageDialog>>,
 }
 
 impl Root {
@@ -86,7 +87,7 @@ impl Root {
         if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
             app.update(cx, |a, cx| a.push("/welcome", cx));
         }
-        Self { app, titlebar, layout, toasts, palette: None, gsearch: None, settings_page, memory_page, automation_page, onboarding_page }
+        Self { app, titlebar, layout, toasts, palette: None, gsearch: None, imagegen: None, settings_page, memory_page, automation_page, onboarding_page }
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -94,6 +95,18 @@ impl Root {
         let app = self.app.clone();
         let toggle = |p: PanelId, cx: &mut Context<Self>| app.update(cx, |a, cx| a.toggle(p, cx));
         match id {
+            "image.generate" => {
+                if self.imagegen.is_none() {
+                    let g = cx.new(|cx| super::image_dialog::ImageDialog::new(window, cx));
+                    cx.subscribe(&g, |r, _, _: &super::image_dialog::ImageEvent, cx| {
+                        r.imagegen = None;
+                        cx.notify();
+                    })
+                    .detach();
+                    self.imagegen = Some(g);
+                }
+                cx.notify();
+            }
             "app.searchSessions" => {
                 if self.gsearch.take().is_none() {
                     let g = cx.new(|cx| super::global_search::GlobalSearch::new(window, cx));
@@ -205,6 +218,7 @@ impl Render for Root {
             .child(div().flex().flex_1().min_h_0().child(content))
             .children(self.palette.clone())
             .children(self.gsearch.clone())
+            .children(self.imagegen.clone())
             .child(self.toasts.clone())
     }
 }
