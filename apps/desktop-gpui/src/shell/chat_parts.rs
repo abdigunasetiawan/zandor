@@ -686,10 +686,13 @@ impl ChatPanel {
         let menu_open = |which: u8| self.msg_menu.as_ref().is_some_and(|(id, w)| *id == mid && *w == which);
         let me = cx.entity().downgrade();
         if assistant && !text.is_empty() {
-            // Simpan sebagai: Teks (Markdown). PNG/SVG di aplikasi TS merender DOM lewat html-to-image; GPUI tidak punya
-            // perender elemen ke gambar di luar layar, jadi pilihan itu belum tersedia di port ini.
+            // Simpan sebagai: Teks (Markdown), Gambar (PNG), SVG. Versi TS merender DOM lewat html-to-image; di sini pesan
+            // dirender ulang sebagai HTML bergaya inline di WebView tersembunyi (ui::mermaid::snapshot).
             let tx = text.clone();
-            let entries = vec![crate::ui::entry(i.t("msg.saveText"), move |_, cx| {
+            let src = text.clone();
+            let html: crate::ui::rich::HtmlFn = std::rc::Rc::new(move |t: &Theme| crate::ui::rich::message_html(t, &src));
+            let (h1, h2) = (html.clone(), html);
+            let mut entries = vec![crate::ui::entry(i.t("msg.saveText"), move |_, cx| {
                 let body = if tx.ends_with('\n') { tx.clone() } else { format!("{tx}\n") };
                 let rx = cx.prompt_for_new_path(&dirs_home(), Some(&export_file_name("md")));
                 cx.spawn(async move |cx| {
@@ -706,6 +709,8 @@ impl ChatPanel {
                 .detach();
             })
             .icon("file_text")];
+            entries.push(crate::ui::entry(i.t("msg.saveImage"), move |_, cx| crate::ui::rich::snap_with(&h1, crate::ui::mermaid::SnapAction::SavePng(export_file_name("png")), cx)).icon("image"));
+            entries.push(crate::ui::entry(i.t("msg.saveSvg"), move |_, cx| crate::ui::rich::snap_with(&h2, crate::ui::mermaid::SnapAction::SaveSvg(export_file_name("svg")), cx)).icon("code"));
             let (mid2, me2) = (mid.clone(), me.clone());
             row = row.child(
                 div()

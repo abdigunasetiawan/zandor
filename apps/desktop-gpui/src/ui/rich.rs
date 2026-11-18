@@ -138,7 +138,7 @@ fn save_text(name: String, text: String, cx: &mut App) {
 }
 
 /// Simpan byte lewat dialog Simpan sebagai (port saveBytes).
-fn save_bytes(name: String, text: Vec<u8>, cx: &mut App) {
+pub(crate) fn save_bytes(name: String, text: Vec<u8>, cx: &mut App) {
     let rx = cx.prompt_for_new_path(&home(), Some(&name));
     cx.spawn(async move |cx| {
         let Ok(Ok(Some(path))) = rx.await else { return };
@@ -153,6 +153,200 @@ fn save_bytes(name: String, text: Vec<u8>, cx: &mut App) {
         });
     })
     .detach();
+}
+
+// ---------- ekspor gambar (port imageActions + html-to-image) ----------
+
+/// Warna tema sebagai CSS.
+pub fn css(c: gpui::Hsla) -> String {
+    let r = gpui::Rgba::from(c);
+    let b = |x: f32| (x.clamp(0., 1.) * 255.).round() as u8;
+    format!("rgba({},{},{},{:.3})", b(r.r), b(r.g), b(r.b), r.a)
+}
+
+pub fn esc_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+fn frame_style(t: &Theme) -> String {
+    format!(
+        "background:{};color:{};font-family:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5;padding:16px;border-radius:8px;border:1px solid {}",
+        css(t.colors.bg),
+        css(t.colors.fg),
+        css(t.colors.border)
+    )
+}
+
+/// HTML blok kode berwarna (gaya inline) untuk dijadikan gambar.
+pub fn code_html(t: &Theme, lang: &str, raw: &str) -> String {
+    let spans = super::highlight::highlight_text(lang, raw, t);
+    let mut body = String::new();
+    let mut at = 0;
+    for (range, st) in spans {
+        if range.start < at || range.end > raw.len() || !raw.is_char_boundary(range.start) || !raw.is_char_boundary(range.end) {
+            continue;
+        }
+        body.push_str(&esc_html(&raw[at..range.start]));
+        let mut style = String::new();
+        if let Some(c) = st.color {
+            style.push_str(&format!("color:{};", css(c)));
+        }
+        if st.font_style == Some(gpui::FontStyle::Italic) {
+            style.push_str("font-style:italic;");
+        }
+        if st.font_weight.is_some_and(|w| w.0 >= 600.) {
+            style.push_str("font-weight:600;");
+        }
+        body.push_str(&format!("<span style=\"{style}\">{}</span>", esc_html(&raw[range.clone()])));
+        at = range.end;
+    }
+    body.push_str(&esc_html(&raw[at..]));
+    let head = if lang.is_empty() { String::new() } else { format!("<div style=\"font-size:12px;color:{};margin-bottom:8px\">{}</div>", css(t.colors.fg_muted), esc_html(lang)) };
+    format!(
+        "<div style=\"{}\">{head}<pre style=\"margin:0;padding:12px;border-radius:6px;background:{};font-family:'JetBrains Mono',Consolas,monospace;font-size:13px;white-space:pre\">{body}</pre></div>",
+        frame_style(t),
+        css(t.colors.raised)
+    )
+}
+
+/// HTML tabel (gaya inline) untuk dijadikan gambar.
+pub fn table_html(t: &Theme, rows: &[Vec<String>]) -> String {
+    let cell = |tag: &str, v: &str| format!("<{tag} style=\"border:1px solid {};padding:6px 10px;text-align:left\">{}</{tag}>", css(t.colors.border), esc_html(v));
+    let mut out = format!("<div style=\"{}\"><table style=\"border-collapse:collapse\">", frame_style(t));
+    for (n, row) in rows.iter().enumerate() {
+        let tag = if n == 0 { "th" } else { "td" };
+        out.push_str(&format!("<tr{}>", if n == 0 { format!(" style=\"background:{}\"", css(t.colors.raised)) } else { String::new() }));
+        for c in row {
+            out.push_str(&cell(tag, c));
+        }
+        out.push_str("</tr>");
+    }
+    out.push_str("</table></div>");
+    out
+}
+
+/// HTML rumus (MathML, dirender Chromium) untuk dijadikan gambar.
+pub fn math_html(t: &Theme, latex: &str) -> String {
+    format!("<div style=\"{};font-size:20px;font-family:'Cambria Math','Latin Modern Math',serif\">{}</div>", frame_style(t), super::math::to_mathml(latex, true))
+}
+
+/// HTML pesan (Markdown → HTML bergaya inline) untuk "Simpan sebagai PNG/SVG" pesan chat.
+pub fn message_html(t: &Theme, src: &str) -> String {
+    use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+    let opts = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_MATH;
+    let mut out = format!("<div style=\"{};max-width:760px\">", frame_style(t));
+    let border = css(t.colors.border);
+    let raised = css(t.colors.raised);
+    let mut code: Option<(String, String)> = None;
+    let mut in_head = false;
+    for ev in Parser::new_ext(src, opts) {
+        if let Some((lang, buf)) = code.as_mut() {
+            match ev {
+                Event::Text(x) => buf.push_str(&x),
+                Event::End(TagEnd::CodeBlock) => {
+                    let body = buf.trim_end_matches(['\r', '\n']).to_string();
+                    let lang = lang.clone();
+                    code = None;
+                    let inner = code_html(t, &lang, &body);
+                    // buang bingkai luar code_html: cukup ambil <pre>
+                    let pre = inner.find("<pre").map(|k| inner[k..inner.len() - "</div>".len()].to_string()).unwrap_or(inner);
+                    out.push_str(&format!("<div style=\"margin:8px 0\">{pre}</div>"));
+                }
+                _ => {}
+            }
+            continue;
+        }
+        match ev {
+            Event::Start(tag) => out.push_str(&match tag {
+                Tag::Paragraph => "<p style=\"margin:0 0 8px\">".into(),
+                Tag::Heading { level, .. } => {
+                    let size = match level {
+                        HeadingLevel::H1 => 22,
+                        HeadingLevel::H2 => 19,
+                        HeadingLevel::H3 => 17,
+                        _ => 15,
+                    };
+                    format!("<div style=\"font-size:{size}px;font-weight:700;margin:12px 0 6px\">")
+                }
+                Tag::BlockQuote(_) => format!("<blockquote style=\"margin:8px 0;padding-left:12px;border-left:3px solid {border};color:{}\">", css(t.colors.fg_muted)),
+                Tag::CodeBlock(kind) => {
+                    code = Some((if let CodeBlockKind::Fenced(l) = kind { l.split_whitespace().next().unwrap_or("").to_string() } else { String::new() }, String::new()));
+                    String::new()
+                }
+                Tag::List(Some(n)) => format!("<ol start=\"{n}\" style=\"margin:0 0 8px;padding-left:24px\">"),
+                Tag::List(None) => "<ul style=\"margin:0 0 8px;padding-left:24px\">".into(),
+                Tag::Item => "<li>".into(),
+                Tag::Emphasis => "<em>".into(),
+                Tag::Strong => "<strong>".into(),
+                Tag::Strikethrough => "<s>".into(),
+                Tag::Link { dest_url, .. } => format!("<a href=\"{}\" style=\"color:{};text-decoration:underline\">", esc_html(&dest_url), css(t.colors.accent)),
+                Tag::Image { dest_url, .. } => format!("<span style=\"color:{}\">[{}] ", css(t.colors.fg_muted), esc_html(&dest_url)),
+                Tag::Table(_) => "<table style=\"border-collapse:collapse;margin:8px 0\">".into(),
+                Tag::TableHead => {
+                    in_head = true;
+                    format!("<tr style=\"background:{raised}\">")
+                }
+                Tag::TableRow => "<tr>".into(),
+                Tag::TableCell => format!("<{} style=\"border:1px solid {border};padding:4px 8px;text-align:left\">", if in_head { "th" } else { "td" }),
+                _ => String::new(),
+            }),
+            Event::End(tag) => out.push_str(match tag {
+                TagEnd::Paragraph => "</p>",
+                TagEnd::Heading(_) => "</div>",
+                TagEnd::BlockQuote(_) => "</blockquote>",
+                TagEnd::List(true) => "</ol>",
+                TagEnd::List(false) => "</ul>",
+                TagEnd::Item => "</li>",
+                TagEnd::Emphasis => "</em>",
+                TagEnd::Strong => "</strong>",
+                TagEnd::Strikethrough => "</s>",
+                TagEnd::Link => "</a>",
+                TagEnd::Image => "</span>",
+                TagEnd::Table => "</table>",
+                TagEnd::TableHead => {
+                    in_head = false;
+                    "</tr>"
+                }
+                TagEnd::TableRow => "</tr>",
+                TagEnd::TableCell => {
+                    if in_head { "</th>" } else { "</td>" }
+                }
+                _ => "",
+            }),
+            Event::Text(x) => out.push_str(&esc_html(&x)),
+            Event::Code(x) => out.push_str(&format!("<code style=\"font-family:'JetBrains Mono',Consolas,monospace;font-size:12.5px;background:{raised};padding:1px 4px;border-radius:4px\">{}</code>", esc_html(&x))),
+            Event::InlineMath(x) => out.push_str(&super::math::to_mathml(&x, false)),
+            Event::DisplayMath(x) => out.push_str(&format!("<div style=\"margin:8px 0\">{}</div>", super::math::to_mathml(&x, true))),
+            Event::SoftBreak => out.push(' '),
+            Event::HardBreak => out.push_str("<br/>"),
+            Event::Rule => out.push_str(&format!("<hr style=\"border:none;border-top:1px solid {border};margin:12px 0\"/>")),
+            Event::TaskListMarker(done) => out.push_str(if done { "☑ " } else { "☐ " }),
+            Event::Html(x) | Event::InlineHtml(x) => out.push_str(&esc_html(&x)),
+            _ => {}
+        }
+    }
+    out.push_str("</div>");
+    out
+}
+
+/// Tiga aksi gambar bersama: salin PNG, simpan PNG, simpan SVG.
+/// HTML dibuat malas (saat diklik) dengan tema aktif — tidak dihitung ulang setiap render.
+pub(crate) type HtmlFn = std::rc::Rc<dyn Fn(&Theme) -> String>;
+
+pub(crate) fn snap_with(html: &HtmlFn, action: super::mermaid::SnapAction, cx: &mut App) {
+    let t = cx.global::<Theme>().clone();
+    super::mermaid::snapshot(html(&t), action);
+    cx.refresh_windows();
+}
+
+pub(crate) fn image_entries(i: &I18n, html: HtmlFn, base: &'static str) -> Vec<MenuEntry> {
+    use super::mermaid::SnapAction;
+    let (h1, h2, h3) = (html.clone(), html.clone(), html);
+    vec![
+        entry(i.t("rich.copyImage"), move |_, cx| snap_with(&h1, SnapAction::CopyPng, cx)).icon("image_down"),
+        entry(i.t("rich.saveImage"), move |_, cx| snap_with(&h2, SnapAction::SavePng(stamped_name(base, "png")), cx)).icon("image"),
+        entry(i.t("rich.saveSvg"), move |_, cx| snap_with(&h3, SnapAction::SaveSvg(stamped_name(base, "svg")), cx)).icon("code"),
+    ]
 }
 
 fn open_more(entries: Vec<MenuEntry>, window: &gpui::Window, cx: &mut App) {
@@ -174,10 +368,11 @@ pub fn code_block(t: &Theme, i: &I18n, lang: &str, raw: &str) -> AnyElement {
     let ext = ext_for_lang(lang);
     let (r1, r2, r3) = (raw.to_string(), raw.to_string(), raw.to_string());
     let l2 = lang.to_string();
-    let more = vec![
+    let mut more = image_entries(i, { let (l, r) = (lang.to_string(), raw.to_string()); std::rc::Rc::new(move |t: &Theme| code_html(t, &l, &r)) }, "kode");
+    more.extend([
         entry(i.t("rich.copyFenced"), move |_, cx| copy_text(fenced(&l2, &r2), cx)).icon("file_text"),
         entry(i.tp("rich.saveFile", &[("ext", &if ext == "Dockerfile" { ext.to_string() } else { format!(".{ext}") })]), move |_, cx| save_text(stamped_name("kode", ext), r3.clone(), cx)).icon("download"),
-    ];
+    ]);
     let head = div()
         .flex()
         .items_center()
@@ -253,7 +448,7 @@ pub fn table_bar(t: &Theme, i: &I18n, rows: Vec<Vec<String>>) -> AnyElement {
         let r = r.clone();
         move |_: &mut gpui::Window, cx: &mut App| save_text(stamped_name(base, ext), f(&r), cx)
     };
-    let more = vec![
+    let mut more = vec![
         entry(i.t("rich.copyMarkdown"), mk(to_markdown_table)).icon("file_text"),
         entry(i.t("rich.copyTsv"), mk(to_tsv)).icon("table"),
         entry(i.t("rich.copyCsv"), mk(to_csv)).icon("copy"),
@@ -261,6 +456,7 @@ pub fn table_bar(t: &Theme, i: &I18n, rows: Vec<Vec<String>>) -> AnyElement {
         entry(i.t("rich.saveCsv"), save("tabel", "csv", to_csv)).icon("download"),
         entry(i.t("rich.saveMarkdown"), save("tabel", "md", to_markdown_table)).icon("download"),
     ];
+    more.splice(4..4, image_entries(i, { let r = r.clone(); std::rc::Rc::new(move |t: &Theme| table_html(t, &r)) }, "tabel"));
     let r0 = r.clone();
     div()
         .flex()
@@ -275,12 +471,15 @@ pub fn table_bar(t: &Theme, i: &I18n, rows: Vec<Vec<String>>) -> AnyElement {
 pub fn math_bar(t: &Theme, i: &I18n, latex: &str) -> AnyElement {
     let key = block_key(&["math", latex]);
     let (l1, l2, l3) = (latex.to_string(), latex.to_string(), latex.to_string());
-    let more = vec![
+    let l4 = latex.to_string();
+    let mut more = vec![
         entry(i.t("rich.copyLatexDisplay"), move |_, cx| copy_text(format!("$$
 {l2}
 $$"), cx)).icon("copy"),
-        entry(i.tp("rich.saveFile", &[("ext", ".tex")]), move |_, cx| save_text(stamped_name("rumus", "tex"), l3.clone(), cx)).icon("download"),
+        entry(i.t("rich.copyMathml"), move |_, cx| copy_text(super::math::to_mathml(&l4, true), cx)).icon("code"),
     ];
+    more.extend(image_entries(i, { let l = latex.to_string(); std::rc::Rc::new(move |t: &Theme| math_html(t, &l)) }, "rumus"));
+    more.push(entry(i.tp("rich.saveFile", &[("ext", ".tex")]), move |_, cx| save_text(stamped_name("rumus", "tex"), l3.clone(), cx)).icon("download"));
     div()
         .flex()
         .justify_end()

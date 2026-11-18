@@ -89,7 +89,7 @@ impl Root {
         if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
             app.update(cx, |a, cx| a.push("/welcome", cx));
         }
-        crate::ui::mermaid::selftest();
+        { let t = cx.global::<crate::theme::Theme>().clone(); crate::ui::mermaid::selftest(&t); }
         // Diagram Mermaid: webview tersembunyi dipompa berkala (detak cepat hanya saat ada pekerjaan).
         cx.spawn_in(window, async move |this, cx| loop {
             let fast = crate::ui::mermaid::busy();

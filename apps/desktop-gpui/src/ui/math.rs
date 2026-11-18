@@ -571,6 +571,78 @@ pub fn inline_text(latex: &str) -> String {
     to_text(&parse(latex)).trim().to_string()
 }
 
+
+// ---------- MathML (port "Salin MathML" KaTeX; juga sumber gambar rumus) ----------
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn ml_list(nodes: &[Node]) -> String {
+    let inner: String = nodes.iter().map(ml_node).collect();
+    if nodes.len() == 1 { inner } else { format!("<mrow>{inner}</mrow>") }
+}
+
+fn ml_node(n: &Node) -> String {
+    match n {
+        Node::Sym(s, italic) => {
+            let c = s.chars().next().unwrap_or(' ');
+            if c.is_ascii_digit() || c == '.' {
+                format!("<mn>{}</mn>", esc(s))
+            } else if *italic || c.is_alphabetic() {
+                format!("<mi>{}</mi>", esc(s))
+            } else {
+                format!("<mo>{}</mo>", esc(s))
+            }
+        }
+        Node::Text(s) if s == "\n" => "<mspace linebreak=\"newline\"/>".into(),
+        Node::Text(s) => {
+            if !s.is_empty() && s.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                format!("<mn>{}</mn>", esc(s))
+            } else {
+                format!("<mtext>{}</mtext>", esc(s))
+            }
+        }
+        Node::BigOp(s) => {
+            if s.chars().count() == 1 { format!("<mo>{}</mo>", esc(s)) } else { format!("<mi>{}</mi>", esc(s)) }
+        }
+        Node::Bold(v) => format!("<mstyle mathvariant=\"bold\">{}</mstyle>", ml_list(v)),
+        Node::Group(v) => format!("<mrow>{}</mrow>", v.iter().map(ml_node).collect::<String>()),
+        Node::Sup(b, s) => format!("<msup>{}{}</msup>", ml_node(b), ml_node(s)),
+        Node::Sub(b, s) => {
+            let tag = if matches!(**b, Node::BigOp(_)) { "munder" } else { "msub" };
+            format!("<{tag}>{}{}</{tag}>", ml_node(b), ml_node(s))
+        }
+        Node::SubSup(b, d, u) => {
+            let tag = if matches!(**b, Node::BigOp(ref s) if s.chars().count() == 1 && s != "∫" && s != "∮") { "munderover" } else { "msubsup" };
+            format!("<{tag}>{}{}{}</{tag}>", ml_node(b), ml_node(d), ml_node(u))
+        }
+        Node::Frac(a, b) => format!("<mfrac>{}{}</mfrac>", ml_list(a), ml_list(b)),
+        Node::Binom(a, b) => format!("<mrow><mo>(</mo><mfrac linethickness=\"0\">{}{}</mfrac><mo>)</mo></mrow>", ml_list(a), ml_list(b)),
+        Node::Sqrt(None, v) => format!("<msqrt>{}</msqrt>", ml_list(v)),
+        Node::Sqrt(Some(k), v) => format!("<mroot>{}{}</mroot>", ml_list(v), ml_list(k)),
+        Node::Accent(m, v) => format!("<mover accent=\"true\">{}<mo>{}</mo></mover>", ml_list(v), esc(&m.to_string())),
+        Node::Space(w) => format!("<mspace width=\"{w}em\"/>"),
+        Node::Matrix(l, r, rows) => {
+            let body: String = rows.iter().map(|rw| format!("<mtr>{}</mtr>", rw.iter().map(|c| format!("<mtd>{}</mtd>", ml_list(c))).collect::<String>())).collect();
+            let d = |s: &str| if s.is_empty() { String::new() } else { format!("<mo>{}</mo>", esc(s)) };
+            format!("<mrow>{}<mtable>{body}</mtable>{}</mrow>", d(l), d(r))
+        }
+        Node::Unknown(s) => format!("<merror><mtext>{}</mtext></merror>", esc(s)),
+    }
+}
+
+/// MathML lengkap untuk LaTeX (seperti elemen `<math>` KaTeX, dengan anotasi sumber).
+pub fn to_mathml(latex: &str, display: bool) -> String {
+    let nodes = parse(latex);
+    format!(
+        "<math xmlns=\"http://www.w3.org/1998/Math/MathML\"{}><semantics><mrow>{}</mrow><annotation encoding=\"application/x-tex\">{}</annotation></semantics></math>",
+        if display { " display=\"block\"" } else { "" },
+        nodes.iter().map(ml_node).collect::<String>(),
+        esc(latex)
+    )
+}
+
 #[allow(dead_code)]
 fn _unused(_: FontStyle) {}
 
@@ -587,6 +659,15 @@ mod tests {
         assert_eq!(inline_text("e^{i\\pi}"), "e^(iπ)");
         assert_eq!(inline_text("\\sum_{i=1}^{n} i"), "∑ᵢ₌₁ⁿ i");
         assert_eq!(inline_text("\\foo x"), "\\foo x");
+    }
+    #[test]
+    fn mathml() {
+        let m = to_mathml(r"\frac{a}{2} + \sqrt{x}", true);
+        assert!(m.starts_with("<math xmlns=\"http://www.w3.org/1998/Math/MathML\" display=\"block\">"));
+        assert!(m.contains("<mfrac><mi>a</mi><mn>2</mn></mfrac>"), "{m}");
+        assert!(m.contains("<msqrt><mi>x</mi></msqrt>"), "{m}");
+        assert!(m.contains("<annotation encoding=\"application/x-tex\">"));
+        assert!(to_mathml("x < y", false).contains("&lt;"));
     }
     #[test]
     fn struktur() {

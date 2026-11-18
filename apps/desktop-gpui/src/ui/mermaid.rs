@@ -49,6 +49,33 @@ async function zrender(id, code, dark) {
     post({ t: "err", id, error: String(e && e.message || e) });
   }
 }
+async function zsnap(id, html) {
+  const post = (m) => window.ipc.postMessage(JSON.stringify(m));
+  try {
+    const holder = document.getElementById("host");
+    holder.innerHTML = '<div style="display:inline-block">' + html + "</div>";
+    const node = holder.firstChild;
+    const box = node.getBoundingClientRect();
+    const w = Math.max(1, Math.ceil(box.width)), h = Math.max(1, Math.ceil(box.height));
+    const xml = new XMLSerializer().serializeToString(node);
+    holder.innerHTML = "";
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '"><foreignObject x="0" y="0" width="100%" height="100%">' + xml + "</foreignObject></svg>";
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement("canvas");
+        c.width = w * 2; c.height = h * 2;
+        const g = c.getContext("2d");
+        g.scale(2, 2); g.drawImage(img, 0, 0, w, h);
+        post({ t: "snap", id, svg, png: c.toDataURL("image/png").split(",")[1] });
+      } catch (e) { post({ t: "snaperr", id, error: String(e && e.message || e) }); }
+    };
+    img.onerror = () => post({ t: "snaperr", id, error: "gagal merasterisasi" });
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  } catch (e) {
+    post({ t: "snaperr", id, error: String(e && e.message || e) });
+  }
+}
 window.ipc.postMessage(JSON.stringify({ t: "ready" }));
 </script></body></html>"#;
 
@@ -66,8 +93,27 @@ struct Job {
     sent: bool,
 }
 
+/// Apa yang dilakukan dengan hasil snapshot.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SnapAction {
+    CopyPng,
+    SavePng(String),
+    SaveSvg(String),
+    /// Swa-uji: tulis ke berkas tanpa dialog dan catat ukuran di log.
+    Selftest(std::path::PathBuf),
+}
+
+struct Snap {
+    html: String,
+    action: SnapAction,
+    sent: bool,
+}
+
 #[derive(Default)]
 struct Svc {
+    snaps: HashMap<u64, Snap>,
+    snap_seq: u64,
+    snap_done: Vec<(SnapAction, Result<(Vec<u8>, String), String>)>,
     cache: HashMap<u64, State>,
     jobs: HashMap<u64, Job>,
     ready: bool,
@@ -125,6 +171,20 @@ fn on_ipc(body: &str) {
                 s.cache.insert(id, st);
                 s.dirty = true;
             }
+            Some("snap") | Some("snaperr") => {
+                let Some(id) = v["id"].as_str().and_then(|x| u64::from_str_radix(x, 16).ok()) else { return };
+                let Some(job) = s.snaps.remove(&id) else { return };
+                let res = if v["t"] == "snap" {
+                    match v["png"].as_str().and_then(crate::images::decode_b64) {
+                        Some(png) => Ok((png, v["svg"].as_str().unwrap_or("").to_string())),
+                        None => Err("PNG tidak valid".to_string()),
+                    }
+                } else {
+                    Err(v["error"].as_str().unwrap_or("?").to_string())
+                };
+                s.snap_done.push((job.action, res));
+                s.dirty = true;
+            }
             Some("err") => {
                 let Some(id) = v["id"].as_str().and_then(|x| u64::from_str_radix(x, 16).ok()) else { return };
                 s.jobs.remove(&id);
@@ -159,12 +219,22 @@ fn build(window: &Window) -> Result<wry::WebView, String> {
 /// Dipanggil Root berkala: bangun webview bila perlu, kirim pekerjaan yang sudah stabil, segarkan bila ada hasil.
 pub fn pump(window: &mut Window, cx: &mut gpui::App) {
     let mut refresh = false;
+    let mut done = Vec::new();
     SVC.with(|s| {
         let mut s = s.borrow_mut();
-        if s.jobs.is_empty() && !s.dirty {
+        if s.jobs.is_empty() && s.snaps.is_empty() && !s.dirty {
             return;
         }
-        if s.view.is_none() && s.failed.is_none() && !s.jobs.is_empty() {
+        if let Some(e) = s.failed.clone() {
+            // webview tidak tersedia: gagalkan snapshot yang menunggu
+            let waiting: Vec<u64> = s.snaps.keys().copied().collect();
+            for k in waiting {
+                if let Some(j) = s.snaps.remove(&k) {
+                    s.snap_done.push((j.action, Err(e.clone())));
+                }
+            }
+        }
+        if s.view.is_none() && s.failed.is_none() && (!s.jobs.is_empty() || !s.snaps.is_empty()) {
             match build(window) {
                 Ok(v) => s.view = Some(v),
                 Err(e) => {
@@ -186,23 +256,95 @@ pub fn pump(window: &mut Window, cx: &mut gpui::App) {
                 }
             }
         }
+        if s.ready {
+            let ids: Vec<u64> = s.snaps.iter().filter(|(_, j)| !j.sent).map(|(k, _)| *k).collect();
+            for k in ids {
+                let html = s.snaps[&k].html.clone();
+                let js = format!("zsnap({}, {})", serde_json::json!(format!("{k:x}")), serde_json::json!(html));
+                if let Some(v) = &s.view {
+                    let _ = v.evaluate_script(&js);
+                }
+                if let Some(j) = s.snaps.get_mut(&k) {
+                    j.sent = true;
+                }
+            }
+        }
+        done = std::mem::take(&mut s.snap_done);
         if s.dirty {
             s.dirty = false;
             refresh = true;
         }
         // pekerjaan yang belum jatuh tempo: periksa lagi pada detak berikutnya
     });
+    for (action, res) in done {
+        finish_snap(action, res, cx);
+    }
     if refresh {
         cx.refresh_windows();
     }
 }
 
+fn finish_snap(action: SnapAction, res: Result<(Vec<u8>, String), String>, cx: &mut gpui::App) {
+    let i = cx.global::<crate::i18n::I18n>().clone();
+    match (action, res) {
+        (_, Err(e)) => {
+            eprintln!("[zandor] snapshot galat: {e}");
+            super::Toasts::show(super::ToastInput { tone: super::ToastTone::Danger, ..super::ToastInput::new(i.tp("rich.imageError", &[("error", &e)])) }, cx);
+        }
+        (SnapAction::CopyPng, Ok((png, _))) => {
+            let img = gpui::Image::from_bytes(gpui::ImageFormat::Png, png);
+            cx.write_to_clipboard(gpui::ClipboardItem::new_image(&img));
+            super::Toasts::show(super::ToastInput { tone: super::ToastTone::Success, timeout_ms: Some(1500), ..super::ToastInput::new(i.t("rich.imageCopied")) }, cx);
+        }
+        (SnapAction::SavePng(name), Ok((png, _))) => super::rich::save_bytes(name, png, cx),
+        (SnapAction::SaveSvg(name), Ok((_, svg))) => super::rich::save_bytes(name, svg.into_bytes(), cx),
+        (SnapAction::Selftest(path), Ok((png, svg))) => {
+            let ok = std::fs::write(&path, &png).is_ok();
+            eprintln!("[zandor] snapshot ok {} png={}B svg={}B tulis={ok}", path.display(), png.len(), svg.len());
+        }
+    }
+}
+
+/// Antrekan snapshot HTML → gambar (pengganti html-to-image versi React). HTML harus memakai gaya inline.
+pub fn snapshot(html: String, action: SnapAction) {
+    SVC.with(|s| {
+        let mut s = s.borrow_mut();
+        s.snap_seq += 1;
+        let id = (1u64 << 62) | s.snap_seq;
+        s.snaps.insert(id, Snap { html, action, sent: false });
+    });
+}
+
 /// Swa-uji (ZANDOR_MERMAID_SELFTEST=1): antrekan satu diagram saat mulai; hasil tercatat di log.
-pub fn selftest() {
+pub fn selftest(t: &Theme) {
     if std::env::var_os("ZANDOR_MERMAID_SELFTEST").is_some() {
         let _ = get("graph TD
   A[Mulai] --> B{Cek}
   B -->|ya| C[Selesai]", false);
+    }
+    if let Some(dir) = std::env::var_os("ZANDOR_SNAP_SELFTEST") {
+        let dir = std::path::PathBuf::from(dir);
+        let jobs = [
+            ("kode.png", super::rich::code_html(t, "rust", "fn main() {
+    // komentar
+    let x = \"teks\";
+}")),
+            ("tabel.png", super::rich::table_html(t, &[vec!["A".into(), "B".into()], vec!["1".into(), "2 < 3".into()]])),
+            ("rumus.png", super::rich::math_html(t, r"\frac{a+b}{2} = \sqrt{x^2 + 1}")),
+            ("pesan.png", super::rich::message_html(t, "# Judul
+
+Teks **tebal** dan `kode` serta $x^2$.
+
+- satu
+- dua
+
+```js
+const a = 1;
+```")),
+        ];
+        for (name, html) in jobs {
+            snapshot(html, SnapAction::Selftest(dir.join(name)));
+        }
     }
 }
 
@@ -210,7 +352,7 @@ pub fn selftest() {
 pub fn busy() -> bool {
     SVC.with(|s| {
         let s = s.borrow();
-        !s.jobs.is_empty() || s.dirty
+        !s.jobs.is_empty() || !s.snaps.is_empty() || s.dirty
     })
 }
 
