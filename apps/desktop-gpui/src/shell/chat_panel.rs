@@ -27,6 +27,8 @@ mod chat_parts;
 mod prompt_dock;
 #[path = "model_picker.rs"]
 mod model_picker;
+#[path = "composer_info.rs"]
+mod composer_info;
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -48,6 +50,7 @@ pub struct ChatPanel {
     msg_menu: Option<(String, u8)>,
     pins_open: bool,
     picker: model_picker::PickerState,
+    info_open: bool,
     mp_search: Entity<TextInput>,
     voice_devices: Vec<crate::voice::AudioInput>,
     voice_device: String,
@@ -109,6 +112,7 @@ impl ChatPanel {
             pins_open: false,
             picker: model_picker::PickerState { tab: "models".into(), sort: "status".into(), group: "provider".into(), ..Default::default() },
             mp_search,
+            info_open: false,
             voice_devices: vec![],
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
@@ -532,6 +536,8 @@ impl Render for ChatPanel {
             }))
         });
         let model_sel = self.model_picker(&t, i, cx);
+        let info_sid = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
+        let info_el = self.composer_info(&t, i, &info_sid, cx);
         let cw = chat_width(&t, cx);
         let ratio = t.chat.composer_ratio.unwrap_or(rem::CHAT_COMPOSER_RATIO);
         let sug = self.suggest(cx);
@@ -646,7 +652,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(div().flex_1()).children(model_sel).children(variant_sel).child(div().flex().items_center().child(voice_btn).child(voice_dev)).children(add_btn).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).children(info_el).child(div().flex_1()).children(model_sel).children(variant_sel).child(div().flex().items_center().child(voice_btn).child(voice_dev)).children(add_btn).child(send_btn)),
         );
 
         let Some(st) = state else {
