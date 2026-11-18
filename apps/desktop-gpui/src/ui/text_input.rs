@@ -449,6 +449,7 @@ impl EntityInputHandler for TextInput {
             .map(|range_utf16| self.range_from_utf16(range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
+        let range = self.clamp_range(range);
 
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
@@ -474,6 +475,7 @@ impl EntityInputHandler for TextInput {
             .map(|range_utf16| self.range_from_utf16(range_utf16))
             .or(self.marked_range.clone())
             .unwrap_or(self.selected_range.clone());
+        let range = self.clamp_range(range);
 
         self.content =
             (self.content[0..range.start].to_owned() + new_text + &self.content[range.end..])
@@ -900,6 +902,18 @@ impl TextInput {
             intercept: false,
         }
     }
+    /// Rentang byte yang aman: dibatasi panjang isi dan batas karakter (rentang IME/seleksi bisa basi setelah set_text).
+    fn clamp_range(&self, r: Range<usize>) -> Range<usize> {
+        let fix = |mut i: usize| {
+            i = i.min(self.content.len());
+            while i > 0 && !self.content.is_char_boundary(i) {
+                i -= 1;
+            }
+            i
+        };
+        let (a, b) = (fix(r.start), fix(r.end));
+        a.min(b)..a.max(b)
+    }
     pub fn set_placeholder(&mut self, p: impl Into<SharedString>) {
         self.placeholder = p.into();
     }
@@ -922,6 +936,7 @@ impl TextInput {
         self.content = text.into();
         let end = self.content.len();
         self.selected_range = end..end;
+        self.marked_range = None;
         cx.emit(InputChanged(self.content.clone()));
         cx.notify();
     }
