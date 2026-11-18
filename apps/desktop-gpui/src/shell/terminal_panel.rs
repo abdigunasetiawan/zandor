@@ -1,6 +1,7 @@
 //! Panel 4 — Terminal: port TerminalPanel.tsx. Bilah konteks (nama + folder kerja, pemilih shell, terminal baru), tab
 //! terminal per konteks (project / sesi Chat / folder Chat) dengan penanda selesai dan tombol tutup, serta keadaan kosong.
-//! Perbedaan jujur: PTY di sini lokal (portable-pty), bukan PTY engine — tab tidak pulih setelah aplikasi ditutup.
+//! Terminal hidup di PTY engine (WebSocket), jadi tab dan riwayatnya pulih setelah aplikasi dibuka ulang; PTY lokal
+//! (portable-pty) hanya dipakai sebagai cadangan bila engine tidak bisa membuat PTY.
 use super::terminal::Terminal;
 use crate::core::projects::{ProjectStore, CHAT_KEY};
 use crate::i18n::I18n;
@@ -61,6 +62,9 @@ struct Tab {
     key: String,
     title: String,
     term: Entity<Terminal>,
+    /// (folder, id PTY engine) — None untuk PTY lokal.
+    remote: Option<(String, String)>,
+    command: String,
 }
 
 pub struct TerminalPanel {
@@ -69,8 +73,9 @@ pub struct TerminalPanel {
     tabs: Vec<Tab>,
     active: HashMap<String, usize>,
     next: usize,
-    /// Konteks yang sudah dibuatkan terminal otomatis (perilaku lama: terminal pertama langsung terbuka).
-    seeded: std::collections::HashSet<String>,
+    /// Konteks yang PTY engine-nya sudah diadopsi (setelah aplikasi dibuka ulang).
+    adopted: std::collections::HashSet<String>,
+    error: Option<String>,
 }
 
 /// (kunci konteks, cwd, nama tampilan).
@@ -104,29 +109,88 @@ impl TerminalPanel {
             .ok();
         })
         .detach();
-        Self { shells: vec![], shell: None, tabs: vec![], active: HashMap::new(), next: 1, seeded: Default::default() }
+        Self { shells: vec![], shell: None, tabs: vec![], active: HashMap::new(), next: 1, adopted: Default::default(), error: None }
     }
 
     fn current(&self) -> Option<&ShellOption> {
         self.shell.as_ref().and_then(|id| self.shells.iter().find(|s| &s.id == id)).or(self.shells.first())
     }
 
-    fn create(&mut self, key: String, cwd: String, cx: &mut Context<Self>) {
-        let sh = self.current().cloned();
-        let name = sh.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| "Shell".into());
-        let n = self.tabs.iter().filter(|t| t.key == key && t.title.starts_with(&name)).count() + 1;
-        let term = cx.new(|cx| Terminal::with_shell(Some(cwd), sh.map(|s| (s.path, s.args)), cx));
+    fn push(&mut self, key: String, title: String, command: String, term: Entity<Terminal>, remote: Option<(String, String)>, cx: &mut Context<Self>) {
         cx.observe(&term, |_, _, cx| cx.notify()).detach();
         let id = self.next;
         self.next += 1;
-        self.tabs.push(Tab { id, key: key.clone(), title: format!("{name} {n}"), term });
+        self.tabs.push(Tab { id, key: key.clone(), title, term, remote, command });
         self.active.insert(key, id);
         cx.notify();
     }
 
+    /// Ambil alih PTY engine yang masih hidup untuk konteks ini.
+    fn adopt(&mut self, key: String, cwd: String, cx: &mut Context<Self>) {
+        let Some(api) = ProjectStore::global(cx).read(cx).api() else { return };
+        let a2 = api.clone();
+        let dir = cwd.clone();
+        let task = cx.background_spawn(async move { a2.pty_list(&dir).unwrap_or_default() });
+        cx.spawn(async move |this, cx| {
+            let list = task.await;
+            this.update(cx, |s, cx| {
+                for p in list.into_iter().filter(|p| p.running) {
+                    if s.tabs.iter().any(|t| t.remote.as_ref().is_some_and(|r| r.1 == p.id)) {
+                        continue;
+                    }
+                    let (api, dir, pid) = (api.clone(), cwd.clone(), p.id.clone());
+                    let term = cx.new(|cx| Terminal::remote(api, dir, pid, cx));
+                    s.push(key.clone(), p.title.clone(), p.command.clone(), term, Some((cwd.clone(), p.id)), cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn create(&mut self, key: String, cwd: String, cx: &mut Context<Self>) {
+        let sh = self.current().cloned();
+        let name = sh.as_ref().map(|s| s.name.clone()).unwrap_or_else(|| "Shell".into());
+        let n = self.tabs.iter().filter(|t| t.key == key && t.title.starts_with(&name)).count() + 1;
+        let title = format!("{name} {n}");
+        let Some(api) = ProjectStore::global(cx).read(cx).api() else { return };
+        let (a2, dir, sh2, t2) = (api.clone(), cwd.clone(), sh.clone(), title.clone());
+        let task = cx.background_spawn(async move {
+            let (cmd, args) = sh2.map(|s| (s.path, s.args)).unwrap_or_else(|| (if cfg!(windows) { "powershell.exe".into() } else { "/bin/sh".into() }, vec![]));
+            a2.pty_create(&dir, &cmd, &args, Some(&t2)).map(|p| (p, cmd))
+        });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |s, cx| match r {
+                Ok((p, cmd)) => {
+                    s.error = None;
+                    let (dir, pid) = (cwd.clone(), p.id.clone());
+                    let term = cx.new(|cx| Terminal::remote(api, dir, pid, cx));
+                    s.push(key, title, cmd, term, Some((cwd, p.id)), cx);
+                }
+                Err(e) => {
+                    // cadangan: PTY lokal, agar terminal tetap bisa dipakai
+                    eprintln!("PTY engine gagal, memakai PTY lokal: {e}");
+                    let cmd = sh.as_ref().map(|s| s.path.clone()).unwrap_or_default();
+                    let term = cx.new(|cx| Terminal::with_shell(Some(cwd), sh.map(|s| (s.path, s.args)), cx));
+                    s.push(key, title, cmd, term, None, cx);
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     fn close(&mut self, id: usize, cx: &mut Context<Self>) {
         if let Some(pos) = self.tabs.iter().position(|t| t.id == id) {
-            let key = self.tabs.remove(pos).key;
+            let tab = self.tabs.remove(pos);
+            if let (Some((dir, pid)), Some(api)) = (tab.remote.clone(), ProjectStore::global(cx).read(cx).api()) {
+                cx.background_spawn(async move {
+                    let _ = api.pty_remove(&dir, &pid);
+                })
+                .detach();
+            }
+            let key = tab.key;
             if self.active.get(&key) == Some(&id) {
                 match self.tabs.iter().rev().find(|t| t.key == key) {
                     Some(t) => self.active.insert(key, t.id),
@@ -151,9 +215,8 @@ impl Render for TerminalPanel {
         }
         let (key, cwd, name) = context(cx, &i);
         let Some(cwd) = cwd.filter(|d| Path::new(d).is_dir()) else { return notice(&t, i.t("tm.noContext")) };
-        // terminal pertama dibuka otomatis untuk konteks baru (versi GPUI sebelumnya juga begitu)
-        if self.seeded.insert(key.clone()) && !self.tabs.iter().any(|x| x.key == key) {
-            self.create(key.clone(), cwd.clone(), cx);
+        if self.adopted.insert(key.clone()) {
+            self.adopt(key.clone(), cwd.clone(), cx);
         }
         let active = self.active.get(&key).copied().or_else(|| self.tabs.iter().rev().find(|x| x.key == key).map(|x| x.id));
 
@@ -195,6 +258,9 @@ impl Render for TerminalPanel {
         head = head.child(icon_button("tm-new", "plus", i.t("tm.new")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.create(k1.clone(), c1.clone(), cx))));
 
         let mut col = div().flex().flex_col().size_full().child(head);
+        if let Some(e) = &self.error {
+            col = col.child(div().px(t.space(3)).py(t.space(1)).small(&t).text_color(t.colors.danger).child(e.clone()));
+        }
         let tabs: Vec<&Tab> = self.tabs.iter().filter(|x| x.key == key).collect();
         if !tabs.is_empty() {
             let mut nav = div().id("tm-tabs").flex().flex_none().overflow_x_scroll().gap(t.space(1)).px(t.space(2)).py(t.space(1)).border_b_1().border_color(t.colors.border_soft);
@@ -228,6 +294,7 @@ impl Render for TerminalPanel {
                                 }))
                                 .child(icon("terminal").size(IconSize::Sm))
                                 .child(x.title.clone())
+                                .when(!x.command.is_empty(), |d| d)
                                 .when(exited, |d| d.child(div().id(SharedString::from(format!("tm-x-{id}"))).text_color(t.colors.fg_subtle).tooltip(crate::ui::tooltip::text_tooltip(i.t("tm.exited").into())).child("✕"))),
                         )
                         .child(icon_button(SharedString::from(format!("tm-close-{id}")), "close", i.tp("tm.close", &[("title", &x.title)])).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.close(id, cx)))),
@@ -258,6 +325,11 @@ impl Render for TerminalPanel {
                 views = views.child(div().px(t.space(3)).py(t.space(2)).small(&t).text_color(t.colors.danger).child(i.tp("tm.error", &[("error", e)])));
             } else {
                 let exited = term.exited();
+                match term.conn_state() {
+                    1 => views = views.child(div().flex().items_center().gap(t.space(1)).px(t.space(3)).py(t.space(1)).small(&t).text_color(t.colors.fg_muted).child(crate::ui::working("tm-conn")).child(i.t("tm.connecting"))),
+                    2 => views = views.child(div().px(t.space(3)).py(t.space(1)).small(&t).text_color(t.colors.fg_muted).child(i.t("tm.reconnecting"))),
+                    _ => {}
+                }
                 views = views.child(div().flex_1().min_h_0().child(x.term.clone()));
                 if exited {
                     views = views.child(div().px(t.space(3)).py(t.space(1)).small(&t).text_color(t.colors.fg_subtle).child(i.t("tm.exited")));

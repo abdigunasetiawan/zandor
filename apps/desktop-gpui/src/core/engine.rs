@@ -281,6 +281,38 @@ impl EngineApi {
         let u = self.url(&format!("/session/{id}"), Some(dir), &[]);
         Ok(to_session(&self.call("PATCH", &u, Some(json!({ "title": title })))?))
     }
+    // ---- PTY engine (ADR-024): terminal hidup di engine, pulih setelah aplikasi dimuat ulang.
+    pub fn pty_list(&self, dir: &str) -> Result<Vec<PtyInfo>> {
+        Ok(arr(self.get("/pty", Some(dir), &[])?).iter().filter_map(to_pty).collect())
+    }
+    pub fn pty_create(&self, dir: &str, command: &str, args: &[String], title: Option<&str>) -> Result<PtyInfo> {
+        let mut body = json!({ "command": command, "cwd": dir });
+        if !args.is_empty() {
+            body["args"] = json!(args);
+        }
+        if let Some(t) = title {
+            body["title"] = json!(t);
+        }
+        to_pty(&self.post("/pty", Some(dir), body)?).ok_or_else(|| EngineError("respons /pty tidak dikenali".into()))
+    }
+    pub fn pty_resize(&self, dir: &str, id: &str, cols: u16, rows: u16) -> Result<()> {
+        self.call("PUT", &self.url(&format!("/pty/{}", q(id)), Some(dir), &[]), Some(json!({ "size": { "cols": cols, "rows": rows } }))).map(|_| ())
+    }
+    pub fn pty_remove(&self, dir: &str, id: &str) -> Result<()> {
+        self.call("DELETE", &self.url(&format!("/pty/{}", q(id)), Some(dir), &[]), None).map(|_| ())
+    }
+    /// URL `ws://…/connect` siap pakai (tiket sekali pakai sudah diminta). None bila engine bukan http polos.
+    pub fn pty_connect_url(&self, dir: &str, id: &str, cursor: u64) -> Result<String> {
+        let u = self.url(&format!("/pty/{}/connect-token", q(id)), Some(dir), &[]);
+        let auth = self.auth_for(&u);
+        let mut resp = self.agent.post(&u).header("Authorization", &auth).header("x-opencode-ticket", "1").send_json(json!({})).map_err(|x| EngineError(format!("POST {u}: {x}")))?;
+        let text = resp.body_mut().read_to_string().unwrap_or_default();
+        let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+        let ticket = v["ticket"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| EngineError("engine tidak memberi tiket terminal".into()))?;
+        let base = self.target(Some(dir)).0;
+        let ws = base.strip_prefix("http://").map(|r| format!("ws://{r}")).ok_or_else(|| EngineError("terminal engine via https belum didukung".into()))?;
+        Ok(format!("{ws}/pty/{}/connect?ticket={}&cursor={cursor}&directory={}", q(id), q(ticket), q(dir)))
+    }
     pub fn delete_session(&self, dir: &str, id: &str) -> Result<()> {
         self.call("DELETE", &self.url(&format!("/session/{id}"), Some(dir), &[]), None).map(|_| ())
     }
@@ -556,4 +588,24 @@ mod tests {
         let i = ConnectionInfo { url: "x".into(), username: "opencode".into(), password: "pw".into() };
         assert_eq!(basic_auth_header(&i), "Basic b3BlbmNvZGU6cHc=");
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PtyInfo {
+    pub id: String,
+    pub title: String,
+    pub command: String,
+    pub cwd: String,
+    pub running: bool,
+}
+
+fn to_pty(v: &Value) -> Option<PtyInfo> {
+    let id = v["id"].as_str()?.to_string();
+    Some(PtyInfo {
+        id,
+        title: v["title"].as_str().unwrap_or("terminal").to_string(),
+        command: sv(v, "command"),
+        cwd: sv(v, "cwd"),
+        running: v["status"].as_str() != Some("exited"),
+    })
 }

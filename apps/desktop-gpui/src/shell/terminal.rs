@@ -17,7 +17,16 @@ pub struct Terminal {
     size: (u16, u16),
     error: Option<String>,
     exited: Arc<std::sync::atomic::AtomicBool>,
+    /// PTY engine: (api, folder, id PTY). None = PTY lokal.
+    remote: Option<(crate::core::engine::EngineApi, String, String)>,
+    /// 0 siap, 1 menyambung, 2 menyambung ulang.
+    conn: Arc<std::sync::atomic::AtomicU8>,
+    /// Socket aktif (ditutup saat entity dibuang; PTY tetap hidup di engine).
+    closed: Arc<std::sync::atomic::AtomicBool>,
 }
+
+const RECONNECT_MS: u64 = 1000;
+const MAX_RECONNECTS: u32 = 5;
 
 fn default_shell() -> CommandBuilder {
     if cfg!(windows) {
@@ -45,6 +54,9 @@ impl Terminal {
             size: (24, 80),
             error: None,
             exited: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            remote: None,
+            conn: Arc::new(std::sync::atomic::AtomicU8::new(0)),
+            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         let pty = native_pty_system();
         let pair = match pty.openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }) {
@@ -121,6 +133,104 @@ impl Terminal {
         me
     }
 
+    /// Terminal yang tersambung ke PTY engine lewat WebSocket: riwayat diputar ulang saat tersambung, sambung ulang
+    /// otomatis (maks. 5x) bila koneksi putus tetapi PTY masih berjalan (port TerminalView di TerminalPanel.tsx).
+    pub fn remote(api: crate::core::engine::EngineApi, dir: String, id: String, cx: &mut Context<Self>) -> Self {
+        use std::sync::atomic::Ordering::Relaxed;
+        let parser = Arc::new(Mutex::new(vt100::Parser::new(24, 80, 5000)));
+        let me = Self {
+            parser: parser.clone(),
+            writer: Arc::new(Mutex::new(None)),
+            master: None,
+            focus: cx.focus_handle(),
+            size: (24, 80),
+            error: None,
+            exited: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            remote: Some((api.clone(), dir.clone(), id.clone())),
+            conn: Arc::new(std::sync::atomic::AtomicU8::new(1)),
+            closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<()>();
+        let (writer, exited, conn, closed) = (me.writer.clone(), me.exited.clone(), me.conn.clone(), me.closed.clone());
+        std::thread::Builder::new()
+            .name("zandor-pty-ws".into())
+            .spawn(move || {
+                let mut attempts = 0u32;
+                loop {
+                    if closed.load(Relaxed) {
+                        return;
+                    }
+                    let ok = (|| -> Result<(), String> {
+                        let url = api.pty_connect_url(&dir, &id, 0).map_err(|e| e.to_string())?;
+                        let (mut rd, wr) = crate::core::ws::connect(&url, &[])?;
+                        // riwayat diputar ulang penuh oleh engine
+                        if let Ok(mut p) = parser.lock() {
+                            let (r, c) = p.screen().size();
+                            *p = vt100::Parser::new(r, c, 5000);
+                        }
+                        *writer.lock().unwrap() = Some(Box::new(wr));
+                        attempts = 0;
+                        conn.store(0, Relaxed);
+                        let _ = tx.unbounded_send(());
+                        while let Ok(f) = rd.next() {
+                            let data = match f {
+                                crate::core::ws::Frame::Close => break,
+                                crate::core::ws::Frame::Text(d) => d,
+                                crate::core::ws::Frame::Binary(d) if d.first() == Some(&0) => continue, // bingkai kursor
+                                crate::core::ws::Frame::Binary(d) => d,
+                            };
+                            if let Ok(mut p) = parser.lock() {
+                                p.process(&data);
+                                answer_queries(&data, &p, &writer);
+                            }
+                            let _ = tx.unbounded_send(());
+                        }
+                        Ok(())
+                    })();
+                    *writer.lock().unwrap() = None;
+                    if closed.load(Relaxed) {
+                        return;
+                    }
+                    // PTY sudah selesai (shell keluar) atau hanya koneksi yang putus?
+                    let alive = match api.pty_list(&dir) {
+                        Ok(l) => l.iter().any(|p| p.id == id && p.running),
+                        Err(_) => attempts < MAX_RECONNECTS,
+                    };
+                    if !alive || attempts >= MAX_RECONNECTS {
+                        if let Ok(mut p) = parser.lock() {
+                            p.process(b"\r\n\x1b[2m[proses selesai]\x1b[0m\r\n");
+                        }
+                        let _ = ok;
+                        exited.store(true, Relaxed);
+                        conn.store(0, Relaxed);
+                        let _ = tx.unbounded_send(());
+                        return;
+                    }
+                    attempts += 1;
+                    conn.store(2, Relaxed);
+                    let _ = tx.unbounded_send(());
+                    std::thread::sleep(std::time::Duration::from_millis(RECONNECT_MS));
+                }
+            })
+            .ok();
+        cx.spawn(async move |this, cx| {
+            use futures::StreamExt;
+            while rx.next().await.is_some() {
+                while rx.try_recv().is_ok() {}
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        me
+    }
+
+    /// 0 siap, 1 menyambung, 2 menyambung ulang.
+    pub fn conn_state(&self) -> u8 {
+        self.conn.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn exited(&self) -> bool {
         self.exited.load(std::sync::atomic::Ordering::Relaxed)
     }
@@ -145,6 +255,11 @@ impl Terminal {
         }
         if let Some(m) = &self.master {
             let _ = m.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 });
+        }
+        if let Some((api, dir, id)) = self.remote.clone() {
+            std::thread::spawn(move || {
+                let _ = api.pty_resize(&dir, &id, cols, rows);
+            });
         }
     }
 
@@ -213,7 +328,8 @@ impl Terminal {
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        // Menutup master mengakhiri sesi ConPTY; shell ikut keluar.
+        // Menutup master mengakhiri sesi ConPTY; shell ikut keluar. PTY engine tetap hidup (hanya socket ditutup).
+        self.closed.store(true, std::sync::atomic::Ordering::Relaxed);
         if let Ok(mut w) = self.writer.lock() {
             *w = None;
         }
