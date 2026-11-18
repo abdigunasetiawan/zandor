@@ -6,6 +6,7 @@ pub mod doc_style_section;
 pub mod command_center;
 pub mod commands;
 pub mod docs_panel;
+pub mod pdf_view;
 pub mod file_icons;
 pub mod widgets;
 pub mod keys_section;
