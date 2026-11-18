@@ -278,8 +278,36 @@ impl Render for Root {
             .children(self.palette.clone())
             .children(self.gsearch.clone())
             .children(self.imagegen.clone())
+            .children(link_menu(&t, cx))
             .child(self.toasts.clone())
     }
+}
+
+/// Menu tautan respons model (port ChatLink): buka di Browser Zandor, buka di browser eksternal, salin.
+fn link_menu(t: &Theme, cx: &mut App) -> Option<gpui::AnyElement> {
+    use crate::ui::markdown::LinkMenu;
+    let (url, pos) = cx.try_global::<LinkMenu>()?.0.clone()?;
+    let i = cx.global::<I18n>().clone();
+    let (u1, u2, u3) = (url.clone(), url.clone(), url);
+    let entries = vec![
+        crate::ui::entry(i.t("link.openZandor"), move |_, cx| super::layout::open_in_zandor_browser(u1.clone(), cx)).icon("globe"),
+        crate::ui::entry(i.t("link.openExternal"), move |_, cx| cx.open_url(&u2)).icon("external_link"),
+        crate::ui::MenuEntry::Separator,
+        crate::ui::entry(i.t("link.copy"), move |_, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(u3.clone()));
+            let title = cx.global::<I18n>().t("link.copied");
+            Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Success, timeout_ms: Some(1500), ..crate::ui::ToastInput::new(title) }, cx);
+        })
+        .icon("copy"),
+    ];
+    Some(
+        crate::ui::overlay_deferred(gpui::anchored().position(pos).snap_to_window().child(crate::ui::menu_popup("link-menu", t, entries, gpui::Anchor::TopLeft, |_, cx| {
+            cx.set_global(LinkMenu(None));
+            cx.refresh_windows();
+        })))
+        .with_priority(3)
+        .into_any_element(),
+    )
 }
 
 fn set_setting(key: &str, v: serde_json::Value, cx: &mut App) {

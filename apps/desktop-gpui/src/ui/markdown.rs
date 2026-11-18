@@ -13,6 +13,50 @@ struct Inline {
     bold: usize,
     italic: usize,
     link: usize,
+    /// URL tautan yang sedang terbuka (hanya http/https yang bisa diklik).
+    href: Option<String>,
+    links: Vec<(Range<usize>, String)>,
+    /// Penghitung blok untuk id elemen yang stabil antar frame.
+    seq: usize,
+}
+
+/// Tautan yang diklik di respons model: menu kecil (buka di Browser Zandor / eksternal / salin) di posisi mouse.
+/// Port ChatLink.tsx; digambar oleh Root.
+#[derive(Clone, Default)]
+pub struct LinkMenu(pub Option<(String, gpui::Point<gpui::Pixels>)>);
+impl gpui::Global for LinkMenu {}
+
+/// Port isWebLink / SAFE_LINK: hanya http(s).
+/// Pecah teks menjadi potongan (teks, apakah URL http/https polos).
+pub fn split_autolinks(s: &str) -> Vec<(&str, bool)> {
+    let mut out = vec![];
+    let mut rest = s;
+    while let Some(k) = rest.find("http").filter(|_| !rest.is_empty()) {
+        let cand = &rest[k..];
+        let lower = cand.get(..8).unwrap_or(cand).to_lowercase();
+        let ok_start = k == 0 || !rest[..k].chars().last().is_some_and(|c| c.is_alphanumeric());
+        if ok_start && (lower.starts_with("https://") || lower.starts_with("http://")) {
+            let end = cand.find(|c: char| c.is_whitespace() || c == '<' || c == '>' || c == '"').unwrap_or(cand.len());
+            if k > 0 {
+                out.push((&rest[..k], false));
+            }
+            out.push((&cand[..end], true));
+            rest = &cand[end..];
+        } else {
+            let step = k + 4;
+            out.push((&rest[..step], false));
+            rest = &rest[step..];
+        }
+    }
+    if !rest.is_empty() {
+        out.push((rest, false));
+    }
+    out
+}
+
+pub fn is_web_link(href: &str) -> bool {
+    let h = href.trim().to_lowercase();
+    h.starts_with("http://") || h.starts_with("https://")
 }
 
 impl Inline {
@@ -33,6 +77,9 @@ impl Inline {
             h.font_style = Some(FontStyle::Italic);
             any = true;
         }
+        if let Some(u) = self.href.clone().filter(|_| self.link > 0) {
+            self.links.push((r.clone(), u));
+        }
         if self.link > 0 {
             h.color = Some(t.colors.accent);
             h.underline = Some(UnderlineStyle { thickness: gpui::px(1.), color: Some(t.colors.accent), wavy: false });
@@ -47,15 +94,35 @@ impl Inline {
             self.hl.push((r, h));
         }
     }
-    fn take(&mut self) -> Option<StyledText> {
+    fn take(&mut self) -> Option<AnyElement> {
         if self.text.trim().is_empty() {
             self.text.clear();
             self.hl.clear();
+            self.links.clear();
             return None;
         }
         let text = std::mem::take(&mut self.text);
         let hl = std::mem::take(&mut self.hl);
-        Some(StyledText::new(text).with_highlights(hl))
+        let links = std::mem::take(&mut self.links);
+        self.seq += 1;
+        if links.is_empty() {
+            return Some(StyledText::new(text).with_highlights(hl).into_any_element());
+        }
+        use std::hash::{Hash, Hasher};
+        let mut hs = std::collections::hash_map::DefaultHasher::new();
+        (self.seq, &text).hash(&mut hs);
+        let id = gpui::ElementId::Name(format!("md-link-{:x}", hs.finish()).into());
+        let (ranges, urls): (Vec<_>, Vec<_>) = links.into_iter().unzip();
+        Some(
+            gpui::InteractiveText::new(id, StyledText::new(text).with_highlights(hl))
+                .on_click(ranges, move |ix, window, cx| {
+                    if let Some(u) = urls.get(ix) {
+                        cx.set_global(LinkMenu(Some((u.clone(), window.mouse_position()))));
+                        cx.refresh_windows();
+                    }
+                })
+                .into_any_element(),
+        )
     }
 }
 
@@ -75,8 +142,8 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
     let mut inl = Inline::default();
     let mut heading: Option<HeadingLevel> = None;
     let mut code: Option<(String, String)> = None;
-    let mut table_row: Vec<StyledText> = vec![];
-    let mut table_rows: Vec<(bool, Vec<StyledText>)> = vec![];
+    let mut table_row: Vec<AnyElement> = vec![];
+    let mut table_rows: Vec<(bool, Vec<AnyElement>)> = vec![];
     let mut in_head = false;
 
     fn push_child(stack: &mut [Block], el: AnyElement) {
@@ -108,7 +175,10 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                 Tag::Paragraph => flush(&mut inl, &mut stack, None),
                 Tag::Strong => inl.bold += 1,
                 Tag::Emphasis => inl.italic += 1,
-                Tag::Link { .. } => inl.link += 1,
+                Tag::Link { dest_url, .. } => {
+                    inl.link += 1;
+                    inl.href = is_web_link(&dest_url).then(|| dest_url.to_string());
+                }
                 Tag::CodeBlock(k) => {
                     flush(&mut inl, &mut stack, None);
                     let lang = match k {
@@ -146,7 +216,10 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                 TagEnd::Paragraph => flush(&mut inl, &mut stack, None),
                 TagEnd::Strong => inl.bold = inl.bold.saturating_sub(1),
                 TagEnd::Emphasis => inl.italic = inl.italic.saturating_sub(1),
-                TagEnd::Link => inl.link = inl.link.saturating_sub(1),
+                TagEnd::Link => {
+                    inl.link = inl.link.saturating_sub(1);
+                    inl.href = None;
+                }
                 TagEnd::CodeBlock => {
                     if let Some((lang, body)) = code.take() {
                         let el = div()
@@ -207,7 +280,7 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                     }
                 }
                 TagEnd::TableCell => {
-                    table_row.push(inl.take().unwrap_or_else(|| StyledText::new("")));
+                    table_row.push(inl.take().unwrap_or_else(|| div().into_any_element()));
                 }
                 TagEnd::TableHead => {
                     table_rows.push((true, std::mem::take(&mut table_row)));
@@ -232,8 +305,23 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
             Event::Text(s) => {
                 if let Some((_, body)) = code.as_mut() {
                     body.push_str(&s);
-                } else {
+                } else if inl.link > 0 {
                     inl.push(&s, t, false);
+                } else {
+                    // tautan polos (autolink GFM) di teks biasa
+                    for (piece, url) in split_autolinks(&s) {
+                        if url {
+                            inl.link += 1;
+                            inl.href = Some(piece.trim_end_matches(['.', ',', ')', ';', ':', '!', '?']).to_string());
+                            let core = inl.href.clone().unwrap_or_default();
+                            inl.push(&core, t, false);
+                            inl.link -= 1;
+                            inl.href = None;
+                            inl.push(&piece[core.len()..], t, false);
+                        } else {
+                            inl.push(piece, t, false);
+                        }
+                    }
                 }
             }
             Event::Code(s) => inl.push(&s, t, true),
@@ -258,4 +346,14 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
     }
     let Some(Block::Container { children, .. }) = stack.pop() else { return div().into_any_element() };
     div().flex().flex_col().gap(t.space(2)).w_full().min_w_0().children(children).into_any_element()
+}
+
+#[cfg(test)]
+mod link_tests {
+    #[test]
+    fn autolink_dan_web_link() {
+        let v = super::split_autolinks("lihat https://a.id/x. dan httpx lalu http://b.c");
+        assert_eq!(v, vec![("lihat ", false), ("https://a.id/x.", true), (" dan http", false), ("x lalu ", false), ("http://b.c", true)]);
+        assert!(super::is_web_link("HTTPS://x") && !super::is_web_link("javascript:alert(1)") && !super::is_web_link("file:///c"));
+    }
 }
