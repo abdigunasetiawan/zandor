@@ -77,6 +77,28 @@ pub struct DocsPanel {
     confirm_all: bool,
     /// Pratinjau lampiran (AttachmentPreview): hanya isi, tanpa tab dan toolbar.
     preview: bool,
+    /// Editor per berkas yang sedang diedit (port docs.beginEdit).
+    editors: HashMap<String, Entity<crate::ui::TextInput>>,
+    /// Waktu ubah berkas saat dimuat (deteksi konflik saat menyimpan).
+    mtimes: HashMap<String, Option<std::time::SystemTime>>,
+    ask: Option<Ask>,
+    tab_menu: Option<(String, gpui::Point<gpui::Pixels>)>,
+    /// Zoom gambar per berkas (1.0 = pas); `actual` = ukuran asli.
+    zoom: HashMap<String, f32>,
+    actual: HashSet<String>,
+}
+
+/// Dialog konfirmasi yang menunggu jawaban.
+enum Ask {
+    /// Buang perubahan lalu jalankan aksi (tutup/muat ulang/selesai edit).
+    Discard { names: Vec<String>, then: DiscardThen },
+    Conflict { path: String },
+}
+#[derive(Clone)]
+enum DiscardThen {
+    Close(Vec<String>),
+    Reload(String),
+    EndEdit(String),
 }
 
 impl DocsPanel {
@@ -85,10 +107,11 @@ impl DocsPanel {
         cx.observe(&state, |s, st, cx| {
             let open = st.read(cx).open.clone();
             s.cache.retain(|k, _| open.contains(k));
+            s.editors.retain(|k, _| open.contains(k));
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false }
+        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new() }
     }
 
     /// Penampil mandiri untuk byte lampiran (port AttachmentPreview.tsx → PreviewBody).
@@ -101,7 +124,7 @@ impl DocsPanel {
         });
         let mut cache = HashMap::new();
         cache.insert(name, Loaded { kind, bytes: Ok(std::sync::Arc::new(bytes)), text });
-        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true }
+        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new() }
     }
 
     fn load(path: &str) -> Loaded {
@@ -115,6 +138,208 @@ impl DocsPanel {
             _ => None,
         };
         Loaded { kind, bytes, text }
+    }
+}
+
+fn mtime(path: &str) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+fn toast_ok(cx: &mut App, title: String) {
+    crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Success, timeout_ms: Some(1500), ..crate::ui::ToastInput::new(title) }, cx);
+}
+fn toast_err(cx: &mut App, title: String) {
+    crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Danger, ..crate::ui::ToastInput::new(title) }, cx);
+}
+
+impl DocsPanel {
+    /// Alasan berkas tidak bisa diedit (kunci doc.noEdit.*), atau None.
+    fn edit_block(&self, path: &str) -> Option<&'static str> {
+        let Some(l) = self.cache.get(path) else { return Some("notLoaded") };
+        if !is_text_kind(l.kind) {
+            return Some("binary");
+        }
+        let Ok(b) = &l.bytes else { return Some("notLoaded") };
+        if l.text.as_ref().is_some_and(|x| x.1) {
+            return Some("truncated");
+        }
+        if std::str::from_utf8(b).is_err() {
+            return Some("encoding");
+        }
+        None
+    }
+
+    pub fn is_dirty(&self, path: &str, cx: &App) -> bool {
+        let Some(e) = self.editors.get(path) else { return false };
+        let orig = self.cache.get(path).and_then(|l| l.text.as_ref()).map(|x| x.0.as_str()).unwrap_or("");
+        e.read(cx).text().as_ref() != orig
+    }
+
+    fn begin_edit(&mut self, path: &str, cx: &mut Context<Self>) {
+        if let Some(why) = self.edit_block(path) {
+            let i = cx.global::<I18n>().clone();
+            toast_err(cx, i.t(&format!("doc.noEdit.{why}")));
+            return;
+        }
+        let text = self.cache[path].text.clone().map(|x| x.0).unwrap_or_default();
+        let ed = cx.new(|cx| {
+            let mut ti = crate::ui::TextInput::new(cx, "");
+            ti.multiline = true;
+            ti.enter_newline = true;
+            ti.set_text(text, cx);
+            ti
+        });
+        cx.observe(&ed, |_, _, cx| cx.notify()).detach();
+        self.editors.insert(path.to_string(), ed);
+        let p = path.to_string();
+        self.state.update(cx, |d, cx| {
+            d.diffs.remove(&p);
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    fn end_edit(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.editors.remove(path);
+        cx.notify();
+    }
+
+    /// Simpan isi editor; `force` = timpa walau berkas berubah di disk sejak dibuka.
+    fn save(&mut self, path: &str, force: bool, cx: &mut Context<Self>) {
+        let Some(ed) = self.editors.get(path) else { return };
+        let text = ed.read(cx).text().to_string();
+        let i = cx.global::<I18n>().clone();
+        let known = self.mtimes.get(path).cloned().flatten();
+        if !force && known.is_some() && mtime(path) != known {
+            self.ask = Some(Ask::Conflict { path: path.to_string() });
+            cx.notify();
+            return;
+        }
+        match std::fs::write(path, text.as_bytes()) {
+            Ok(_) => {
+                if let Some(l) = self.cache.get_mut(path) {
+                    l.text = Some((text.clone(), false));
+                    l.bytes = Ok(std::sync::Arc::new(text.into_bytes()));
+                }
+                self.mtimes.insert(path.to_string(), mtime(path));
+                toast_ok(cx, i.t("doc.savedEdit"));
+            }
+            Err(e) => toast_err(cx, i.tp("sb.error", &[("error", &e.to_string())])),
+        }
+        cx.notify();
+    }
+
+    /// Jalankan aksi; bila ada perubahan belum disimpan, minta konfirmasi dulu.
+    fn guarded(&mut self, then: DiscardThen, cx: &mut Context<Self>) {
+        let paths = match &then {
+            DiscardThen::Close(p) => p.clone(),
+            DiscardThen::Reload(p) | DiscardThen::EndEdit(p) => vec![p.clone()],
+        };
+        let names: Vec<String> = paths.iter().filter(|p| self.is_dirty(p, cx)).map(|p| file_name(p).to_string()).collect();
+        if names.is_empty() {
+            self.run(then, cx);
+        } else {
+            self.ask = Some(Ask::Discard { names, then });
+            cx.notify();
+        }
+    }
+
+    fn run(&mut self, then: DiscardThen, cx: &mut Context<Self>) {
+        match then {
+            DiscardThen::Close(paths) => {
+                for p in paths {
+                    self.editors.remove(&p);
+                    self.state.update(cx, |d, cx| d.close(&p, cx));
+                }
+            }
+            DiscardThen::Reload(p) => {
+                self.editors.remove(&p);
+                self.cache.remove(&p);
+            }
+            DiscardThen::EndEdit(p) => self.end_edit(&p, cx),
+        }
+        cx.notify();
+    }
+
+    /// Tutup beberapa tab (one/others/right/left/all) relatif ke `anchor`.
+    fn close_many(&mut self, mode: &str, anchor: &str, cx: &mut Context<Self>) {
+        let open = self.state.read(cx).open.clone();
+        let at = open.iter().position(|p| p == anchor).unwrap_or(0);
+        let targets: Vec<String> = open
+            .iter()
+            .enumerate()
+            .filter(|(n, p)| match mode {
+                "one" => p.as_str() == anchor,
+                "others" => p.as_str() != anchor,
+                "right" => *n > at,
+                "left" => *n < at,
+                _ => true,
+            })
+            .map(|(_, p)| p.clone())
+            .collect();
+        self.guarded(DiscardThen::Close(targets), cx);
+        // tab yang diklik kanan tetap aktif bila masih ada
+        if mode != "one" && mode != "all" && self.ask.is_none() && self.state.read(cx).open.iter().any(|p| p == anchor) {
+            let a = anchor.to_string();
+            self.state.update(cx, |d, cx| d.open_file(a, cx));
+        }
+    }
+
+    fn save_copy(&mut self, path: &str, cx: &mut Context<Self>) {
+        let Some(Ok(bytes)) = self.cache.get(path).map(|l| l.bytes.clone()) else { return };
+        let dir = std::path::Path::new(path).parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let rx = cx.prompt_for_new_path(&dir, Some(file_name(path)));
+        cx.spawn(async move |_, cx| {
+            let Ok(Ok(Some(dest))) = rx.await else { return };
+            let r = std::fs::write(&dest, bytes.as_slice());
+            cx.update(|cx| {
+                let i = cx.global::<I18n>().clone();
+                match r {
+                    Ok(_) => toast_ok(cx, i.t("doc.saved")),
+                    Err(e) => toast_err(cx, i.tp("sb.error", &[("error", &e.to_string())])),
+                }
+            })
+            ;
+        })
+        .detach();
+    }
+
+    fn ask_dialog(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let dismiss = cx.listener(|s: &mut Self, _: &gpui::ClickEvent, _, cx| {
+            s.ask = None;
+            cx.notify();
+        });
+        let cancel = button("doc-ask-no").label(i.t("ui.cancel")).on_click(cx.listener(|s, _, _, cx| {
+            s.ask = None;
+            cx.notify();
+        }));
+        let el = match self.ask.as_ref()? {
+            Ask::Discard { names, then } => {
+                let title = if names.len() == 1 { i.tp("doc.discardTitle", &[("name", &names[0])]) } else { i.tp("doc.tabsCloseConfirmTitle", &[("n", &names.len().to_string())]) };
+                let body = if names.len() == 1 { i.t("doc.discardBody") } else { i.t("doc.tabsCloseConfirmBody") };
+                let then = then.clone();
+                crate::ui::dialog(title)
+                    .description(body)
+                    .on_dismiss(dismiss)
+                    .footer(div().flex().gap(t.space(2)).child(cancel).child(button("doc-ask-yes").variant(ButtonVariant::Danger).label(i.t("doc.discard")).on_click(cx.listener(move |s, _, _, cx| {
+                        s.ask = None;
+                        s.run(then.clone(), cx);
+                    }))))
+                    .into_any_element()
+            }
+            Ask::Conflict { path } => {
+                let p = path.clone();
+                crate::ui::dialog(i.tp("doc.conflictTitle", &[("name", file_name(path))]))
+                    .description(i.t("doc.conflictBody"))
+                    .on_dismiss(dismiss)
+                    .footer(div().flex().gap(t.space(2)).child(cancel).child(button("doc-cf-yes").variant(ButtonVariant::Danger).label(i.t("doc.overwrite")).on_click(cx.listener(move |s, _, _, cx| {
+                        s.ask = None;
+                        s.save(&p, true, cx);
+                    }))))
+                    .into_any_element()
+            }
+        };
+        Some(el)
     }
 }
 
@@ -289,7 +514,34 @@ impl DocsPanel {
                     .flex_col()
                     .items_center()
                     .gap(t.space(2))
-                    .child(gpui::img(std::path::PathBuf::from(path)).max_w_full().max_h(t.rem(40.)))
+                    .child({
+                        let z = self.zoom.get(path).copied().unwrap_or(1.);
+                        let actual = self.actual.contains(path);
+                        let p = path.to_string();
+                        let err = i.t("doc.imageError");
+                        let im = gpui::img(std::path::PathBuf::from(path)).with_fallback(move || div().child(err.clone()).into_any_element());
+                        let im = if actual || z != 1. {
+                            // ukuran asli dikali zoom (piksel gambar → px logis)
+                            match image_dims(&bytes) {
+                                Some((w, h)) => im.w(gpui::px(w as f32 * z)).h(gpui::px(h as f32 * z)),
+                                None => im.max_w_full(),
+                            }
+                        } else {
+                            im.max_w_full().max_h(t.rem(40.))
+                        };
+                        div()
+                            .id("doc-img")
+                            .cursor_pointer()
+                            .tooltip(crate::ui::tooltip::text_tooltip(i.t("doc.imageToggle").into()))
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                if !s.actual.remove(&p) {
+                                    s.actual.insert(p.clone());
+                                }
+                                s.zoom.remove(&p);
+                                cx.notify();
+                            }))
+                            .child(im)
+                    })
                     .child(div().small(t).text_color(t.colors.fg_subtle).child(i.tp("doc.size", &[("size", &human(bytes.len()))])))
                     .into_any_element(),
                 DocKind::Csv | DocKind::Tsv => {
@@ -443,6 +695,7 @@ impl Render for DocsPanel {
         };
         if !self.cache.contains_key(&active) {
             let l = Self::load(&active);
+            self.mtimes.insert(active.clone(), mtime(&active));
             if !default_render(l.kind) {
                 self.raw.remove(&active);
             }
@@ -457,7 +710,8 @@ impl Render for DocsPanel {
         for p in &open {
             let name = file_name(p).to_string();
             let cur = *p == active;
-            let (p1, p2) = (p.clone(), p.clone());
+            let dirty = self.is_dirty(p, cx);
+            let (p1, p2, p3) = (p.clone(), p.clone(), p.clone());
             tabs = tabs.child(
                 div()
                     .id(SharedString::from(format!("doc-{p}")))
@@ -474,13 +728,24 @@ impl Render for DocsPanel {
                     .hover(|s| s.bg(t.colors.hover))
                     .tooltip(crate::ui::tooltip::text_tooltip(p.clone().into()))
                     .on_click(cx.listener(move |s, _, _, cx| s.state.update(cx, |d, cx| d.open_file(p1.clone(), cx))))
+                    .on_mouse_down(
+                        gpui::MouseButton::Right,
+                        cx.listener(move |s, e: &gpui::MouseDownEvent, _, cx| {
+                            s.tab_menu = Some((p3.clone(), e.position));
+                            cx.notify();
+                        }),
+                    )
                     .child(crate::shell::file_icons::file_type_icon(&t, &name, false, false, rem::ICON_SM))
+                    .when(dirty, |d| d.child(div().id(SharedString::from(format!("docd-{p}"))).text_color(t.colors.accent).tooltip(crate::ui::tooltip::text_tooltip(i.t("doc.unsaved").into())).child("●")))
                     .child(div().max_w(t.rem(10.)).truncate().small(&t).child(name.clone()))
                     .child(
                         icon_button(SharedString::from(format!("docx-{p}")), "close", i.tp("doc.closeTab", &[("name", &name)]))
                             .size(ControlSize::Sm)
                             .variant(ButtonVariant::Ghost)
-                            .on_click(cx.listener(move |s, _, _, cx| s.state.update(cx, |d, cx| d.close(&p2, cx)))),
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                cx.stop_propagation();
+                                s.guarded(DiscardThen::Close(vec![p2.clone()]), cx);
+                            })),
                     ),
             );
         }
@@ -514,12 +779,27 @@ impl Render for DocsPanel {
                     }
                 })));
         }
+        let editing = self.editors.contains_key(&active);
+        let dirty = self.is_dirty(&active, cx);
+        let a_dl = active.clone();
+        bar = bar.child(icon_button("doc-dl", "download", i.t("doc.download")).size(ControlSize::Sm).disabled(self.cache.get(&active).is_none_or(|l| l.bytes.is_err())).on_click(cx.listener(move |s, _, _, cx| s.save_copy(&a_dl, cx))));
+        let textual = is_text_kind(kind) && (raw || kind == DocKind::Code);
+        if textual && !editing {
+            let block = self.edit_block(&active);
+            let a_ed = active.clone();
+            bar = bar.child(icon_button("doc-edit", "edit", block.map(|b| i.t(&format!("doc.noEdit.{b}"))).unwrap_or_else(|| i.t("doc.edit"))).size(ControlSize::Sm).disabled(block.is_some()).on_click(cx.listener(move |s, _, _, cx| s.begin_edit(&a_ed, cx))));
+        }
+        if editing {
+            let (a_sv, a_done) = (active.clone(), active.clone());
+            bar = bar
+                .child(icon_button("doc-save", "save", i.t("doc.save")).size(ControlSize::Sm).disabled(!dirty).on_click(cx.listener(move |s, _, _, cx| s.save(&a_sv, false, cx))))
+                .child(button("doc-done").size(ControlSize::Sm).label(i.t("doc.doneEdit")).on_click(cx.listener(move |s, _, _, cx| s.guarded(DiscardThen::EndEdit(a_done.clone()), cx))));
+        }
+        let a_close = active.clone();
         bar = bar
             .child(div().flex_1())
-            .child(icon_button("doc-reload", "refresh", i.t("doc.reload")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| {
-                s.cache.remove(&a5);
-                cx.notify();
-            })))
+            .child(icon_button("doc-reload", "refresh", i.t("doc.reload")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.guarded(DiscardThen::Reload(a5.clone()), cx))))
+            .child(icon_button("doc-close", "close", i.t("doc.close")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.guarded(DiscardThen::Close(vec![a_close.clone()]), cx))))
             .child(icon_button("doc-copypath", "link", i.t("doc.copyPath")).size(ControlSize::Sm).on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(a6.clone()))))
             .child(icon_button("doc-reveal", "folder_open", i.t("doc.openWith.reveal")).size(ControlSize::Sm).on_click({
                 let p = active.clone();
@@ -533,8 +813,59 @@ impl Render for DocsPanel {
                 let (b, body) = self.diff_view(&t, &i, &active, &d, cx);
                 (b.into_any_element(), body)
             }
-            None => (bar.into_any_element(), self.body(&t, &i, &active, cx)),
+            None => {
+                let body = match self.editors.get(&active).cloned() {
+                    Some(ed) => {
+                        let a_ks = active.clone();
+                        div()
+                            .p(t.space(2))
+                            .font_family(t.font_code.clone())
+                            .code(&t)
+                            .on_key_down(cx.listener(move |s, e: &gpui::KeyDownEvent, _, cx| {
+                                let k = &e.keystroke;
+                                if k.key == "s" && (k.modifiers.control || k.modifiers.platform) {
+                                    s.save(&a_ks, false, cx);
+                                    cx.stop_propagation();
+                                }
+                            }))
+                            .child(ed)
+                            .into_any_element()
+                    }
+                    None => self.body(&t, &i, &active, cx),
+                };
+                (bar.into_any_element(), body)
+            }
         };
+        let ask = self.ask_dialog(&t, &i, cx);
+        let menu = self.tab_menu.clone().map(|(anchor, pos)| {
+            let idx = open.iter().position(|p| *p == anchor).unwrap_or(0);
+            let last = open.len().saturating_sub(1);
+            let me = cx.entity().downgrade();
+            let by = |mode: &'static str| {
+                let (me, a) = (me.clone(), anchor.clone());
+                move |_: &mut Window, cx: &mut App| {
+                    me.update(cx, |s, cx| s.close_many(mode, &a, cx)).ok();
+                }
+            };
+            let entries = vec![
+                crate::ui::entry(i.t("tabs.close"), by("one")),
+                crate::ui::entry(i.t("tabs.closeOthers"), by("others")).disabled(open.len() < 2),
+                crate::ui::entry(i.t("tabs.closeRight"), by("right")).disabled(idx == last),
+                crate::ui::entry(i.t("tabs.closeLeft"), by("left")).disabled(idx == 0),
+                crate::ui::MenuEntry::Separator,
+                crate::ui::entry(i.t("tabs.closeAll"), by("all")),
+            ];
+            div()
+                .absolute()
+                .child(gpui::anchored().position(pos).child(crate::ui::menu_popup("doc-tab-menu", &t, entries, gpui::Anchor::TopLeft, move |_, cx| {
+                    me.update(cx, |s, cx| {
+                        s.tab_menu = None;
+                        cx.notify();
+                    })
+                    .ok();
+                })))
+                .into_any_element()
+        });
         div()
             .flex()
             .flex_col()
@@ -542,6 +873,8 @@ impl Render for DocsPanel {
             .child(tabs)
             .child(bar)
             .child(div().id("doc-body").flex_1().min_h_0().overflow_scroll().child(body))
+            .children(menu)
+            .children(ask)
             .into_any_element()
     }
 }
@@ -753,4 +1086,9 @@ mod tests {
         assert_eq!(r, vec![vec!["a", "b,c", "d\"e"], vec!["1", "2"]]);
         assert_eq!(super::human(2048), "2.0 KB");
     }
+}
+
+/// Ukuran piksel gambar raster (PNG/JPEG/GIF/WebP) dari header-nya.
+fn image_dims(bytes: &[u8]) -> Option<(u32, u32)> {
+    image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok()
 }
