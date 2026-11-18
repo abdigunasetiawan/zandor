@@ -53,6 +53,12 @@ pub struct Button {
     square: bool,
     pressed: bool,
     tooltip: Option<SharedString>,
+    /// Ikon tombol ikon: digambar saat render dengan warna teks varian (mis. putih di atas aksen solid).
+    icon_name: Option<&'static str>,
+    round: bool,
+    soft_border: bool,
+    /// Toggle aktif berwarna sukses (port `.composer__toggle[aria-pressed]`: teks hijau + tint 18%, hover 28%).
+    success_on: bool,
     children: Vec<AnyElement>,
     on_click: Option<OnClick>,
 }
@@ -67,6 +73,10 @@ pub fn button(id: impl Into<ElementId>) -> Button {
         square: false,
         pressed: false,
         tooltip: None,
+        icon_name: None,
+        round: false,
+        soft_border: false,
+        success_on: false,
         children: Vec::new(),
         on_click: None,
     }
@@ -77,10 +87,25 @@ pub fn icon_button(id: impl Into<ElementId>, icon_name: &'static str, label: imp
     let mut b = button(id).variant(ButtonVariant::Ghost);
     b.square = true;
     b.tooltip = Some(label.into());
-    b.child(icon(icon_name))
+    b.icon_name = Some(icon_name);
+    b
 }
 
 impl Button {
+    /// Bentuk bulat penuh (port `.composer__round`, pil).
+    pub fn round(mut self, v: bool) -> Self {
+        self.round = v;
+        self
+    }
+    pub fn success_on(mut self, v: bool) -> Self {
+        self.success_on = v;
+        self
+    }
+    /// Garis tepi `border-soft` + latar transparan (kontrol di dalam kartu composer).
+    pub fn soft(mut self, v: bool) -> Self {
+        self.soft_border = v;
+        self
+    }
     pub fn tooltip_text(mut self, t: impl Into<SharedString>) -> Self {
         self.tooltip = Some(t.into());
         self
@@ -139,6 +164,13 @@ impl RenderOnce for Button {
         };
         let solid = self.variant == ButtonVariant::Solid;
         let bg = if self.pressed { c.active } else { bg };
+        let (bg, border) = if self.soft_border && !solid && self.variant != ButtonVariant::Danger {
+            (if self.pressed { c.active } else { gpui::transparent_black() }, c.border_soft)
+        } else {
+            (bg, border)
+        };
+        let hover_bg = if self.soft_border && !solid { c.hover } else { hover_bg };
+        let (bg, fg, hover_bg) = if self.success_on { (c.success.opacity(0.18), c.success, c.success.opacity(0.28)) } else { (bg, fg, hover_bg) };
 
         let mut el = div()
             .id(self.id)
@@ -150,7 +182,8 @@ impl RenderOnce for Button {
             .h(h)
             .border_1()
             .border_color(border)
-            .rounded(t.rem(rem::RADIUS_MD))
+            .when(self.round, |d| d.rounded_full())
+            .when(!self.round, |d| d.rounded(t.rem(rem::RADIUS_MD)))
             .bg(bg)
             .text_color(fg)
             .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
@@ -175,6 +208,8 @@ impl RenderOnce for Button {
         }
         if self.loading {
             el = el.child(spinner(IconSize::Sm));
+        } else if let Some(name) = self.icon_name {
+            el = el.child(icon(name).size(IconSize::Md).color(fg));
         }
         el.children(self.children)
     }

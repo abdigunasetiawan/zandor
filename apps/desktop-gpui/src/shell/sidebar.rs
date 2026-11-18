@@ -7,7 +7,7 @@ use crate::core::services::EngineStatus;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme, H4};
 use crate::ui::{
-    badge, button, dialog, entry, icon, icon_button, kbd, menu_popup, tabs, BadgeTone, ButtonVariant, ControlSize,
+    badge, button, dialog, entry, icon, icon_button, menu_popup, tabs, BadgeTone, ButtonVariant, ControlSize,
     IconSize, MenuEntry, TabItem, TextInput, ToastInput, ToastTone, Toasts, TypeExt,
 };
 use gpui::{
@@ -378,7 +378,7 @@ fn session_row(cx: &Ctx, key: &str, s: &SessionInfo) -> AnyElement {
     let me = cx.me.clone();
     let (k, id) = (key.to_string(), s.id.clone());
     row_base(t, format!("s-{key}-{}", s.id), active)
-        .pl(t.space(5))
+        .text_color(t.colors.fg)
         .on_click(move |_, _, cx| {
             let (k, id) = (k.clone(), id.clone());
             me.update(cx, |sb, cx| {
@@ -420,7 +420,7 @@ fn sessions_list(cx: &Ctx, key: &str, st: Option<&SessionsState>, engine_ready: 
     items.into_iter().map(|s| session_row(cx, key, s)).collect()
 }
 
-fn section_head(t: &Theme, label: String, extra: Vec<AnyElement>) -> AnyElement {
+fn section_head(t: &Theme, (label, n): (String, usize), extra: Vec<AnyElement>) -> AnyElement {
     div()
         .flex()
         .items_center()
@@ -428,7 +428,16 @@ fn section_head(t: &Theme, label: String, extra: Vec<AnyElement>) -> AnyElement 
         .h(t.rem(rem::CONTROL_MD))
         .px(t.space(2))
         .mt(t.space(2))
-        .child(div().flex_1().small(t).font_weight(gpui::FontWeight::SEMIBOLD).text_color(t.colors.fg_subtle).child(label))
+        .text_color(t.colors.fg_muted)
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .gap(t.space(1))
+                .typo(t, crate::theme::LABEL)
+                .child(label)
+                .child(div().text_color(t.colors.fg_subtle).font_weight(gpui::FontWeight::NORMAL).child(format!("({n})"))),
+        )
         .children(extra)
         .into_any_element()
 }
@@ -496,8 +505,8 @@ impl Render for Sidebar {
             tabs(
                 "sb-tabs",
                 vec![
-                    TabItem { value: "sessions".into(), label: i.t("sb.tab.sessions").into(), icon: None, disabled: false },
-                    TabItem { value: "files".into(), label: i.t("sb.tab.files").into(), icon: None, disabled: false },
+                    TabItem { value: "sessions".into(), label: i.t("sb.tab.sessions").into(), icon: Some("chat"), disabled: false },
+                    TabItem { value: "files".into(), label: i.t("sb.tab.files").into(), icon: Some("file"), disabled: false },
                 ],
                 self.tab.clone(),
             )
@@ -520,14 +529,18 @@ impl Render for Sidebar {
                 .flex()
                 .items_center()
                 .gap(t.space(2))
+                .w_full()
                 .h(t.rem(rem::CONTROL_MD))
-                .px(t.space(2))
+                .px(t.space(3))
+                .border_1()
+                .border_color(c.border)
                 .rounded(t.rem(rem::RADIUS_MD))
+                .bg(c.bg)
                 .cursor_pointer()
-                .text_color(c.fg_muted)
-                .hover(|s| s.bg(c.hover).text_color(c.fg))
+                .text_color(c.fg)
+                .hover(|s| s.bg(c.hover))
                 .child(icon(ic).size(IconSize::Md))
-                .child(div().flex_1().child(label))
+                .child(div().flex_1().truncate().child(label))
                 .children(tail)
         };
         let actions = div()
@@ -535,18 +548,16 @@ impl Render for Sidebar {
             .flex_col()
             .gap(t.space(1))
             .mx(t.space(3))
-            .my(t.space(2))
-            .p(t.space(1))
-            .border_1()
-            .border_color(c.border)
-            .rounded(t.rem(rem::RADIUS_LG))
-            .bg(c.bg)
+            .mt(t.space(2))
             .child(
-                action("sb-newchat", "chat", i.t("sb.newChat"), Some(kbd("Ctrl+N").into_any_element()))
-                    .on_click(cx.listener(|s, _, _, cx| s.new_session(CHAT_KEY.into(), cx))),
+                action("sb-newchat", "plus", i.t("sb.newChat"), Some(div().small(&t).code(&t).text_color(c.fg_muted).child("Ctrl N").into_any_element()))
+                    .on_click(cx.listener(|s, _, _, cx| {
+                        s.store.update(cx, |st, cx| st.select(Some(CHAT_KEY.into()), None, cx));
+                        s.app.update(cx, |a, cx| a.push("/", cx));
+                    })),
             )
             .child(
-                action("sb-auto", "clock", i.t("auto.title"), None)
+                action("sb-auto", "clock", i.t("auto.manage"), None)
                     .on_click(cx.listener(|s, _, _, cx| s.app.update(cx, |a, cx| a.push("/automation", cx)))),
             );
 
@@ -560,16 +571,18 @@ impl Render for Sidebar {
                     .id("sb-ws")
                     .flex()
                     .items_center()
-                    .gap(t.space(1))
-                    .h(t.rem(rem::CONTROL_MD))
-                    .px(t.space(2))
+                    .justify_between()
+                    .mt(t.space(1))
+                    .mx(-t.space(3))
+                    .px(t.space(3))
+                    .py(t.space(2))
                     .border_t_1()
                     .border_b_1()
                     .border_color(c.border_soft)
                     .cursor_pointer()
                     .text_color(c.fg_muted)
+                    .child(div().typo(&t, crate::theme::LABEL).child(i.t("sb.workspace")))
                     .child(icon(if self.workspace_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
-                    .child(div().small(&t).child(i.t("sb.workspace")))
                     .on_click(cx.listener(|s, _, _, cx| {
                         s.workspace_open = !s.workspace_open;
                         cx.notify();
@@ -579,7 +592,7 @@ impl Render for Sidebar {
                 let all_collapsed = !projects.is_empty() && projects.iter().all(|p| self.collapsed.contains(&p.id));
                 list = list.child(section_head(
                     &t,
-                    format!("{} · {}", i.t("sb.projects"), projects.len()),
+                    (i.t("sb.section.projects"), projects.len()),
                     vec![
                         icon_button("sb-add", "plus", i.t("sb.addProject"))
                             .variant(ButtonVariant::Ghost)
@@ -703,7 +716,7 @@ impl Render for Sidebar {
                 }
                 list = list.child(section_head(
                     &t,
-                    i.t("sb.chatGroup"),
+                    (i.t("sb.section.chats"), sessions.get(CHAT_KEY).map(|g| g.items.len()).unwrap_or(0)),
                     vec![icon_button("sb-chat-new", "plus", i.t("sb.newChat"))
                         .variant(ButtonVariant::Ghost)
                         .size(ControlSize::Sm)
@@ -761,7 +774,7 @@ impl Render for Sidebar {
                         s.open_menu = if s.open_menu.as_deref() == Some("user") { None } else { Some("user".into()) };
                         cx.notify();
                     }))
-                    .child(crate::core::profile::profile_avatar(cx).size(ControlSize::Sm))
+                    .child(crate::core::profile::profile_avatar(cx).size(ControlSize::Md))
                     .child(
                         div()
                             .flex()
@@ -776,10 +789,11 @@ impl Render for Sidebar {
                                     .small(&t)
                                     .text_color(c.fg_subtle)
                                     .child(div().code(&t).child(i.tp("sb.versionShort", &[("version", env!("CARGO_PKG_VERSION"))])))
-                                    .child(div().size(px(6.)).rounded_full().bg(dot))
-                                    .child(i.t(&format!("engine.{}", est.status))),
+                                    .when(est.status != "ready", |d| d.child(div().size(px(6.)).rounded_full().bg(dot)).child(i.t(&format!("engine.{}", est.status)))),
                             ),
                     )
+                    .child(div().flex_1())
+                    .child(div().flex_none().text_color(c.fg_muted).child(icon("more").size(IconSize::Md)))
                     .when(menu_open, |d| {
                         let me = me.clone();
                         d.child(menu_popup("m-user", &t, user_entries, Anchor::BottomLeft, move |_, cx| {

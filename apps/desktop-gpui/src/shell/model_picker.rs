@@ -512,9 +512,10 @@ impl ChatPanel {
         let trigger = crate::ui::button("chat-model")
             .size(ControlSize::Sm)
             .variant(ButtonVariant::Ghost)
+            .round(true)
             .tooltip_text(i.tp("mp.open", &[("name", &cur_name)]))
             .child(model_logo(t, cx, current.as_ref().map(|m| m.provider_id.as_str()), current.as_ref().map(|m| m.model_id.as_str()), current.as_ref().map(|m| m.provider_name.as_str()).unwrap_or(""), false, "mp-trigger"))
-            .child(div().max_w(t.rem(rem::SPACE[7] * 3.)).truncate().child(cur_name))
+            .child(div().max_w(t.rem(rem::SPACE[7] * 3.)).truncate().font_family(t.font_code.clone()).child(cur_name))
             .on_click(cx.listener(|s, _, w, cx| {
                 if s.picker.open {
                     s.close_picker(cx);

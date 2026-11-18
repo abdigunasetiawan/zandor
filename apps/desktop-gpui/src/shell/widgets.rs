@@ -8,11 +8,22 @@ use gpui::{div, prelude::*, AnyElement, App, SharedString};
 
 /// ModelLogo: logo kustom pengguna > logo terdeteksi (berwarna/monokrom) > tile inisial. `working` = berkedip.
 pub fn model_logo(t: &Theme, cx: &App, provider: Option<&str>, model: Option<&str>, name: &str, working: bool, id: &str) -> AnyElement {
-    let size = t.rem(rem::ICON_MD);
+    model_logo_sized(t, cx, provider, model, name, working, id, rem::ICON_MD)
+}
+
+/// ModelLogo dengan ukuran (rem) tertentu, mis. `ICON_SM` di tab sesi.
+#[allow(clippy::too_many_arguments)]
+pub fn model_logo_sized(t: &Theme, cx: &App, provider: Option<&str>, model: Option<&str>, name: &str, working: bool, id: &str, size_rem: f32) -> AnyElement {
+    let size = t.rem(size_rem);
     let custom = ModelPrefsStore::global(cx).and_then(|p| p.read(cx).override_for(provider, model)).and_then(|u| crate::core::gradient::image_of(&u));
     let img = custom.or_else(|| model_logo_key(provider, model, Some(name)).and_then(|k| logo_image(&k, t.colors.fg_subtle)));
     let el = match img {
         Some(i) => div().flex_none().size(size).child(gpui::img(i).size_full()).into_any_element(),
+        None if size_rem < rem::ICON_MD => {
+            let n = if name.is_empty() { provider.or(model).unwrap_or("?") } else { name };
+            let ch = n.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
+            div().flex_none().size(size).rounded(t.rem(rem::RADIUS_SM)).bg(t.colors.hover).flex().items_center().justify_center().text_size(size * 0.7).child(ch).into_any_element()
+        }
         None => avatar(if name.is_empty() { provider.or(model).unwrap_or("?").to_string() } else { name.to_string() }).size(ControlSize::Sm).into_any_element(),
     };
     if !working {

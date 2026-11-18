@@ -31,3 +31,4 @@ pub mod session_search;
 pub mod session_timeline;
 pub mod patch;
 pub mod mem_import;
+pub mod suggestions;

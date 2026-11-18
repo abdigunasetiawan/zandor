@@ -62,6 +62,8 @@ pub struct TextInput {
     last_lines: Vec<(usize, ShapedLine)>,
     /// Bila true, ↑ ↓ Enter Tab Esc dipancarkan sebagai `InputNav` (mis. popup saran terbuka).
     pub intercept: bool,
+    /// Tanpa border/latar/padding/ring fokus (port `.composer__input`): dipakai di dalam kartu composer.
+    pub bare: bool,
 }
 
 /// Tombol navigasi yang disalurkan ke pemilik input saat `intercept` aktif.
@@ -815,16 +817,13 @@ impl Render for TextInput {
             .w_full()
             .when(!self.multiline, |d| d.h(t.rem(self.size.height_rem())))
             .when(self.multiline, |d| d.min_h(t.rem(self.size.height_rem())).py(t.space(2)).items_start())
-            .px(t.space(3))
-            .border_1()
-            .border_color(border)
-            .rounded(t.rem(crate::theme::rem::RADIUS_MD))
-            .bg(t.colors.surface)
+            .when(!self.bare, |d| d.px(t.space(3)).border_1().border_color(border).rounded(t.rem(crate::theme::rem::RADIUS_MD)).bg(t.colors.surface))
+            .when(self.bare && self.multiline, |d| d.py_0().min_h(t.rem(crate::theme::rem::CONTROL_LG * 1.2)))
             .text_color(t.colors.fg)
             .text_size(t.rem(t.ty(crate::theme::P).size))
             .line_height(t.rem(t.ty(crate::theme::P).size * t.ty(crate::theme::P).lh))
             .overflow_hidden();
-        if focused {
+        if focused && !self.bare {
             el = el.border_color(t.colors.focus);
         }
         if self.disabled {
@@ -900,6 +899,7 @@ impl TextInput {
             enter_newline: false,
             last_lines: vec![],
             intercept: false,
+            bare: false,
         }
     }
     /// Rentang byte yang aman: dibatasi panjang isi dan batas karakter (rentang IME/seleksi bisa basi setelah set_text).

@@ -15,11 +15,15 @@ pub struct Select {
     on_change: Option<Rc<dyn Fn(SharedString, &mut Window, &mut App)>>,
     /// Ikon per nilai opsi (dipakai di pemicu dan daftar).
     icons: Option<Rc<dyn Fn(&str) -> gpui::AnyElement>>,
+    /// Pil ringan selebar label (port `.composer__mode`): bulat penuh, border soft, transparan.
+    pill: bool,
+    /// Ikon tetap di depan label pemicu (prop `icon` Select React).
+    lead: Option<&'static str>,
 }
 
 /// `items`: (nilai, label).
 pub fn select(id: impl Into<ElementId>, items: Vec<(SharedString, SharedString)>, value: impl Into<SharedString>) -> Select {
-    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None }
+    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None, pill: false, lead: None }
 }
 
 impl Select {
@@ -33,6 +37,14 @@ impl Select {
     }
     pub fn icons(mut self, f: impl Fn(&str) -> gpui::AnyElement + 'static) -> Self {
         self.icons = Some(Rc::new(f));
+        self
+    }
+    pub fn pill(mut self, v: bool) -> Self {
+        self.pill = v;
+        self
+    }
+    pub fn lead_icon(mut self, name: &'static str) -> Self {
+        self.lead = Some(name);
         self
     }
     pub fn on_change(mut self, f: impl Fn(SharedString, &mut Window, &mut App) + 'static) -> Self {
@@ -57,12 +69,9 @@ impl RenderOnce for Select {
                     .items_center()
                     .gap(t.space(2))
                     .h(t.rem(self.size.height_rem()))
-                    .min_w(t.rem(rem::SPACE[7] * 2.5))
-                    .px(t.space(3))
+                    .when(!self.pill, |d| d.min_w(t.rem(rem::SPACE[7] * 2.5)).px(t.space(3)).border_color(t.colors.border).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.surface))
+                    .when(self.pill, |d| d.flex_none().gap(t.space(1)).px(t.space(2)).border_color(t.colors.border_soft).rounded_full())
                     .border_1()
-                    .border_color(t.colors.border)
-                    .rounded(t.rem(rem::RADIUS_MD))
-                    .bg(t.colors.surface)
                     .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
                     .when(is_open, |d| d.border_color(t.colors.focus))
                     .when(self.disabled, |d| d.opacity(0.5).cursor_not_allowed())
@@ -74,8 +83,9 @@ impl RenderOnce for Select {
                             })
                         })
                     })
+                    .children(self.lead.map(|n| icon(n).size(IconSize::Sm).color(t.colors.fg_muted)))
                     .children(self.icons.as_ref().map(|f| f(&self.value)))
-                    .child(div().flex_1().min_w_0().truncate().child(label))
+                    .child(if self.pill { div().whitespace_nowrap().child(label) } else { div().flex_1().min_w_0().truncate().child(label) })
                     .child(icon("chevron_down").size(IconSize::Sm).color(t.colors.fg_muted)),
             );
         if is_open {

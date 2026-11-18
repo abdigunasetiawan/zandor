@@ -31,6 +31,9 @@ mod model_picker;
 mod composer_info;
 #[path = "chat_tabs.rs"]
 mod chat_tabs;
+#[path = "chat_welcome.rs"]
+mod chat_welcome;
+use chat_welcome::greeting;
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -43,6 +46,13 @@ pub struct ChatPanel {
     expanded: HashSet<String>,
     last_count: usize,
     pending_new: bool,
+    /// Sesi yang dibuat oleh pesan pertama dari halaman bawaan (tidak lagi menampilkan sambutan) — port sentFromDraft.
+    sent_from_draft: HashSet<String>,
+    /// Konteks saran prompt per folder project (dibaca di latar: berkas akar + status git).
+    sugg_ctx: Option<(String, chat_welcome::WelcomeCtx)>,
+    sugg_loading: Option<String>,
+    /// Menu pil lingkup terbuka: 1 = folder, 2 = cabang git.
+    scope_menu: Option<u8>,
     /// Pilihan memori/skill tertunda di halaman sesi-baru Chat: (memori, skill) — diterapkan saat sesi dibuat (ADR-060).
     pending_memory: (Option<bool>, Option<bool>),
     /// Cache pengaturan memori (memory/settings.json) untuk sakelar composer.
@@ -78,6 +88,7 @@ impl ChatPanel {
         let input = cx.new(|cx| {
             let mut ti = TextInput::new(cx, ph);
             ti.multiline = true; // Enter kirim, Shift+Enter baris baru
+            ti.bare = true;
             ti
         });
         cx.observe(&store, |this, _, cx| {
@@ -111,6 +122,10 @@ impl ChatPanel {
             expanded: HashSet::new(),
             last_count: 0,
             pending_new: false,
+            sent_from_draft: HashSet::new(),
+            sugg_ctx: None,
+            sugg_loading: None,
+            scope_menu: None,
             pending_memory: (None, None),
             mem_settings: crate::core::mem::parse_settings(&super::memory_page::read(crate::core::mem::FILE_SETTINGS)),
             models: vec![],
@@ -178,7 +193,7 @@ impl ChatPanel {
                 icon_button(if skill { "mt-skill" } else { "mt-mem" }, if skill { "bookmark" } else { "brain" }, label)
                     .size(ControlSize::Sm)
                     .variant(ButtonVariant::Ghost)
-                    .pressed(on)
+                    .success_on(on)
                     .tooltip_text(tip)
                     .on_click(cx.listener(move |me, _, _, cx| {
                         let on = !on;
@@ -306,13 +321,16 @@ impl ChatPanel {
             return;
         }
         self.pending_new = true;
-        let task = self.store.update(cx, |s, cx| s.create_session(CHAT_KEY, None, true, cx));
+        // draf dibuat di project terpilih (atau Chat), seperti DraftChat versi React
+        let key = self.store.read(cx).selection.key.clone().unwrap_or_else(|| CHAT_KEY.to_string());
+        let task = self.store.update(cx, |s, cx| s.create_session(&key, None, true, cx));
         cx.spawn(async move |this, cx| {
             let r = task.await;
             this.update(cx, |me, cx| {
                 me.pending_new = false;
                 match r {
                     Ok(s) => {
+                        me.sent_from_draft.insert(s.id.clone());
                         // terapkan pilihan memori/skill tertunda ke sesi Chat baru
                         let (m, k) = std::mem::take(&mut me.pending_memory);
                         if m.is_some() || k.is_some() {
@@ -474,35 +492,7 @@ impl Render for ChatPanel {
         let tabs_bar = self.tabs_bar(&t, i, cx);
         let cur = self.current(cx);
         let engine_ready = self.engine.read(cx).state.info.is_some();
-        let project_name = {
-            let s = self.store.read(cx);
-            s.selected().and_then(|(_, _, p)| p.map(|p| p.name))
-        };
         let state: Option<ChatState> = cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id).cloned());
-
-        // ---- kepala ----
-        let head = cur.as_ref().map(|(_, _, _, title)| {
-            let title = if title.is_empty() { i.t("sb.untitled") } else { title.clone() };
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(t.space(2))
-                .px(t.space(3))
-                .py(t.space(2))
-                .border_b_1()
-                .border_color(t.colors.border)
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(div().truncate().font_weight(FontWeight::SEMIBOLD).child(title))
-                        .child(div().truncate().small(&t).text_color(t.colors.fg_muted).child(match &project_name {
-                            Some(n) => i.tp("chat.inProject", &[("name", n)]),
-                            None => i.t("chat.noProject"),
-                        })),
-                )
-        });
 
         let busy = state.as_ref().is_some_and(|s| s.busy());
         // "Bekerja selama …" diperbarui tiap detik hanya saat sesi berjalan (useNow).
@@ -608,10 +598,12 @@ impl Render for ChatPanel {
             let id = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
             icon_button("chat-stop", "stop", i.t("chat.stop"))
                 .variant(ButtonVariant::Danger)
+                .round(true)
                 .on_click(cx.listener(move |s, _, _, cx| s.chat.update(cx, |c, cx| c.abort(&id, cx))))
         } else {
             icon_button("chat-send", "arrow_up", i.t("chat.send"))
                 .variant(ButtonVariant::Solid)
+                .round(true)
                 .disabled(!engine_ready)
                 .on_click(cx.listener(|s, _, _, cx| {
                     let text = s.input.read(cx).text().to_string();
@@ -635,7 +627,7 @@ impl Render for ChatPanel {
         };
         let can_queue = busy && !self.input.read(cx).text().trim().is_empty();
         let add_btn = can_queue.then(|| {
-            icon_button("chat-queue", "arrow_up", i.t("queue.add")).variant(ButtonVariant::Solid).on_click(cx.listener(|s, _, _, cx| {
+            icon_button("chat-queue", "arrow_up", i.t("queue.add")).variant(ButtonVariant::Solid).round(true).on_click(cx.listener(|s, _, _, cx| {
                 let text = s.input.read(cx).text().to_string();
                 s.submit(text, cx);
             }))
@@ -719,6 +711,8 @@ impl Render for ChatPanel {
                 .child(
                     icon_button("chat-attach", "plus", i.t("chat.attach"))
                         .size(ControlSize::Sm)
+                        .round(true)
+                        .soft(true)
                         .disabled(!engine_ready)
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.attach_menu = !s.attach_menu;
@@ -741,16 +735,21 @@ impl Render for ChatPanel {
                 .iter()
                 .map(|m| (SharedString::from(*m), SharedString::from(i.t(&format!("chat.mode.{m}")))))
                 .collect();
-            crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone())
+            crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone()).pill(true).lead_icon("shield")
                 .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_permission_mode(&v, cx)))
         };
         let mem_toggles = self.memory_toggles(&t, i, cx);
+        let welcome_layout = match (&state, &cur) {
+            (None, _) => true,
+            (Some(st), Some(c)) => st.loaded && st.messages.is_empty() && st.error.is_none() && !self.sent_from_draft.contains(&c.1),
+            _ => false,
+        };
         let qdock = cur.as_ref().and_then(|c| self.render_queue(&c.1.clone(), cx));
         let qdock = match (&state, &cur) {
             (Some(st), Some(c)) => self.render_dock(st, &c.1.clone(), qdock, cx),
             _ => qdock,
         };
-        let composer = div().w_full().px(t.space(3)).pb(t.space(3)).flex().flex_col().gap(t.space(2)).children(qdock).children(sug_el).children(chips).child(
+        let composer = div().w_full().when(!welcome_layout, |d| d.px(t.space(3)).pb(t.space(3))).flex().flex_col().gap(t.space(2)).children(qdock).children(sug_el).children(chips).child(
             div()
                 .flex()
                 .flex_col()
@@ -762,48 +761,43 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(mem_toggles).children(info_el).child(div().flex_1()).children(model_sel).children(variant_sel).child(div().flex().items_center().child(voice_btn).child(voice_dev)).children(add_btn).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(mem_toggles).children(info_el).child(div().flex_1()).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().children(model_sel).children(variant_sel.map(|v| div().border_l_1().border_color(t.colors.border_soft).child(v)))).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().child(voice_btn).child(div().h(t.rem(rem::CONTROL_SM)).border_l_1().border_color(t.colors.border_soft).child(voice_dev))).children(add_btn).child(send_btn)),
         );
 
-        let Some(st) = state else {
-            // ---- sambutan ----
-            let hour = {
-                let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-                ((secs / 3600 + 7) % 24) as u32
-            };
-            let greet = match hour {
-                4..=10 => "chat.greet.morning",
-                11..=14 => "chat.greet.afternoon",
-                15..=17 => "chat.greet.evening",
-                _ => "chat.greet.night",
-            };
+        let welcome = match (&state, &cur) {
+            (None, _) => true,
+            (Some(st), Some(c)) => st.loaded && st.messages.is_empty() && st.error.is_none() && !self.sent_from_draft.contains(&c.1),
+            _ => false,
+        };
+        if welcome {
+            // ---- halaman sesi baru (port DraftChat/Greeting/SessionScope + saran) ----
+            let scope = self.session_scope(&t, i, cx);
+            let chips = self.suggestion_chips(&t, i, cx);
             return div()
                 .flex()
                 .flex_col()
                 .size_full()
                 .child(tabs_bar)
-                .children(head)
                 .child(
                     div()
+                        .id("chat-welcome")
                         .flex()
                         .flex_col()
                         .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
                         .items_center()
                         .justify_center()
                         .gap(t.space(4))
                         .p(t.space(4))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .items_center()
-                                .child(div().typo(&t, crate::theme::H2).child(i.tp(greet, &[("name", &format!(", {}", crate::core::profile::Profile::global(cx).read(cx).display_name()))])))
-                                .child(div().text_color(t.colors.fg_muted).child(i.t(if engine_ready { "chat.greet.sub" } else { "chat.engineDown" }))),
-                        )
-                        .child(div().w_full().max_w(t.rem(cw * ratio)).child(composer)),
+                        .child(greeting(&t, i, engine_ready, cx))
+                        .child(scope)
+                        .child(div().w_full().max_w(t.rem(cw * ratio)).child(composer))
+                        .children(chips),
                 )
                 .into_any_element();
-        };
+        }
+        let Some(st) = state else { return div().into_any_element() };
         let sid = st.session_id.clone();
         let has_project = cur.as_ref().is_some_and(|c| c.0 != CHAT_KEY);
 
@@ -901,7 +895,6 @@ impl Render for ChatPanel {
             .flex_col()
             .size_full()
             .child(tabs_bar)
-            .children(head)
             .child(body)
             .child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer))
             .children(self.att_preview.clone().map(|(title, view)| {

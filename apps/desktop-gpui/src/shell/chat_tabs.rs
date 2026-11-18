@@ -6,7 +6,7 @@ use crate::core::projects::session_title;
 use crate::core::types::Role;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
-use crate::ui::{button, entry, icon, icon_button, menu_popup, ButtonVariant, ControlSize, IconSize, MenuEntry, TypeExt};
+use crate::ui::{button, entry, icon, icon_button, menu_popup, ButtonVariant, ControlSize, IconSize, MenuEntry};
 use gpui::{anchored, div, prelude::*, px, AnyElement, Anchor, Context, MouseButton, Point, Pixels, SharedString};
 
 #[derive(Default)]
@@ -38,7 +38,7 @@ impl ChatPanel {
         let last = tabs.len().saturating_sub(1);
         let n_tabs = tabs.len();
 
-        let mut nav = div().id("stabs").flex().flex_1().min_w_0().h_full().items_end().gap(t.space(1)).pl(t.space(2)).overflow_x_scroll();
+        let mut nav = div().id("stabs").flex().flex_1().min_w_0().h_full().items_end().gap(t.space(1)).pt(t.space(1)).pl(t.space(2)).overflow_x_scroll();
         for (n, tb) in tabs.iter().enumerate() {
             let title = title_of(&tb.key, &tb.session_id);
             let active = sel.as_deref() == Some(tb.session_id.as_str());
@@ -46,12 +46,13 @@ impl ChatPanel {
             let lead: AnyElement = {
                 let (p, m) = &models[n];
                 let ind = super::super::notification_driver::Attention::indicator_of(&sid, cx);
+                // port TabStatus: titik hanya bila tidak idle; logo selebar ikon kecil (.stabs__label .z-model-logo)
                 div()
                     .flex()
                     .items_center()
-                    .gap(t.space(1))
-                    .child(super::super::widgets::model_logo(t, cx, p.as_deref(), m.as_deref(), "", false, &format!("tab-{sid}")))
-                    .child(super::super::sidebar::session_dot(t, i, ind, &sid))
+                    .gap(t.space(2))
+                    .child(div().flex_none().size(t.rem(rem::ICON_SM)).overflow_hidden().child(super::super::widgets::model_logo_sized(t, cx, p.as_deref(), m.as_deref(), "", false, &format!("tab-{sid}"), rem::ICON_SM)))
+                    .when(ind != crate::core::attention::Indicator::Idle, |d| d.child(super::super::sidebar::session_dot(t, i, ind, &sid)))
                     .into_any_element()
             };
             let (key, s1, s2, s3) = (tb.key.clone(), sid.clone(), sid.clone(), sid.clone());
@@ -62,16 +63,14 @@ impl ChatPanel {
                     .flex()
                     .flex_none()
                     .items_center()
-                    .gap(t.space(1))
-                    .max_w(t.rem(14.))
-                    .h(t.rem(rem::CONTROL_MD))
-                    .pl(t.space(2))
-                    .pr(t.space(1))
+                    .max_w(t.rem(12.))
+                    .border_1()
+                    .border_b_0()
+                    .border_color(gpui::transparent_black())
                     .rounded_t(t.rem(rem::RADIUS_MD))
                     .cursor_pointer()
-                    .text_color(if active { t.colors.fg } else { t.colors.fg_muted })
-                    .when(active, |d| d.bg(t.colors.surface).border_1().border_b_0().border_color(t.colors.border))
-                    .when(!active, |d| d.hover(|h| h.bg(t.colors.hover)))
+                    .text_color(t.colors.fg)
+                    .when(active, |d| d.bg(t.colors.raised).border_color(t.colors.border))
                     .on_click(cx.listener(move |s, _, _, cx| {
                         let (k, id) = (key.clone(), s1.clone());
                         s.store.update(cx, |st, cx| st.select(Some(k), Some(id), cx));
@@ -83,13 +82,22 @@ impl ChatPanel {
                             cx.notify();
                         }),
                     )
-                    .child(lead)
-                    .child(div().flex_1().min_w_0().truncate().small(t).child(title.clone()))
-                    .child(icon_button(SharedString::from(format!("stabx-{sid}")), "close", i.tp("chat.closeTab", &[("title", &title)])).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |s, _, _, cx| {
-                        cx.stop_propagation();
-                        let id = s3.clone();
-                        s.store.update(cx, |st, cx| st.close_tab(&id, cx));
-                    }))),
+                    .child(div().flex().items_center().gap(t.space(2)).min_w_0().px(t.space(2)).py(t.space(1)).child(lead).child(div().min_w_0().truncate().child(title.clone())))
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("stabx-{sid}")))
+                            .flex_none()
+                            .p(t.space(1))
+                            .text_color(t.colors.fg_muted)
+                            .hover(|h| h.text_color(t.colors.fg))
+                            .tooltip(crate::ui::tooltip::text_tooltip(i.tp("chat.closeTab", &[("title", &title)]).into()))
+                            .child(icon("close").size(IconSize::Sm).color(t.colors.fg_muted))
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                cx.stop_propagation();
+                                let id = s3.clone();
+                                s.store.update(cx, |st, cx| st.close_tab(&id, cx));
+                            })),
+                    ),
             );
         }
 
