@@ -401,7 +401,7 @@ impl ToolsHost {
                     } else {
                         div().w(t.rem(rem::ICON_SM)).into_any_element()
                     })
-                    .child(icon(if is_dir { if open { "folder_open" } else { "folder" } } else { "file" }).size(IconSize::Sm).color(t.colors.fg_muted))
+                    .child(super::file_icons::file_type_icon(t, &n.name, is_dir, open, rem::ICON_SM))
                     .child(div().flex_1().min_w_0().truncate().child(n.name.clone()))
                     .into_any_element(),
             );

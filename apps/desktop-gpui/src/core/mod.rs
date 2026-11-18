@@ -14,5 +14,8 @@ pub mod profile;
 pub mod projects;
 pub mod settings;
 pub mod services;
+pub mod model_logo;
+pub mod model_prefs;
+pub mod tool_view;
 pub mod trajectory;
 pub mod types;

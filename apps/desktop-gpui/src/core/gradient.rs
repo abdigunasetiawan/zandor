@@ -247,7 +247,8 @@ pub fn image_of(url: &str) -> Option<Arc<gpui::Image>> {
     let (head, data) = url.split_once(";base64,")?;
     let fmt = match head.strip_prefix("data:image/")? {
         "png" => gpui::ImageFormat::Png,
-        "jpeg" => gpui::ImageFormat::Jpeg,
+        "jpeg" | "jpg" => gpui::ImageFormat::Jpeg,
+        "svg+xml" => gpui::ImageFormat::Svg,
         "gif" => gpui::ImageFormat::Gif,
         "webp" => gpui::ImageFormat::Webp,
         _ => return None,

@@ -274,3 +274,55 @@ mod tests {
         assert!(!s.apply(&EngineEvent::PartUpdated(part("p1", "a"))));
     }
 }
+
+/// Satu giliran tampilan (port turns.ts TurnMessage): pesan asisten berurutan digabung.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Turn {
+    pub message: ChatMessage,
+    pub source_ids: Vec<String>,
+}
+
+/// Port mergeAssistantTurns: identitas/model/status mengikuti pesan TERAKHIR, waktu mulai dari yang pertama.
+pub fn merge_assistant_turns<'a>(messages: impl IntoIterator<Item = &'a ChatMessage>) -> Vec<Turn> {
+    let mut out: Vec<Turn> = vec![];
+    for m in messages {
+        match out.last_mut() {
+            Some(prev) if m.info.role == Role::Assistant && prev.message.info.role == Role::Assistant => {
+                let mut info = m.info.clone();
+                info.created = prev.message.info.created;
+                info.error = m.info.error.clone().or_else(|| prev.message.info.error.clone());
+                info.tokens = m.info.tokens.clone();
+                let cost = prev.message.info.cost.unwrap_or(0.) + m.info.cost.unwrap_or(0.);
+                info.cost = (cost > 0.).then_some(cost);
+                prev.message.info = info;
+                prev.message.parts.extend(m.parts.iter().cloned());
+                prev.source_ids.push(m.info.id.clone());
+            }
+            _ => out.push(Turn { message: m.clone(), source_ids: vec![m.info.id.clone()] }),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod turn_tests {
+    use super::*;
+    fn msg(id: &str, role: Role, created: f64, completed: Option<f64>) -> ChatMessage {
+        ChatMessage {
+            info: MessageInfo { id: id.into(), session_id: "s".into(), role, created, completed, parent_id: None, agent: None, provider_id: None, model_id: Some(id.into()), finish: None, error: None, tokens: None, cost: Some(1.) },
+            parts: vec![MessagePart { id: format!("p{id}"), message_id: id.into(), session_id: "s".into(), kind: PartKind::Text { text: id.into(), synthetic: false } }],
+        }
+    }
+    #[test]
+    fn merge() {
+        let ms = [msg("u1", Role::User, 1., None), msg("a1", Role::Assistant, 2., Some(3.)), msg("a2", Role::Assistant, 4., Some(5.)), msg("u2", Role::User, 6., None), msg("a3", Role::Assistant, 7., None)];
+        let t = merge_assistant_turns(ms.iter());
+        assert_eq!(t.len(), 4);
+        assert_eq!(t[1].source_ids, vec!["a1".to_string(), "a2".to_string()]);
+        assert_eq!((t[1].message.info.created, t[1].message.info.completed), (2., Some(5.)));
+        assert_eq!(t[1].message.info.model_id.as_deref(), Some("a2"));
+        assert_eq!(t[1].message.parts.len(), 2);
+        assert_eq!(t[1].message.info.cost, Some(2.));
+        assert_eq!(t[3].message.info.completed, None);
+    }
+}

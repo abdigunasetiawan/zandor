@@ -21,6 +21,8 @@ use std::collections::HashSet;
 mod composer_assist;
 #[path = "queue_dock.rs"]
 mod queue_dock;
+#[path = "chat_parts.rs"]
+mod chat_parts;
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -38,6 +40,7 @@ pub struct ChatPanel {
     assist: composer_assist::AssistState,
     attach_menu: bool,
     voice_menu: bool,
+    ticking: bool,
     voice_devices: Vec<crate::voice::AudioInput>,
     voice_device: String,
     queue: queue_dock::QueueState,
@@ -88,6 +91,7 @@ impl ChatPanel {
             assist: Default::default(),
             attach_menu: false,
             voice_menu: false,
+            ticking: false,
             voice_devices: vec![],
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
@@ -246,10 +250,6 @@ fn chat_width(t: &Theme, cx: &App) -> f32 {
     })
 }
 
-fn fmt_num(n: f64) -> String {
-    if n >= 1000. { format!("{:.1}k", n / 1000.) } else { format!("{}", n as i64) }
-}
-
 fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, i: &I18n) -> AnyElement {
     let text = message_text(m);
     let copy = text.clone();
@@ -279,178 +279,6 @@ fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, i: &I18n) -> AnyElemen
             ),
         )
         .into_any_element()
-}
-
-fn tool_step(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &MessagePart, tool: &str, st: &ToolState, open: bool) -> AnyElement {
-    let (tone, key, ic) = match st.status {
-        ToolStatus::Pending => (BadgeTone::Neutral, "chat.tool.pending", None),
-        ToolStatus::Running => (BadgeTone::Warning, "chat.tool.running", None),
-        ToolStatus::Completed => (BadgeTone::Success, "chat.tool.completed", Some("check")),
-        ToolStatus::Error => (BadgeTone::Danger, "chat.tool.error", Some("triangle_alert")),
-    };
-    let title = st.title.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| {
-        ["filePath", "path", "command", "pattern", "url", "description"]
-            .iter()
-            .find_map(|k| st.input.get(*k).and_then(|v| v.as_str()).map(str::to_string))
-            .unwrap_or_default()
-    });
-    let pid = p.id.clone();
-    let me = me.clone();
-    let tool_icon = match tool {
-        "bash" => "terminal",
-        "read" | "write" | "edit" => "file_text",
-        "grep" | "glob" => "search",
-        "webfetch" | "websearch" => "globe",
-        "todowrite" | "todoread" => "list_checks",
-        "task" => "bot",
-        _ => "wrench",
-    };
-    let mut el = div()
-        .flex()
-        .flex_col()
-        .w_full()
-        .rounded(t.rem(rem::RADIUS_MD))
-        .border_1()
-        .border_color(t.colors.border_soft)
-        .child(
-            div()
-                .id(SharedString::from(format!("ts-{}", p.id)))
-                .flex()
-                .items_center()
-                .gap(t.space(2))
-                .px(t.space(2))
-                .h(t.rem(rem::CONTROL_MD))
-                .cursor_pointer()
-                .hover(|s| s.bg(t.colors.hover))
-                .on_click(move |_, _, cx| {
-                    let pid = pid.clone();
-                    me.update(cx, |s, cx| {
-                        if !s.expanded.remove(&pid) {
-                            s.expanded.insert(pid);
-                        }
-                        cx.notify();
-                    })
-                    .ok();
-                })
-                .child(icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm).color(t.colors.fg_subtle))
-                .child(icon(tool_icon).size(IconSize::Sm).color(t.colors.fg_muted))
-                .child(div().flex_none().font_weight(FontWeight::MEDIUM).child(tool.to_string()))
-                .child(div().flex_1().min_w_0().truncate().text_color(t.colors.fg_muted).code(t).child(title))
-                .child(match ic {
-                    None if st.status == ToolStatus::Running => working(SharedString::from(format!("tw-{}", p.id))).into_any_element(),
-                    _ => badge(i.t(key)).tone(tone).into_any_element(),
-                }),
-        );
-    if open {
-        let input = serde_json::to_string_pretty(&serde_json::Value::Object(st.input.clone())).unwrap_or_default();
-        let out = st.error.clone().or_else(|| st.output.clone()).unwrap_or_else(|| i.t("tool.noOutput"));
-        let block = |label: String, body: String| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(t.space(1))
-                .child(div().small(t).text_color(t.colors.fg_subtle).child(label))
-                .child(
-                    div()
-                        .px(t.space(2))
-                        .py(t.space(1))
-                        .rounded(t.rem(rem::RADIUS_SM))
-                        .bg(t.colors.raised)
-                        .code(t)
-                        .child(body.lines().take(200).collect::<Vec<_>>().join("\n")),
-                )
-        };
-        el = el.child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(t.space(2))
-                .p(t.space(2))
-                .border_t_1()
-                .border_color(t.colors.border_soft)
-                .child(block(i.t("chat.input"), input))
-                .child(block(i.t("chat.output"), out)),
-        );
-    }
-    el.into_any_element()
-}
-
-fn assistant_msg(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, m: &ChatMessage, expanded: &HashSet<String>) -> AnyElement {
-    let mut col = div().flex().flex_col().gap(t.space(2)).w_full().min_w_0();
-    for p in &m.parts {
-        match &p.kind {
-            PartKind::Text { text, synthetic: false } if !text.trim().is_empty() => col = col.child(chat_text(div(), t).child(markdown(text, &msg_theme(t)))),
-            PartKind::Reasoning { text } if !text.trim().is_empty() => {
-                let open = expanded.contains(&p.id);
-                let pid = p.id.clone();
-                let me = me.clone();
-                col = col.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(t.space(1))
-                        .text_color(t.colors.fg_muted)
-                        .child(
-                            div()
-                                .id(SharedString::from(format!("rs-{}", p.id)))
-                                .flex()
-                                .items_center()
-                                .gap(t.space(1))
-                                .cursor_pointer()
-                                .small(t)
-                                .on_click(move |_, _, cx| {
-                                    let pid = pid.clone();
-                                    me.update(cx, |s, cx| {
-                                        if !s.expanded.remove(&pid) {
-                                            s.expanded.insert(pid);
-                                        }
-                                        cx.notify();
-                                    })
-                                    .ok();
-                                })
-                                .child(icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
-                                .child(i.t("chat.thinking")),
-                        )
-                        .when(open, |d| d.child(div().pl(t.space(4)).border_l_1().border_color(t.colors.border).child(markdown(text, t)))),
-                );
-            }
-            PartKind::Tool { tool, state, .. } => col = col.child(tool_step(t, i, me, p, tool, state, expanded.contains(&p.id))),
-            PartKind::File { filename, mime, .. } => {
-                col = col.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(t.space(2))
-                        .px(t.space(2))
-                        .py(t.space(1))
-                        .rounded(t.rem(rem::RADIUS_MD))
-                        .border_1()
-                        .border_color(t.colors.border_soft)
-                        .child(icon("file").size(IconSize::Sm))
-                        .child(filename.clone().unwrap_or_else(|| mime.clone())),
-                )
-            }
-            _ => {}
-        }
-    }
-    if let Some(e) = &m.info.error {
-        col = col.child(div().text_color(t.colors.danger).child(if e.name == "MessageAbortedError" { i.t("chat.aborted") } else { e.message.clone() }));
-    }
-    if m.info.completed.is_some() {
-        let mut meta: Vec<String> = vec![];
-        if let Some(model) = &m.info.model_id {
-            meta.push(model.clone());
-        }
-        if let Some(tk) = &m.info.tokens {
-            if tk.total > 0. {
-                meta.push(i.tp("chat.meta.tokens", &[("input", &fmt_num(tk.input)), ("output", &fmt_num(tk.output))]));
-            }
-        }
-        if !meta.is_empty() {
-            col = col.child(div().small(t).text_color(t.colors.fg_subtle).child(meta.join(" · ")));
-        }
-    }
-    col.into_any_element()
 }
 
 fn card(t: &Theme) -> gpui::Div {
@@ -504,6 +332,25 @@ impl Render for ChatPanel {
         });
 
         let busy = state.as_ref().is_some_and(|s| s.busy());
+        // "Bekerja selama …" diperbarui tiap detik hanya saat sesi berjalan (useNow).
+        if busy && !self.ticking {
+            self.ticking = true;
+            cx.spawn(async move |this, cx| loop {
+                cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                let go = this.update(cx, |s, cx| {
+                    let busy = s.current(cx).and_then(|c| s.chat.read(cx).sessions.get(&c.1).map(|x| x.busy())).unwrap_or(false);
+                    if !busy {
+                        s.ticking = false;
+                    }
+                    cx.notify();
+                    busy
+                });
+                if !matches!(go, Ok(true)) {
+                    break;
+                }
+            })
+            .detach();
+        }
         let voice_btn = {
             let ok = crate::voice::supported();
             icon_button("chat-voice", "mic", if ok { i.t("voice.start") } else { i.t("voice.unsupported") })
@@ -783,6 +630,7 @@ impl Render for ChatPanel {
                 .into_any_element();
         };
         let sid = st.session_id.clone();
+        let has_project = cur.as_ref().is_some_and(|c| c.0 != CHAT_KEY);
 
         // ---- isi ----
         let mut body = div()
@@ -805,13 +653,23 @@ impl Render for ChatPanel {
         // Trajectory "Ke pesan" (port requestMessageFocus).
         let gap = t.rem(t.chat.gap.unwrap_or(0.75));
         let focus = cx.try_global::<MessageFocus>().and_then(|f| f.0.clone());
-        for (ix, m) in st.visible().into_iter().enumerate() {
+        let turns = crate::core::chat::merge_assistant_turns(st.visible());
+        let last_assistant = turns.iter().rposition(|x| x.message.info.role == Role::Assistant);
+        let active_ix = if busy && last_assistant.is_some() && last_assistant == Some(turns.len().saturating_sub(1)) { last_assistant } else { None };
+        let models = self.models.clone();
+        for (ix, turn) in turns.iter().enumerate() {
+            let m = &turn.message;
             count += m.parts.len() + 1;
+            let streaming = active_ix == Some(ix);
             let el = match m.info.role {
                 Role::User => user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), i),
-                Role::Assistant => assistant_msg(&t, i, &me, m, &self.expanded),
+                Role::Assistant => {
+                    let pid = m.info.provider_id.clone();
+                    let provider_name = models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
+                    chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, has_project, &provider_name, None)
+                }
             };
-            if focus.as_deref() == Some(m.info.id.as_str()) {
+            if focus.as_ref().is_some_and(|f| turn.source_ids.contains(f)) {
                 self.scroll.scroll_to_top_of_item(ix);
                 self.focused_msg = Some(m.info.id.clone());
                 cx.set_global(MessageFocus(None));
