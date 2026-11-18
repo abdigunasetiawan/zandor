@@ -128,6 +128,7 @@ fn context(cx: &App, i: &I18n) -> (String, Option<String>, String) {
 
 impl TerminalPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        cx.set_global(TerminalsHandle(cx.entity().downgrade()));
         cx.observe(&ProjectStore::global(cx), |_, _, cx| cx.notify()).detach();
         let task = cx.background_spawn(async { detect_shells() });
         cx.spawn(async move |this, cx| {
@@ -209,6 +210,17 @@ impl TerminalPanel {
             .ok();
         })
         .detach();
+    }
+
+    fn status_of(t: &Tab, cx: &App) -> &'static str {
+        let term = t.term.read(cx);
+        if term.exited() {
+            "exited"
+        } else if term.conn_state() != 0 {
+            "connecting"
+        } else {
+            "running"
+        }
     }
 
     fn close(&mut self, id: usize, cx: &mut Context<Self>) {
@@ -384,4 +396,26 @@ mod tests {
         ids.dedup();
         assert_eq!(ids.len(), s.len());
     }
+}
+
+/// Panel terminal aktif (dibuat saat alat Terminal pertama kali dibuka) untuk kontrol agent.
+struct TerminalsHandle(gpui::WeakEntity<TerminalPanel>);
+impl gpui::Global for TerminalsHandle {}
+
+/// Daftar tab terminal (kontrol agent `list_terminals`).
+pub fn list_terminals(cx: &App) -> Vec<serde_json::Value> {
+    let Some(p) = cx.try_global::<TerminalsHandle>().and_then(|h| h.0.upgrade()) else { return vec![] };
+    let p = p.read(cx);
+    p.tabs.iter().map(|t| serde_json::json!({ "id": t.id.to_string(), "title": t.title, "cwd": t.key, "status": TerminalPanel::status_of(t, cx) })).collect()
+}
+
+/// Tutup tab terminal berdasarkan id (kontrol agent `close_terminal`); false bila tidak ada.
+pub fn close_terminal(id: &str, cx: &mut App) -> bool {
+    let Some(p) = cx.try_global::<TerminalsHandle>().and_then(|h| h.0.upgrade()) else { return false };
+    let Ok(n) = id.parse::<usize>() else { return false };
+    if !p.read(cx).tabs.iter().any(|t| t.id == n) {
+        return false;
+    }
+    p.update(cx, |s, cx| s.close(n, cx));
+    true
 }

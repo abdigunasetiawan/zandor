@@ -180,6 +180,7 @@ impl ShellLayout {
                 self.active_tool = *t;
             }
         }
+        cx.set_global(super::agent_control::ActiveTool(self.active_tool));
         let names: Vec<String> = v["collapsed"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
         self.app.update(cx, |a, _| {
             for p in PANEL_IDS {
@@ -215,6 +216,7 @@ impl ShellLayout {
 
     pub fn open_tool(&mut self, tool: ToolId, cx: &mut Context<Self>) {
         self.active_tool = tool;
+        cx.set_global(super::agent_control::ActiveTool(tool));
         if self.app.read(cx).is_collapsed(PanelId::Tools) {
             self.app.update(cx, |a, cx| a.toggle(PanelId::Tools, cx));
         }

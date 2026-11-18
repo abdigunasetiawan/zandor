@@ -87,6 +87,49 @@ impl Root {
         if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
             app.update(cx, |a, cx| a.push("/welcome", cx));
         }
+        // Kontrol aplikasi oleh agent (ADR-077): ambil antrean tiap POLL_MS, jalankan, jawab.
+        cx.spawn_in(window, async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(super::agent_control::POLL_MS)).await;
+            let dir = super::agent_control::control_dir();
+            let raw = cx.background_spawn(async move { crate::control::take(&dir) }).await;
+            let reqs: Vec<_> = raw.iter().filter_map(super::agent_control::to_request).collect();
+            for req in reqs {
+                let alive = this.update_in(cx, |r, w, cx| {
+                    // perintah palet ditunda: Root sedang di-update, jadi dijalankan langsung setelah execute
+                    let mut cmds: Vec<String> = vec![];
+                    let mut run = |id: &str, _: &mut Window, _: &mut App| cmds.push(id.to_string());
+                    let out = super::agent_control::execute(&req, w, cx, &mut run);
+                    for id in cmds {
+                        r.run_command(&id, w, cx);
+                    }
+                    match out {
+                        super::agent_control::Outcome::Done(res) => super::agent_control::finish(&req, res, cx),
+                        super::agent_control::Outcome::Image { provider, model, prompt, size, root, rel } => {
+                            // tidak ditunggu: generate gambar bisa lama dan tidak boleh menahan permintaan lain
+                            let task = cx.background_spawn(async move { super::image_dialog::generate(&provider, &model, &prompt, &size, &root, &rel).map(|w| (w, root)) });
+                            let req = req.clone();
+                            cx.spawn_in(w, async move |_, cx| {
+                                let r = task.await;
+                                cx.update(|_, cx| {
+                                    let res = r.map(|(written, root)| {
+                                        let full = std::path::Path::new(&root).join(written.replace('/', "\\")).to_string_lossy().into_owned();
+                                        super::docs_panel::DocsState::global(cx).update(cx, |d, cx| d.open_file(full, cx));
+                                        serde_json::Value::String(format!("Gambar disimpan: {written} (dibuka di Panel 3)."))
+                                    });
+                                    super::agent_control::finish(&req, res, cx);
+                                })
+                                .ok();
+                            })
+                            .detach();
+                        }
+                    }
+                });
+                if alive.is_err() {
+                    return;
+                }
+            }
+        })
+        .detach();
         Self { app, titlebar, layout, toasts, palette: None, gsearch: None, imagegen: None, settings_page, memory_page, automation_page, onboarding_page }
     }
 
