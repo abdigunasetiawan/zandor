@@ -18,7 +18,9 @@ pub struct ToolsHost {
     git_panel: Option<Entity<super::git_panel::GitPanel>>,
     changes: Option<Result<Vec<SessionFileDiff>, String>>,
     changes_for: Option<String>,
-    open_change: Option<String>,
+    open_change: std::collections::HashSet<String>,
+    /// Pemicu muat ulang Changes: (sibuk, jumlah pesan).
+    changes_trigger: Option<(bool, usize)>,
     jobs_panel: Option<Entity<super::jobs_panel::JobsPanel>>,
     terminal: Option<Entity<super::terminal_panel::TerminalPanel>>,
     browser: Option<Entity<super::browser::BrowserPanel>>,
@@ -36,7 +38,20 @@ impl ToolsHost {
             cx.notify();
         })
         .detach();
-        cx.observe(&ChatStore::global(cx), |_, _, cx| cx.notify()).detach();
+        cx.observe(&ChatStore::global(cx), |s, _, cx| {
+            // ulangi setiap giliran agent selesai (idle) atau pesan bertambah
+            if let Some(sid) = s.changes_for.clone() {
+                let st = ChatStore::global(cx).read(cx).sessions.get(&sid).map(|c| (c.status != crate::core::types::SessionRunStatus::Idle, c.messages.len()));
+                if st.is_some() && st != s.changes_trigger {
+                    s.changes_trigger = st;
+                    if st.is_some_and(|x| !x.0) {
+                        s.refresh_changes(cx);
+                    }
+                }
+            }
+            cx.notify();
+        })
+        .detach();
         let mut me = Self {
             tool: ToolId::Terminal,
             session_files: None,
@@ -45,7 +60,8 @@ impl ToolsHost {
             git_panel: None,
             changes: None,
             changes_for: None,
-            open_change: None,
+            open_change: Default::default(),
+            changes_trigger: None,
             jobs_panel: None,
             terminal: None,
             browser: None,
@@ -75,6 +91,8 @@ impl ToolsHost {
         if sid != self.changes_for {
             self.changes_for = sid;
             self.changes = None;
+            self.open_change.clear();
+            self.changes_trigger = None;
             self.refresh_changes(cx);
         }
     }
@@ -152,7 +170,7 @@ impl ToolsHost {
             col = col.child(div().p(t.space(2)).small(t).text_color(t.colors.fg_muted).child(i.t("chg.empty")));
         }
         for d in list {
-            let open = self.open_change.as_deref() == Some(d.file.as_str());
+            let open = self.open_change.contains(&d.file);
             let f = d.file.clone();
             let rel = std::path::Path::new(&d.file).strip_prefix(&dir).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| d.file.clone());
             let (key, color) = match d.status.as_str() {
@@ -179,7 +197,9 @@ impl ToolsHost {
                         .hover(|s| s.bg(t.colors.hover))
                         .tooltip(crate::ui::tooltip::text_tooltip(d.file.clone().into()))
                         .on_click(cx.listener(move |s, _, _, cx| {
-                            s.open_change = if s.open_change.as_deref() == Some(f.as_str()) { None } else { Some(f.clone()) };
+                            if !s.open_change.remove(&f) {
+                                s.open_change.insert(f.clone());
+                            }
                             cx.notify();
                         }))
                         .child(div().flex_none().small(t).font_weight(gpui::FontWeight::SEMIBOLD).text_color(color).child(i.t(key)))
