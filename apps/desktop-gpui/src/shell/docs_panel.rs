@@ -75,6 +75,8 @@ pub struct DocsPanel {
     sheet: HashMap<String, usize>,
     diff_at: HashMap<String, usize>,
     confirm_all: bool,
+    /// Pratinjau lampiran (AttachmentPreview): hanya isi, tanpa tab dan toolbar.
+    preview: bool,
 }
 
 impl DocsPanel {
@@ -86,7 +88,20 @@ impl DocsPanel {
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false }
+        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false }
+    }
+
+    /// Penampil mandiri untuk byte lampiran (port AttachmentPreview.tsx → PreviewBody).
+    pub fn preview(name: String, bytes: Vec<u8>, cx: &mut Context<Self>) -> Self {
+        let state = cx.new(|_| DocsState { open: vec![name.clone()], active: Some(name.clone()), diffs: HashMap::new() });
+        let kind = classify(&name, Some(&bytes));
+        let text = is_text_kind(kind).then(|| {
+            let d = decode_text(&bytes, MAX_TEXT_BYTES);
+            (d.text, d.truncated)
+        });
+        let mut cache = HashMap::new();
+        cache.insert(name, Loaded { kind, bytes: Ok(std::sync::Arc::new(bytes)), text });
+        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true }
     }
 
     fn load(path: &str) -> Loaded {
@@ -434,6 +449,9 @@ impl Render for DocsPanel {
             self.cache.insert(active.clone(), l);
         }
         let kind = self.cache[&active].kind;
+        if self.preview {
+            return self.body(&t, &i, &active, cx);
+        }
 
         let mut tabs = div().id("doc-tabs").flex().flex_none().items_center().gap(t.space(1)).px(t.space(2)).h(t.rem(rem::TITLEBAR_HEIGHT)).border_b_1().border_color(t.colors.border).overflow_x_scroll();
         for p in &open {

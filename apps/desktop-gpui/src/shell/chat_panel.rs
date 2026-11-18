@@ -51,6 +51,8 @@ pub struct ChatPanel {
     pins_open: bool,
     picker: model_picker::PickerState,
     info_open: bool,
+    /// Pratinjau lampiran composer: (judul, penampil; None = data tidak terbaca).
+    att_preview: Option<(String, Option<Entity<super::docs_panel::DocsPanel>>)>,
     mp_search: Entity<TextInput>,
     voice_devices: Vec<crate::voice::AudioInput>,
     voice_device: String,
@@ -113,6 +115,7 @@ impl ChatPanel {
             picker: model_picker::PickerState { tab: "models".into(), sort: "status".into(), group: "provider".into(), ..Default::default() },
             mp_search,
             info_open: false,
+            att_preview: None,
             voice_devices: vec![],
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
@@ -561,7 +564,11 @@ impl Render for ChatPanel {
                         .border_color(t.colors.border_soft)
                         .bg(t.colors.surface)
                         .small(&t)
-                        .child(icon("paperclip").size(IconSize::Sm))
+                        .child({
+                            let f = f.clone();
+                            let label = i.tp("chat.previewFile", &[("name", &name)]);
+                            icon_button(SharedString::from(format!("chip-pv-{n}")), "paperclip", label).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |s, _, _, cx| s.open_preview(&f, cx)))
+                        })
                         .child(div().max_w(t.rem(14.)).truncate().child(name.clone()))
                         .child(
                             icon_button(SharedString::from(format!("chip-x-{n}")), "close", i.tp("chat.removeAttachment", &[("name", &name)]))
@@ -792,10 +799,46 @@ impl Render for ChatPanel {
             .children(head)
             .child(body)
             .child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer))
+            .children(self.att_preview.clone().map(|(title, view)| {
+                crate::ui::dialog(title)
+                    .width_rem(rem::SPACE[7] * 14.)
+                    .on_dismiss(cx.listener(|s, _, _, cx| {
+                        s.att_preview = None;
+                        cx.notify();
+                    }))
+                    .child(match view {
+                        Some(v) => div().id("att-pv").max_h(t.rem(36.)).overflow_scroll().child(v).into_any_element(),
+                        None => div().small(&t).text_color(t.colors.danger).child(i.t("chat.attachmentPreviewError")).into_any_element(),
+                    })
+                    .footer(div().flex().justify_end().child(crate::ui::button("att-pv-close").size(ControlSize::Sm).label(i.t("ui.close")).on_click(cx.listener(|s, _, _, cx| {
+                        s.att_preview = None;
+                        cx.notify();
+                    }))))
+            }))
             .into_any_element()
     }
 }
 
+
+impl ChatPanel {
+    /// Port AttachmentPreview: data URL didekode; path lokal dibaca langsung (GPUI punya akses berkas).
+    fn open_preview(&mut self, f: &crate::core::attachments::FileAttachment, cx: &mut Context<Self>) {
+        let name = f.filename.clone().unwrap_or_else(|| cx.global::<I18n>().t("chat.attachmentPreview"));
+        let bytes = if let Some(rest) = f.url.strip_prefix("data:") {
+            rest.split_once(',').and_then(|(_, b)| crate::core::gradient::b64_decode(b))
+        } else {
+            let p = f.url.strip_prefix("file:///").or_else(|| f.url.strip_prefix("file://")).unwrap_or(&f.url);
+            let p = p.replace("%20", " ");
+            crate::files::read_limited(std::path::Path::new(&p), 40 * 1024 * 1024).ok()
+        };
+        let view = bytes.map(|b| {
+            let n = name.clone();
+            cx.new(|cx| super::docs_panel::DocsPanel::preview(n, b, cx))
+        });
+        self.att_preview = Some((name, view));
+        cx.notify();
+    }
+}
 
 /// Permintaan fokus ke satu pesan (id) — diisi panel Trajectory "Ke pesan", dibaca ChatPanel.
 pub struct MessageFocus(pub Option<String>);
