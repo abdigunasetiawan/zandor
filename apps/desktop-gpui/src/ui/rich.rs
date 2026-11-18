@@ -1,7 +1,8 @@
 //! Aksi blok render kaya — port rich/RichMarkdown.tsx (CodeBlock, RichTable), RichActions.tsx, rich-export.ts:
 //! blok kode dengan bahasa, bungkus baris, salin, salin berpagar, simpan berkas, lipat untuk kode panjang; tabel dengan
 //! salin TSV/Markdown/CSV/HTML dan simpan CSV/Markdown. Aksi lain di menu ⋯ (digambar Root di posisi mouse).
-//! Perbedaan jujur: ekspor sebagai gambar (PNG/SVG) belum diport.
+//! Rumus blok: salin LaTeX, salin dengan $$, simpan .tex. Perbedaan jujur: ekspor sebagai gambar (PNG/SVG) dan salin
+//! MathML belum diport.
 use super::menu::{entry, MenuEntry};
 use super::{button::icon_button, ButtonVariant, ControlSize, TypeExt};
 use crate::i18n::I18n;
@@ -262,6 +263,25 @@ pub fn table_bar(t: &Theme, i: &I18n, rows: Vec<Vec<String>>) -> AnyElement {
         .gap(t.space(1))
         .child(icon_button(ElementId::Name(format!("tb-copy-{key:x}").into()), "table", i.t("rich.copyTable")).size(ControlSize::Sm).on_click(move |_, _, cx| copy_text(to_tsv(&r0), cx)))
         .child(more_button(format!("tb-more-{key:x}"), i, more))
+        .into_any_element()
+}
+
+/// Bilah aksi rumus blok (port MathBlock): salin LaTeX + menu ⋯ (salin dengan $$, simpan .tex).
+pub fn math_bar(t: &Theme, i: &I18n, latex: &str) -> AnyElement {
+    let key = block_key(&["math", latex]);
+    let (l1, l2, l3) = (latex.to_string(), latex.to_string(), latex.to_string());
+    let more = vec![
+        entry(i.t("rich.copyLatexDisplay"), move |_, cx| copy_text(format!("$$
+{l2}
+$$"), cx)).icon("copy"),
+        entry(i.tp("rich.saveFile", &[("ext", ".tex")]), move |_, cx| save_text(stamped_name("rumus", "tex"), l3.clone(), cx)).icon("download"),
+    ];
+    div()
+        .flex()
+        .justify_end()
+        .gap(t.space(1))
+        .child(icon_button(ElementId::Name(format!("mb-copy-{key:x}").into()), "sigma", i.t("rich.copyLatex")).size(ControlSize::Sm).on_click(move |_, _, cx| copy_text(l1.clone(), cx)))
+        .child(more_button(format!("mb-more-{key:x}"), i, more))
         .into_any_element()
 }
 

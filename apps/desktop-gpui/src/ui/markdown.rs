@@ -142,7 +142,7 @@ enum Container {
 }
 
 pub fn markdown(src: &str, t: &Theme, i: &crate::i18n::I18n) -> AnyElement {
-    let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES;
+    let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES | Options::ENABLE_MATH;
     let mut stack: Vec<Block> = vec![Block::Container { kind: Container::Root, children: vec![] }];
     let mut inl = Inline::default();
     let mut heading: Option<HeadingLevel> = None;
@@ -312,6 +312,16 @@ pub fn markdown(src: &str, t: &Theme, i: &crate::i18n::I18n) -> AnyElement {
                 }
             }
             Event::Code(s) => inl.push(&s, t, true),
+            Event::InlineMath(s) => {
+                inl.italic += 1;
+                inl.push(&super::math::inline_text(&s), t, false);
+                inl.italic -= 1;
+            }
+            Event::DisplayMath(s) => {
+                flush(&mut inl, &mut stack, None);
+                let bar = super::rich::math_bar(t, i, &s);
+                push_child(&mut stack, div().flex().flex_col().w_full().child(bar).child(super::math::render_block(&s, t)).into_any_element());
+            }
             Event::SoftBreak => inl.push(" ", t, false),
             Event::HardBreak => inl.push("\n", t, false),
             Event::Rule => {

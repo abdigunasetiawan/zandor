@@ -6,6 +6,7 @@ pub mod feedback;
 pub mod highlight;
 pub mod icon;
 pub mod markdown;
+pub mod math;
 pub mod menu;
 pub mod rich;
 pub mod molecules;
