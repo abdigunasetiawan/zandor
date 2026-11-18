@@ -203,6 +203,9 @@ impl Render for Root {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
         let route = self.app.read(cx).current().to_string();
+        if !(route == "/" || route.is_empty()) {
+            super::layout::set_panel_shown(super::layout::PanelShown::default(), cx);
+        }
         let content: gpui::AnyElement = if route == "/" || route.is_empty() {
             self.layout.clone().into_any_element()
         } else if route == "/settings" || route == "/appearance" || route.starts_with("/settings/") {

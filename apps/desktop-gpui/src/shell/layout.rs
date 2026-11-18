@@ -10,6 +10,22 @@ use gpui::{
 };
 
 /// Panel yang bisa diubah ukurannya (rail hanya tampil/sembunyi).
+/// Panel mana yang sedang benar-benar digambar. Webview native (Browser, media) menyembunyikan dirinya saat panelnya
+/// tidak tampil, karena jendela anak tidak ikut hilang bila elemen GPUI-nya berhenti digambar.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub struct PanelShown {
+    pub docs: bool,
+    pub tools: bool,
+}
+impl gpui::Global for PanelShown {}
+
+/// Perbarui PanelShown hanya bila berubah (pengamat dipanggil sekali per perubahan).
+pub fn set_panel_shown(v: PanelShown, cx: &mut gpui::App) {
+    if cx.try_global::<PanelShown>().copied() != Some(v) {
+        cx.set_global(v);
+    }
+}
+
 const RESIZABLE: [PanelId; 4] = [PanelId::Sidebar, PanelId::Chat, PanelId::Docs, PanelId::Tools];
 /// Lebar minimum (rem).
 fn min_rem(p: PanelId) -> f32 {
@@ -239,6 +255,7 @@ impl Render for ShellLayout {
         let collapsed: Vec<bool> = RESIZABLE.iter().map(|p| self.app.read(cx).is_collapsed(*p)).collect();
         let rail_hidden = self.app.read(cx).is_collapsed(PanelId::Rail);
         let open: Vec<usize> = (0..4).filter(|i| !collapsed[*i]).collect();
+        set_panel_shown(PanelShown { docs: !collapsed[2], tools: !collapsed[3] }, cx);
         let total: f32 = open.iter().map(|i| self.sizes[*i]).sum::<f32>().max(1.);
         let i18n = cx.global::<I18n>();
         let tool_label = i18n.t(&format!("tools.{}", self.active_tool.key()));

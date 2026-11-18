@@ -77,6 +77,12 @@ pub struct BrowserPanel {
 
 impl BrowserPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        cx.observe_global::<super::layout::PanelShown>(|s, cx| {
+            if !cx.global::<super::layout::PanelShown>().tools {
+                s.hide_all();
+            }
+        })
+        .detach();
         let ph = cx.global::<I18n>().t("br.address");
         let address = cx.new(|cx| {
             let mut ti = TextInput::new(cx, ph);

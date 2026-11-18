@@ -81,6 +81,8 @@ pub struct DocsPanel {
     editors: HashMap<String, Entity<crate::ui::TextInput>>,
     /// Penampil PDF per berkas (perender bawaan Windows).
     pdfs: HashMap<String, Entity<super::pdf_view::PdfView>>,
+    /// Pemutar media untuk tab aktif saja (webview dibuang saat berpindah tab).
+    media: HashMap<String, Entity<super::media_view::MediaView>>,
     /// Waktu ubah berkas saat dimuat (deteksi konflik saat menyimpan).
     mtimes: HashMap<String, Option<std::time::SystemTime>>,
     ask: Option<Ask>,
@@ -208,7 +210,7 @@ impl DocsPanel {
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), pdfs: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
+        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), pdfs: HashMap::new(), media: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
     }
 
     /// Penampil mandiri untuk byte lampiran (port AttachmentPreview.tsx → PreviewBody).
@@ -221,7 +223,7 @@ impl DocsPanel {
         });
         let mut cache = HashMap::new();
         cache.insert(name, Loaded { kind, bytes: Ok(std::sync::Arc::new(bytes)), text });
-        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), pdfs: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
+        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), pdfs: HashMap::new(), media: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
     }
 
     fn load(path: &str) -> Loaded {
@@ -806,6 +808,11 @@ impl DocsPanel {
                         col.into_any_element()
                     }
                 },
+                DocKind::Audio | DocKind::Video => {
+                    let p = path.to_string();
+                    self.media.retain(|k, _| *k == p);
+                    self.media.entry(p.clone()).or_insert_with(|| cx.new(|cx| super::media_view::MediaView::new(&p, cx))).clone().into_any_element()
+                }
                 DocKind::Pdf => {
                     let p = path.to_string();
                     self.pdfs.entry(p.clone()).or_insert_with(|| cx.new(|cx| super::pdf_view::PdfView::new(p, cx))).clone().into_any_element()
@@ -857,6 +864,7 @@ impl Render for DocsPanel {
             self.cache.insert(active.clone(), l);
         }
         let kind = self.cache[&active].kind;
+        self.media.retain(|k, _| *k == active);
         self.look = DocLook::from(&crate::core::appearance::AppearanceStore::global(cx).read(cx).docs);
         if self.preview {
             return self.body(&t, &i, &active, cx);
@@ -1076,7 +1084,7 @@ impl Render for DocsPanel {
             .child(tabs)
             .child(bar)
             .children(find_bar)
-            .child(if viewer == "pdf" {
+            .child(if viewer == "pdf" || viewer == "media" {
                 // PDF menggulir sendiri (memuat halaman sesuai viewport)
                 div().id("doc-body").flex_1().min_h_0().flex().flex_col().child(body)
             } else {
