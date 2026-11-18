@@ -14,6 +14,7 @@ pub enum MenuEntry {
         /// Pembuat elemen pembuka (ikon gambar); AnyElement tidak bisa di-clone, jadi disimpan sebagai fungsi.
         lead: Option<Rc<dyn Fn() -> AnyElement>>,
         shortcut: Option<SharedString>,
+        description: Option<SharedString>,
         danger: bool,
         disabled: bool,
         checked: bool,
@@ -28,6 +29,7 @@ pub fn entry(label: impl Into<SharedString>, action: impl Fn(&mut Window, &mut A
         icon: None,
         lead: None,
         shortcut: None,
+        description: None,
         danger: false,
         disabled: false,
         checked: false,
@@ -63,6 +65,13 @@ impl MenuEntry {
     pub fn lead(mut self, f: impl Fn() -> AnyElement + 'static) -> Self {
         if let MenuEntry::Item { lead, .. } = &mut self {
             *lead = Some(Rc::new(f));
+        }
+        self
+    }
+    /// Teks penjelas di bawah label (item Select dengan `description`).
+    pub fn description(mut self, d: impl Into<SharedString>) -> Self {
+        if let MenuEntry::Item { description, .. } = &mut self {
+            *description = Some(d.into());
         }
         self
     }
@@ -104,7 +113,7 @@ pub fn menu_popup(
     for (n, e) in tidy(entries).into_iter().enumerate() {
         match e {
             MenuEntry::Separator => list = list.child(separator(t)),
-            MenuEntry::Item { label, icon, lead, shortcut, danger, disabled, checked, action } => {
+            MenuEntry::Item { label, icon, lead, shortcut, description, danger, disabled, checked, action } => {
                 let close = on_close.clone();
                 let mut it = menu_item(SharedString::from(format!("{id}-{n}")), label)
                     .danger(danger)
@@ -119,6 +128,9 @@ pub fn menu_popup(
                 }
                 if let Some(l) = lead {
                     it = it.lead(l());
+                }
+                if let Some(d) = description {
+                    it = it.description(d);
                 }
                 if let Some(s) = shortcut {
                     it = it.shortcut(s);

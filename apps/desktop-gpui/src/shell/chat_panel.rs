@@ -101,7 +101,11 @@ impl ChatPanel {
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &InputSubmit, cx| this.submit(e.0.to_string(), cx)).detach();
         let mp_ph = cx.global::<I18n>().t("mp.search");
-        let mp_search = cx.new(|cx| TextInput::new(cx, mp_ph));
+        let mp_search = cx.new(|cx| {
+            let mut ti = TextInput::new(cx, mp_ph);
+            ti.bare = true;
+            ti
+        });
         cx.subscribe(&mp_search, |_, _, _: &crate::ui::InputChanged, cx| cx.notify()).detach();
         cx.observe(&crate::core::pings::PingStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &crate::ui::InputNav, cx| this.on_nav(*e, cx)).detach();
@@ -735,7 +739,10 @@ impl Render for ChatPanel {
                 .iter()
                 .map(|m| (SharedString::from(*m), SharedString::from(i.t(&format!("chat.mode.{m}")))))
                 .collect();
-            crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone()).pill(true).lead_icon("shield")
+            crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone()).pill(true).lead_icon("shield").up(true).descriptions({
+                let d: std::collections::HashMap<String, String> = crate::core::composer::PERMISSION_MODES.iter().map(|m| (m.to_string(), i.t(&format!("chat.modeDesc.{m}")))).collect();
+                move |v| d.get(v).map(|s| SharedString::from(s.clone()))
+            })
                 .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_permission_mode(&v, cx)))
         };
         let mem_toggles = self.memory_toggles(&t, i, cx);
@@ -761,7 +768,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(mem_toggles).children(info_el).child(div().flex_1()).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().children(model_sel).children(variant_sel.map(|v| div().border_l_1().border_color(t.colors.border_soft).child(v)))).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().child(voice_btn).child(div().h(t.rem(rem::CONTROL_SM)).border_l_1().border_color(t.colors.border_soft).child(voice_dev))).children(add_btn).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(mem_toggles).child(div().flex_1()).children(info_el).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().children(model_sel).children(variant_sel.map(|v| div().border_l_1().border_color(t.colors.border_soft).child(v)))).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().child(voice_btn).child(div().h(t.rem(rem::CONTROL_SM)).border_l_1().border_color(t.colors.border_soft).child(voice_dev))).children(add_btn).child(send_btn)),
         );
 
         let welcome = match (&state, &cur) {

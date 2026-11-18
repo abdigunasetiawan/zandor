@@ -510,6 +510,7 @@ impl Render for Sidebar {
                 ],
                 self.tab.clone(),
             )
+            .stretch(true)
             .on_change({
                 let me = me.clone();
                 move |v, _, cx| {
@@ -743,10 +744,10 @@ impl Render for Sidebar {
         };
         let user_entries = vec![
             entry(i.t("profile.manage"), nav("/settings/profile")).icon("user"),
-            entry(i.t("cmd.openSettings"), nav("/settings")).icon("settings"),
-            entry(i.t("pv.manage"), nav("/settings/models")).icon("server"),
+            entry(i.t("settings.title"), nav("/settings")).icon("settings"),
+            entry(i.t("pv.manage"), nav("/settings/models")).icon("globe"),
             entry(i.t("mem.manage"), nav("/memory")).icon("brain"),
-            entry(i.t("cmd.appearance"), nav("/appearance")).icon("customize"),
+            entry(i.t("cmd.appearance"), nav("/appearance")).icon("eye"),
         ];
         let foot = div()
             .flex()
@@ -765,15 +766,6 @@ impl Render for Sidebar {
                     .min_w_0()
                     .items_center()
                     .gap(t.space(2))
-                    .p(t.space(1))
-                    .rounded(t.rem(rem::RADIUS_MD))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(c.hover))
-                    .when(menu_open, |d| d.bg(c.active))
-                    .on_click(cx.listener(|s, _, _, cx| {
-                        s.open_menu = if s.open_menu.as_deref() == Some("user") { None } else { Some("user".into()) };
-                        cx.notify();
-                    }))
                     .child(crate::core::profile::profile_avatar(cx).size(ControlSize::Md))
                     .child(
                         div()
@@ -792,8 +784,30 @@ impl Render for Sidebar {
                                     .when(est.status != "ready", |d| d.child(div().size(px(6.)).rounded_full().bg(dot)).child(i.t(&format!("engine.{}", est.status)))),
                             ),
                     )
-                    .child(div().flex_1())
-                    .child(div().flex_none().text_color(c.fg_muted).child(icon("more").size(IconSize::Md)))
+,
+            )
+            .when(failed, |d| {
+                d.child(
+                    icon_button("sb-retry", "refresh", i.t("engine.retry"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ControlSize::Sm)
+                        .on_click(cx.listener(|s, _, _, cx| s.engine.read(cx).restart())),
+                )
+            })
+            .child(
+                div()
+                    .relative()
+                    .flex_none()
+                    .child(
+                        icon_button("sb-user-menu", "more", i.t("sb.user.menu"))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ControlSize::Sm)
+                            .pressed(menu_open)
+                            .on_click(cx.listener(|s, _, _, cx| {
+                                s.open_menu = if s.open_menu.as_deref() == Some("user") { None } else { Some("user".into()) };
+                                cx.notify();
+                            })),
+                    )
                     .when(menu_open, |d| {
                         let me = me.clone();
                         d.child(menu_popup("m-user", &t, user_entries, Anchor::BottomLeft, move |_, cx| {
@@ -804,15 +818,7 @@ impl Render for Sidebar {
                             .ok();
                         }))
                     }),
-            )
-            .when(failed, |d| {
-                d.child(
-                    icon_button("sb-retry", "refresh", i.t("engine.retry"))
-                        .variant(ButtonVariant::Ghost)
-                        .size(ControlSize::Sm)
-                        .on_click(cx.listener(|s, _, _, cx| s.engine.read(cx).restart())),
-                )
-            });
+            );
 
         // ---- dialog ----
         let dlg = self.dialog.clone().map(|d| {
@@ -883,7 +889,7 @@ impl Render for Sidebar {
             .flex()
             .flex_col()
             .size_full()
-            .bg(c.surface)
+            .bg(c.bg)
             .child(head)
             .children(search)
             .child(tab_bar)

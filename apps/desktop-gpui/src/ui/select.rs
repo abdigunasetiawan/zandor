@@ -19,11 +19,15 @@ pub struct Select {
     pill: bool,
     /// Ikon tetap di depan label pemicu (prop `icon` Select React).
     lead: Option<&'static str>,
+    /// Deskripsi per nilai opsi (item Select React dengan `description`).
+    descs: Option<Rc<dyn Fn(&str) -> Option<SharedString>>>,
+    /// Popup dibuka ke atas (pemicu di dekat tepi bawah, mis. composer).
+    up: bool,
 }
 
 /// `items`: (nilai, label).
 pub fn select(id: impl Into<ElementId>, items: Vec<(SharedString, SharedString)>, value: impl Into<SharedString>) -> Select {
-    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None, pill: false, lead: None }
+    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None, pill: false, lead: None, descs: None, up: false }
 }
 
 impl Select {
@@ -41,6 +45,14 @@ impl Select {
     }
     pub fn pill(mut self, v: bool) -> Self {
         self.pill = v;
+        self
+    }
+    pub fn descriptions(mut self, f: impl Fn(&str) -> Option<SharedString> + 'static) -> Self {
+        self.descs = Some(Rc::new(f));
+        self
+    }
+    pub fn up(mut self, v: bool) -> Self {
+        self.up = v;
         self
     }
     pub fn lead_icon(mut self, name: &'static str) -> Self {
@@ -100,6 +112,10 @@ impl RenderOnce for Select {
                         }
                     })
                     .checked(*v == self.value);
+                    let e = match self.descs.as_ref().and_then(|f| f(v)) {
+                        Some(d) => e.description(d),
+                        None => e,
+                    };
                     match self.icons.clone() {
                         Some(f) => {
                             let v3 = v.clone();
@@ -110,7 +126,7 @@ impl RenderOnce for Select {
                 })
                 .collect();
             let o3 = open.clone();
-            el = el.child(menu_popup(SharedString::from(format!("{:?}-pop", self.id)), &t, entries, Anchor::TopLeft, move |_, cx| {
+            el = el.child(menu_popup(SharedString::from(format!("{:?}-pop", self.id)), &t, entries, if self.up { Anchor::BottomLeft } else { Anchor::TopLeft }, move |_, cx| {
                 o3.update(cx, |v, cx| {
                     *v = false;
                     cx.notify();

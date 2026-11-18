@@ -131,7 +131,7 @@ impl RenderOnce for MenuItem {
                     .gap(t.space(1))
                     .min_w_0()
                     .child(div().font_weight(FontWeight(t.ty(crate::theme::H4).weight)).child(self.label))
-                    .child(div().max_w(t.rem(rem::SPACE[7] * 6.)).small(&t).child(desc)),
+                    .child(div().max_w(t.rem(rem::SPACE[7] * 6.)).text_color(c.fg_muted).child(desc)),
             ),
             None => el.child(self.label),
         };
@@ -167,15 +167,33 @@ pub struct Tabs {
     items: Vec<TabItem>,
     value: SharedString,
     vertical: bool,
+    stretch: bool,
+    nav: bool,
+    leads: Option<Box<dyn Fn(&str) -> Option<AnyElement>>>,
     panel: Option<AnyElement>,
     on_change: Option<Box<dyn Fn(SharedString, &mut Window, &mut App) + 'static>>,
 }
 pub fn tabs(id: impl Into<ElementId>, items: Vec<TabItem>, value: impl Into<SharedString>) -> Tabs {
-    Tabs { id: id.into(), items, value: value.into(), vertical: false, panel: None, on_change: None }
+    Tabs { id: id.into(), items, value: value.into(), vertical: false, stretch: false, nav: false, leads: None, panel: None, on_change: None }
 }
 impl Tabs {
     pub fn vertical(mut self, v: bool) -> Self {
         self.vertical = v;
+        self
+    }
+    /// Tab membagi lebar sama rata (`.sidebar .z-tabs__tab { flex: 1 }`).
+    pub fn stretch(mut self, v: bool) -> Self {
+        self.stretch = v;
+        self
+    }
+    /// Gaya navigasi (`.mpicker .z-tabs__list`): tanpa wadah segmen, garis kanan, tab aktif latar `active`.
+    pub fn nav(mut self, v: bool) -> Self {
+        self.nav = v;
+        self
+    }
+    /// Elemen pembuka per nilai tab (mis. logo provider) menggantikan ikon nama.
+    pub fn leads(mut self, f: impl Fn(&str) -> Option<AnyElement> + 'static) -> Self {
+        self.leads = Some(Box::new(f));
         self
     }
     /// Isi panel tab aktif.
@@ -197,9 +215,8 @@ impl RenderOnce for Tabs {
             .flex()
             .flex_none()
             .gap(t.space(1))
-            .p(t.space(1))
-            .rounded(t.rem(rem::RADIUS_LG))
-            .bg(c.segment)
+            .when(!self.nav, |d| d.p(t.space(1)).rounded(t.rem(rem::RADIUS_LG)).bg(c.segment))
+            .when(self.nav, |d| d.gap(t.space(1) * 0.5).pr(t.space(2)).border_r_1().border_color(c.border))
             .when(self.vertical, |d| d.flex_col());
         for (i, it) in self.items.into_iter().enumerate() {
             let active = it.value == self.value;
@@ -207,24 +224,29 @@ impl RenderOnce for Tabs {
             let mut tab = div()
                 .id(("tab", i))
                 .flex()
-                .flex_none()
+                .when(self.stretch, |d| d.flex_1())
+                .when(!self.stretch, |d| d.flex_none())
                 .items_center()
                 .when(!self.vertical, |d| d.justify_center())
                 .gap(t.space(2))
                 .whitespace_nowrap()
-                .h(t.rem(rem::CONTROL_MD))
-                .px(t.space(3))
+                .when(!self.nav, |d| d.h(t.rem(rem::CONTROL_MD)).px(t.space(3)))
+                .when(self.nav, |d| d.h(t.rem(rem::CONTROL_SM)).px(t.space(2)).overflow_hidden())
                 .border_1()
                 .border_color(gpui::transparent_black())
                 .rounded(t.rem(rem::RADIUS_MD))
                 .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
                 .font_weight(FontWeight(t.ty(crate::theme::BUTTON).weight))
                 .text_color(if active { c.fg } else { c.fg_muted })
-                .when(active, |d| d.bg(c.segment_active).shadow(t.shadow_1()));
-            if let Some(name) = it.icon {
-                tab = tab.child(icon(name).color(if active { c.fg } else { c.fg_muted }));
+                .when(active && !self.nav, |d| d.bg(c.segment_active).shadow(t.shadow_1()))
+                .when(active && self.nav, |d| d.bg(c.active).font_weight(FontWeight::MEDIUM))
+                .when(!active && self.nav, |d| d.hover(|s| s.bg(c.hover)));
+            if let Some(l) = self.leads.as_ref().and_then(|f| f(&it.value)) {
+                tab = tab.child(l);
+            } else if let Some(name) = it.icon {
+                tab = tab.child(icon(name).size(IconSize::Sm).color(if active { c.fg } else { c.fg_muted }));
             }
-            tab = tab.child(it.label);
+            tab = tab.child(div().min_w_0().truncate().child(it.label));
             if it.disabled {
                 tab = tab.opacity(0.5).cursor_not_allowed();
             } else {

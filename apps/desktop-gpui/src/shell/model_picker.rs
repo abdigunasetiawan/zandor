@@ -185,9 +185,11 @@ impl ChatPanel {
                     .items_center()
                     .gap(t.space(1))
                     .cursor_pointer()
-                    .small(t)
-                    .font_weight(FontWeight::MEDIUM)
+                    .px(t.space(2))
+                    .py(t.space(1))
+                    .typo(t, crate::theme::LABEL)
                     .text_color(t.colors.fg_muted)
+                    .hover(|s| s.text_color(t.colors.fg))
                     .on_click(cx.listener(move |s, _, _, cx| {
                         if !s.picker.folded.remove(&key) {
                             s.picker.folded.insert(key.clone());
@@ -196,7 +198,7 @@ impl ChatPanel {
                     }))
                     .child(icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
                     .child(title)
-                    .child(div().text_color(t.colors.fg_subtle).child(format!("({count})"))),
+                    .child(div().text_color(t.colors.fg_subtle).font_weight(FontWeight::NORMAL).child(format!("({count})"))),
             )
             .when(open, |d| d.children(body))
             .into_any_element()
@@ -249,8 +251,9 @@ impl ChatPanel {
                         }))
                         .child(icon(if is_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
                         .child(model_logo(t, cx, Some(id), None, name, false, &format!("mgl-{id}")))
-                        .child(div().flex_1().truncate().font_weight(FontWeight::MEDIUM).child(name.clone()))
+                        .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(name.clone()))
                         .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("({})", ms.len())))
+                        .child(div().flex_1())
                         .into_any_element(),
                 );
                 if is_open {
@@ -266,7 +269,18 @@ impl ChatPanel {
             .flex_col()
             .gap(t.space(2))
             .size_full()
-            .child(self.mp_search.clone())
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t.space(2))
+                    .h(t.rem(rem::CONTROL_MD))
+                    .px(t.space(3))
+                    .rounded(t.rem(rem::RADIUS_MD))
+                    .bg(t.colors.hover)
+                    .child(icon("search").size(IconSize::Sm).color(t.colors.fg_subtle))
+                    .child(div().flex_1().min_w_0().child(self.mp_search.clone())),
+            )
             .child(div().id("mp-scroll").flex_1().min_h_0().overflow_y_scroll().child(page))
             .into_any_element()
     }
@@ -558,7 +572,11 @@ impl ChatPanel {
             let me = cx.entity().downgrade();
             let me2 = me.clone();
             let me3 = me.clone();
-            let tabs = crate::ui::tabs("mp-tabs", items, if tab.is_empty() { "models".to_string() } else { tab }).vertical(true).on_change(move |v, _, cx| {
+            let tabs = crate::ui::tabs("mp-tabs", items, if tab.is_empty() { "models".to_string() } else { tab }).vertical(true).nav(true).leads({
+                let logos: std::collections::HashMap<String, AnyElement> = groups.iter().map(|(id, name, _)| (format!("p:{id}"), model_logo(t, cx, Some(id), None, name, false, &format!("mtl-{id}")))).collect();
+                let logos = std::cell::RefCell::new(logos);
+                move |v| logos.borrow_mut().remove(v)
+            }).on_change(move |v, _, cx| {
                 me.update(cx, |s, cx| {
                     s.picker.tab = v.to_string();
                     cx.notify();
@@ -580,11 +598,11 @@ impl ChatPanel {
                         .flex_1()
                         .min_h_0()
                         .gap(t.space(2))
-                        .child(div().id("mp-tablist").flex_none().w(t.rem(rem::SPACE[7] * 4.)).overflow_y_scroll().child(tabs))
+                        .child(div().id("mp-tablist").flex_none().w(t.rem(10.)).overflow_y_scroll().child(tabs))
                         .child(div().flex_1().min_w_0().min_h_0().child(panel)),
                 )
                 .child(
-                    div().flex().justify_end().child(
+                    div().flex().justify_end().pt(t.space(1)).border_t_1().border_color(t.colors.border).child(
                         crate::ui::button("mp-manage").size(ControlSize::Sm).label(i.t("mp.manage")).on_click(move |_, _, cx| {
                             me3.update(cx, |s, cx| {
                                 s.close_picker(cx);
