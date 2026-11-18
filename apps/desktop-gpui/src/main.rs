@@ -86,6 +86,7 @@ fn main() {
             assets::load_fonts(cx);
             ui::text_input::bind_keys(cx);
             shell::command_center::bind_keys(cx);
+            shell::pdf_view::bind_keys(cx);
             cx.set_global(Theme::new(ThemeMode::Dark, true, 1.0));
             cx.set_global(I18n::new(detect_locale(std::env::var("LANG").ok().as_deref())));
             AppState::init("/", cx);

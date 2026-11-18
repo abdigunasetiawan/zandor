@@ -1,13 +1,23 @@
 //! Penampil PDF (port PdfViewer.tsx) dengan perender bawaan Windows (core/pdf.rs): bilah halaman "n dari total",
 //! zoom −/+/100% (tahap sama dengan React), halaman digambar di thread latar sesuai lebar × zoom dan di-cache.
 //! Cari teks: Windows.Data.Pdf tidak memberi lapisan teks, jadi teks tiap halaman dibaca dengan OCR bawaan Windows
-//! (core::pdf::page_text) di thread latar; temuan disorot di atas gambar halaman. Pilih teks dengan seret di atas halaman (per kata OCR), salin lewat tombol Salin.
+//! (core::pdf::page_text) di thread latar; temuan disorot di atas gambar halaman. Pilih teks dengan seret di atas halaman (per kata OCR), salin lewat tombol Salin atau Ctrl+C (Ctrl+A memilih semua kata halaman yang terakhir dipilih).
 use crate::i18n::I18n;
 use crate::theme::Theme;
 use crate::ui::{button, icon_button, ControlSize, TypeExt};
 use gpui::{div, prelude::*, px, Context, IntoElement, ScrollHandle, SharedString, Window};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+gpui::actions!(pdf_view, [CopySelection, SelectPage]);
+
+pub fn bind_keys(cx: &mut gpui::App) {
+    let ctx = Some("PdfView");
+    cx.bind_keys([
+        gpui::KeyBinding::new("ctrl-c", CopySelection, ctx),
+        gpui::KeyBinding::new("ctrl-a", SelectPage, ctx),
+    ]);
+}
 
 const ZOOMS: [f32; 7] = [0.5, 0.75, 1., 1.25, 1.5, 2., 3.];
 /// Lebar dasar halaman pada zoom 100% (px logis).
@@ -32,6 +42,7 @@ pub struct PdfView {
     dragging: bool,
     /// Batas layar tiap halaman (diisi saat digambar) untuk mengubah posisi mouse ke koordinat halaman.
     page_bounds: std::rc::Rc<std::cell::RefCell<HashMap<usize, gpui::Bounds<gpui::Pixels>>>>,
+    focus: gpui::FocusHandle,
 }
 
 /// Semua kata satu halaman berurutan baca.
@@ -85,7 +96,7 @@ impl PdfView {
             .ok();
         })
         .detach();
-        Self { path, info: None, scale: 1., pages: HashMap::new(), pending: HashSet::new(), scroll: ScrollHandle::new(), find: None, texts: None, texts_started: false, hit: 0, sel: None, dragging: false, page_bounds: Default::default() }
+        Self { path, info: None, scale: 1., pages: HashMap::new(), pending: HashSet::new(), scroll: ScrollHandle::new(), find: None, texts: None, texts_started: false, hit: 0, sel: None, dragging: false, page_bounds: Default::default(), focus: cx.focus_handle() }
     }
 
     fn request(&mut self, page: usize, w: u32, cx: &mut Context<Self>) {
@@ -169,6 +180,18 @@ impl PdfView {
         let txt = selected_text(&texts[n], a, b);
         if !txt.is_empty() {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(txt));
+            let ti = cx.global::<I18n>().t("chat.copied");
+            crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Success, timeout_ms: Some(1500), ..crate::ui::ToastInput::new(ti) }, cx);
+        }
+    }
+
+    /// Ctrl+A: semua kata di halaman pilihan terakhir.
+    fn select_page(&mut self, cx: &mut Context<Self>) {
+        let (Some((n, _, _)), Some(texts)) = (self.sel, &self.texts) else { return };
+        let count = words(&texts[n]).len();
+        if count > 0 {
+            self.sel = Some((n, 0, count - 1));
+            cx.notify();
         }
     }
 
@@ -301,7 +324,8 @@ impl Render for PdfView {
                         let pb = self.page_bounds.clone();
                         gpui::canvas(move |b, _, _| { pb.borrow_mut().insert(n, b); }, |_, _, _, _| {}).absolute().size_full()
                     })
-                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |s, e: &gpui::MouseDownEvent, _, cx| {
+                    .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |s, e: &gpui::MouseDownEvent, w, cx| {
+                        w.focus(&s.focus, cx);
                         s.load_texts(total, cx);
                         s.sel = s.word_at(n, e.position).map(|k| (n, k, k));
                         s.dragging = s.sel.is_some();
@@ -338,6 +362,10 @@ impl Render for PdfView {
             .flex()
             .flex_col()
             .size_full()
+            .key_context("PdfView")
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|s, _: &CopySelection, _, cx| s.copy_selection(cx)))
+            .on_action(cx.listener(|s, _: &SelectPage, _, cx| s.select_page(cx)))
             .child(bar)
             .child(div().id("pdf-pages").flex_1().min_h_0().overflow_scroll().track_scroll(&self.scroll).on_scroll_wheel(cx.listener(|_, _, _, cx| cx.notify())).child(list))
             .into_any_element()
