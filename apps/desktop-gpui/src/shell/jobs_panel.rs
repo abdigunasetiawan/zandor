@@ -29,6 +29,8 @@ pub struct JobsPanel {
     /// Log job yang dibuka (None = memuat).
     log: Option<String>,
     log_scroll: ScrollHandle,
+    /// Daftar pertama sudah dibaca.
+    loaded: bool,
     /// Panel sedang tampil (polling hanya saat tampil).
     pub shown: bool,
 }
@@ -53,7 +55,7 @@ impl JobsPanel {
             }
         })
         .detach();
-        let mut me = Self { jobs: vec![], error: None, scope: "session".into(), open: None, log: None, log_scroll: ScrollHandle::new(), shown: true };
+        let mut me = Self { jobs: vec![], error: None, scope: "session".into(), open: None, log: None, log_scroll: ScrollHandle::new(), loaded: false, shown: true };
         me.refresh(cx);
         me
     }
@@ -68,7 +70,8 @@ impl JobsPanel {
         cx.spawn(async move |this, cx| {
             let (jobs, log) = task.await;
             this.update(cx, |s, cx| {
-                let changed = s.jobs != jobs;
+                let changed = s.jobs != jobs || !s.loaded;
+                s.loaded = true;
                 s.jobs = jobs;
                 s.error = None;
                 if let Some(l) = log {
@@ -161,6 +164,9 @@ impl Render for JobsPanel {
         }
         if self.scope.as_ref() == "session" && session.is_none() {
             col = col.child(notice(&t, i.t("jobs.noSession"), false));
+        }
+        if !self.loaded {
+            return col.child(notice(&t, i.t("jobs.loading"), false));
         }
         if shown.is_empty() {
             return col.child(notice(&t, i.t("jobs.empty"), true));

@@ -69,6 +69,8 @@ pub struct BrowserPanel {
     loading: HashMap<String, bool>,
     tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>,
     error: Option<String>,
+    /// Webview tertanam gagal dibuat: alamat dibuka di browser sistem (br.systemFallback).
+    system_fallback: bool,
     /// true saat panel Browser sedang ditampilkan (diatur ToolsHost).
     pub shown: bool,
 }
@@ -104,7 +106,7 @@ impl BrowserPanel {
             }
         })
         .detach();
-        Self { tabs: vec![Tab { id: "b1".into(), url: String::new() }], active: "b1".into(), address, views: Default::default(), loading: HashMap::new(), tx, error: None, shown: false }
+        Self { tabs: vec![Tab { id: "b1".into(), url: String::new() }], active: "b1".into(), address, views: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false }
     }
 
     /// Sembunyikan semua webview (panel lain dipilih / panel ditutup).
@@ -125,7 +127,9 @@ impl BrowserPanel {
                     t.url = url.clone();
                 }
                 self.address.update(cx, |a, cx| a.set_text(url.clone(), cx));
-                if let Some(v) = self.views.borrow().get(&id) {
+                if self.system_fallback {
+                    cx.open_url(&url);
+                } else if let Some(v) = self.views.borrow().get(&id) {
                     let _ = v.load_url(&url);
                 }
             }
@@ -285,7 +289,13 @@ impl Render for BrowserPanel {
         )
         .size_full();
         if let Some(e) = err_slot.borrow_mut().take() {
-            self.error = Some(e);
+            eprintln!("webview gagal: {e}");
+            if !self.system_fallback {
+                self.system_fallback = true;
+                if !cur_url.is_empty() {
+                    cx.open_url(&cur_url);
+                }
+            }
         }
         div()
             .size_full()
@@ -296,6 +306,7 @@ impl Render for BrowserPanel {
             .child(bar)
             .child(progress)
             .children(self.error.clone().map(|e| div().px(t.space(2)).small(&t).text_color(t.colors.danger).child(e)))
+            .when(self.system_fallback, |d| d.child(div().px(t.space(2)).small(&t).text_color(t.colors.fg_muted).child(i.t("br.systemFallback"))))
             .child(
                 div()
                     .flex_1()

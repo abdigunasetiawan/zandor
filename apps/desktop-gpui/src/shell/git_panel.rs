@@ -83,6 +83,21 @@ fn activity(cx: &mut gpui::App, msg: String) {
     crate::core::activity::log(cx, "git", level, msg);
 }
 
+/// Executable git tersedia? (dicek sekali per jalannya aplikasi)
+fn git_available() -> bool {
+    static OK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *OK.get_or_init(|| {
+        let mut c = std::process::Command::new("git");
+        c.arg("--version").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            c.creation_flags(0x0800_0000);
+        }
+        c.status().map(|s| s.success()).unwrap_or(false)
+    })
+}
+
 impl GitPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let i = cx.global::<I18n>().clone();
@@ -365,6 +380,9 @@ impl Render for GitPanel {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
         let wrap = |el: AnyElement| div().id("gitp").size_full().overflow_y_scroll().child(el);
+        if !git_available() {
+            return wrap(notice(&t, "git", i.t("git.unavailable")));
+        }
         if self.project_root.is_none() {
             return wrap(notice(&t, "git", i.t("git.noProject")));
         }
