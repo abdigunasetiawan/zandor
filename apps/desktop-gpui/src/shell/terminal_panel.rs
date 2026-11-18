@@ -17,6 +17,8 @@ pub struct ShellOption {
     pub name: String,
     pub path: String,
     pub args: Vec<String>,
+    /// Ikon asli exe (PNG base64), kosong bila tidak ada.
+    pub icon: String,
 }
 
 fn which(exe: &str) -> Option<PathBuf> {
@@ -24,11 +26,39 @@ fn which(exe: &str) -> Option<PathBuf> {
     std::env::split_paths(&path).map(|d| d.join(exe)).find(|p| p.is_file())
 }
 
-/// Deteksi shell terpasang (urutan = preferensi).
+/// Deteksi shell terpasang: skrip deteksi yang sama dengan aplikasi Tauri (shells.rs, dengan ikon asli dan distro WSL);
+/// cadangan pencarian PATH bila skrip gagal.
 pub fn detect_shells() -> Vec<ShellOption> {
+    match crate::shells::detect(false) {
+        Ok(list) if !list.is_empty() => {
+            let mut seen = std::collections::HashSet::new();
+            list.into_iter()
+                .filter(|s| !s.path.is_empty())
+                .map(|s| ShellOption { id: format!("{}\u{0}{}", s.path, s.args.join("\u{0}")), name: if s.name.is_empty() { s.path.clone() } else { s.name }, path: s.path, args: s.args, icon: s.icon })
+                .filter(|s| seen.insert(s.id.clone()))
+                .collect()
+        }
+        _ => detect_path_shells(),
+    }
+}
+
+/// Shell bawaan (port pickShell): Windows PowerShell, lalu pwsh/bash/zsh/sh, lalu yang pertama.
+pub fn pick_shell(list: &[ShellOption]) -> Option<&ShellOption> {
+    let named = |n: &str| list.iter().find(|s| s.name.eq_ignore_ascii_case(n) || s.path.to_lowercase().ends_with(&format!("\\{n}.exe")));
+    named("powershell").or_else(|| ["pwsh", "bash", "zsh", "sh"].iter().find_map(|n| named(n))).or(list.first())
+}
+
+fn shell_icon(t: &Theme, s: Option<&ShellOption>) -> AnyElement {
+    s.filter(|s| !s.icon.is_empty())
+        .and_then(|s| crate::core::gradient::image_of(&format!("data:image/png;base64,{}", s.icon)))
+        .map(|img| gpui::img(img).size(t.rem(rem::ICON_SM)).into_any_element())
+        .unwrap_or_else(|| icon("terminal").size(IconSize::Sm).into_any_element())
+}
+
+fn detect_path_shells() -> Vec<ShellOption> {
     let mut out = vec![];
     let mut add = |id: &str, name: &str, p: PathBuf, args: &[&str]| {
-        out.push(ShellOption { id: id.into(), name: name.into(), path: p.to_string_lossy().into_owned(), args: args.iter().map(|s| s.to_string()).collect() });
+        out.push(ShellOption { id: id.into(), name: name.into(), path: p.to_string_lossy().into_owned(), args: args.iter().map(|s| s.to_string()).collect(), icon: String::new() });
     };
     if cfg!(windows) {
         if let Some(p) = which("pwsh.exe") {
@@ -113,7 +143,7 @@ impl TerminalPanel {
     }
 
     fn current(&self) -> Option<&ShellOption> {
-        self.shell.as_ref().and_then(|id| self.shells.iter().find(|s| &s.id == id)).or(self.shells.first())
+        self.shell.as_ref().and_then(|id| self.shells.iter().find(|s| &s.id == id)).or_else(|| pick_shell(&self.shells))
     }
 
     fn push(&mut self, key: String, title: String, command: String, term: Entity<Terminal>, remote: Option<(String, String)>, cx: &mut Context<Self>) {
@@ -292,7 +322,11 @@ impl Render for TerminalPanel {
                                     s.active.insert(k.clone(), id);
                                     cx.notify();
                                 }))
-                                .child(icon("terminal").size(IconSize::Sm))
+                                .child(shell_icon(&t, {
+                                    // tab → shell: cocokkan exe; bila sama untuk beberapa pilihan (distro WSL), cocokkan juga nama di judul
+                                    let same: Vec<&ShellOption> = self.shells.iter().filter(|s| !x.command.is_empty() && s.path.eq_ignore_ascii_case(&x.command)).collect();
+                                    same.iter().find(|s| x.title.starts_with(&format!("{} ", s.name))).or(same.first()).copied()
+                                }))
                                 .child(x.title.clone())
                                 .when(!x.command.is_empty(), |d| d)
                                 .when(exited, |d| d.child(div().id(SharedString::from(format!("tm-x-{id}"))).text_color(t.colors.fg_subtle).tooltip(crate::ui::tooltip::text_tooltip(i.t("tm.exited").into())).child("✕"))),
