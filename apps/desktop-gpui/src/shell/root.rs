@@ -57,6 +57,13 @@ impl Root {
             }
         })
         .detach();
+        let attention = super::notification_driver::Attention::init(cx);
+        cx.observe(&attention, |_, _, cx| cx.notify()).detach();
+        cx.observe_window_activation(window, move |_, w, cx| {
+            let f = w.is_window_active();
+            attention.update(cx, |a, cx| a.set_focused(f, cx));
+        })
+        .detach();
         let settings = crate::core::settings::SettingsStore::global(cx);
         cx.observe_in(&settings, window, |_, _, w, cx| apply_settings(w, cx)).detach();
         cx.observe_window_appearance(window, |_, w, cx| apply_settings(w, cx)).detach();

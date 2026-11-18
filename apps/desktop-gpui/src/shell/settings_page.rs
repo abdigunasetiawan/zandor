@@ -37,6 +37,7 @@ pub struct SettingsPage {
     models: Option<Result<Vec<ModelOption>, String>>,
     providers: Entity<super::providers_section::ProvidersSection>,
     models_sec: Entity<super::models_section::ModelsSection>,
+    notif: Entity<super::notification_section::NotificationSection>,
     profile: Entity<super::profile_section::ProfileSection>,
     themes: Entity<super::themes_section::ThemesSection>,
     typography: Entity<super::type_section::TypeSection>,
@@ -76,7 +77,8 @@ impl SettingsPage {
         let editor = cx.new(super::editor_section::EditorSection::new);
         let remote = cx.new(super::remote_section::RemoteSection::new);
         let models_sec = cx.new(super::models_section::ModelsSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, profile, themes, typography, chat_style, keys, pstyles, editor, remote };
+        let notif = cx.new(super::notification_section::NotificationSection::new);
+        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, themes, typography, chat_style, keys, pstyles, editor, remote };
         me.load_models(cx);
         me
     }
@@ -321,6 +323,9 @@ impl Render for SettingsPage {
             }
             if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.keys"), &i.t("ap.keys.change")]) {
                 rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.keys"))).child(self.keys.clone()).into_any_element());
+            }
+            if g == "notifications" && matches_q(&q, &[&i.t("notif.permission.title"), &i.t("notif.testAll.title"), &i.t("notif.custom.title")]) {
+                rows.push(div().child(self.notif.clone()).into_any_element());
             }
             if !rows.is_empty() {
                 content = content.child(group(&t, i.t(&format!("settings.{g}")), rows));

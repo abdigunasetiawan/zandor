@@ -63,6 +63,9 @@ mod netprobe;
 mod engine;
 #[path = "host/voice.rs"]
 mod voice;
+#[allow(dead_code)]
+#[path = "host/sound.rs"]
+mod sound;
 
 use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowDecorations, WindowOptions};
 use i18n::{detect_locale, I18n};

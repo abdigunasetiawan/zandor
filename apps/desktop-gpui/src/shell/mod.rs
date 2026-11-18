@@ -16,6 +16,8 @@ pub mod projects_style_section;
 pub mod providers_section;
 pub mod models_section;
 pub mod account_list;
+pub mod notification_driver;
+pub mod notification_section;
 pub mod root;
 pub mod sidebar;
 pub mod settings_page;

@@ -167,6 +167,7 @@ struct Ctx<'a> {
     open_menu: Option<String>,
     sel: (Option<String>, Option<String>),
     query: String,
+    ind: std::collections::HashMap<String, crate::core::attention::Indicator>,
 }
 
 /// Lapisan latar baris project: gambar (posisi/zoom) > gradien, lalu overlay. Port rowStyle + CSS overlay (Sidebar.tsx).
@@ -307,6 +308,43 @@ fn menu_trigger(cx: &Ctx, key: String, entries: Vec<MenuEntry>, label: String) -
         .into_any_element()
 }
 
+/// Titik status sesi (port SessionDot): idle redup, bekerja = indikator grid, butuh aksi = titik peringatan berdenyut,
+/// selesai belum dilihat = hijau, gagal = bahaya, batas = bahaya dengan cincin.
+pub fn session_dot(t: &Theme, i: &I18n, st: crate::core::attention::Indicator, id: &str) -> AnyElement {
+    use crate::core::attention::Indicator;
+    use gpui::AnimationExt;
+    let label: SharedString = i.t(&format!("sdot.{}", st.key())).into();
+    let wrap = div().id(SharedString::from(format!("sdot-{id}"))).flex_none().size(t.space(3)).flex().items_center().justify_center().tooltip(crate::ui::tooltip::text_tooltip(label.clone()));
+    if st == Indicator::Busy {
+        return wrap.child(crate::ui::working(format!("sdotw-{id}")).variant(crate::ui::feedback::WorkingVariant::Grid).size(crate::ui::feedback::WorkingSize::Dot)).into_any_element();
+    }
+    let (big, color) = match st {
+        Indicator::Done => (true, t.colors.success),
+        Indicator::Action => (true, t.colors.warning),
+        Indicator::Failed | Indicator::Limit => (true, t.colors.danger),
+        _ => (false, t.colors.fg_subtle),
+    };
+    let sz = if big { t.space(1) * 1.5 } else { t.space(1) };
+    let dot = div().size(sz).rounded_full().bg(color);
+    let wrap = if st == Indicator::Limit { wrap.border_1().border_dashed().border_color(t.colors.danger).rounded_full() } else { wrap };
+    if st == Indicator::Action {
+        // sdot-ping: cincin peringatan yang mengembang dan memudar (1800 ms, berulang)
+        let ring = div().absolute().size(sz).rounded_full().border_1().border_color(color).with_animation(
+            SharedString::from(format!("sdotp-{id}")),
+            gpui::Animation::new(std::time::Duration::from_millis(1800)).repeat(),
+            move |el, d| {
+                let k = (d / 0.7).min(1.);
+                el.size(sz + t_px(k * 8.)).opacity(0.55 * (1. - k))
+            },
+        );
+        return wrap.relative().child(ring).child(dot).into_any_element();
+    }
+    wrap.child(dot).into_any_element()
+}
+fn t_px(v: f32) -> gpui::Pixels {
+    gpui::px(v)
+}
+
 fn session_row(cx: &Ctx, key: &str, s: &SessionInfo) -> AnyElement {
     let t = cx.t;
     let active = cx.sel.0.as_deref() == Some(key) && cx.sel.1.as_deref() == Some(s.id.as_str());
@@ -345,11 +383,7 @@ fn session_row(cx: &Ctx, key: &str, s: &SessionInfo) -> AnyElement {
             })
             .ok();
         })
-        .child(
-            div().flex_none().size(t.rem(0.75)).flex().items_center().justify_center().child(
-                div().size(t.rem(0.25)).rounded_full().bg(if active { t.colors.accent } else { t.colors.fg_subtle }),
-            ),
-        )
+        .child(session_dot(t, cx.i, cx.ind.get(&s.id).copied().unwrap_or(crate::core::attention::Indicator::Idle), &s.id))
         .child(div().flex_1().min_w_0().truncate().child(title.clone()))
         .child(menu_trigger(cx, format!("s:{key}:{}", s.id), entries, cx.i.tp("sb.menuFor", &[("name", &title)])))
         .into_any_element()
@@ -408,7 +442,12 @@ impl Render for Sidebar {
         let sel = (store.selection.key.clone(), store.selection.session_id.clone());
         let est = self.engine.read(cx).state.clone();
         let query = if self.show_search { self.search.read(cx).text().to_string() } else { String::new() };
-        let ctx = Ctx { t: &t, i: &i, me: me.clone(), open_menu: self.open_menu.clone(), sel, query };
+        let ind = sessions
+            .values()
+            .flat_map(|g| g.items.iter())
+            .map(|s| (s.id.clone(), super::notification_driver::Attention::indicator_of(&s.id, cx)))
+            .collect();
+        let ctx = Ctx { t: &t, i: &i, me: me.clone(), open_menu: self.open_menu.clone(), sel, query, ind };
 
         // ---- kepala ----
         let head = div()
