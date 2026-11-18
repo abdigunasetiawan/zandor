@@ -20,7 +20,7 @@ pub struct ToolsHost {
     changes_for: Option<String>,
     open_change: Option<String>,
     jobs_panel: Option<Entity<super::jobs_panel::JobsPanel>>,
-    terminal: Option<Entity<super::terminal::Terminal>>,
+    terminal: Option<Entity<super::terminal_panel::TerminalPanel>>,
     browser: Option<Entity<super::browser::BrowserPanel>>,
     log_filter: String,
     trajectory: Option<Entity<super::trajectory_panel::TrajectoryPanel>>,
@@ -414,8 +414,7 @@ impl Render for ToolsHost {
         }
         if self.tool == ToolId::Terminal {
             if self.terminal.is_none() {
-                let dir = self.dir(cx);
-                self.terminal = Some(cx.new(|cx| super::terminal::Terminal::new(dir, cx)));
+                self.terminal = Some(cx.new(super::terminal_panel::TerminalPanel::new));
             }
             return div().size_full().children(self.terminal.clone()).into_any_element();
         }

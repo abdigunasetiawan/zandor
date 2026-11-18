@@ -27,6 +27,7 @@ pub mod sidebar;
 pub mod settings_page;
 pub mod state;
 pub mod terminal;
+pub mod terminal_panel;
 pub mod themes_section;
 pub mod editor_section;
 pub mod remote_section;

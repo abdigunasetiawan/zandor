@@ -31,6 +31,11 @@ fn default_shell() -> CommandBuilder {
 
 impl Terminal {
     pub fn new(cwd: Option<String>, cx: &mut Context<Self>) -> Self {
+        Self::with_shell(cwd, None, cx)
+    }
+
+    /// Shell tertentu (path exe + argumen); None = shell bawaan.
+    pub fn with_shell(cwd: Option<String>, shell: Option<(String, Vec<String>)>, cx: &mut Context<Self>) -> Self {
         let parser = Arc::new(Mutex::new(vt100::Parser::new(24, 80, 5000)));
         let mut me = Self {
             parser: parser.clone(),
@@ -49,7 +54,14 @@ impl Terminal {
                 return me;
             }
         };
-        let mut cmd = default_shell();
+        let mut cmd = match shell {
+            Some((exe, args)) => {
+                let mut c = CommandBuilder::new(exe);
+                c.args(args);
+                c
+            }
+            None => default_shell(),
+        };
         if let Some(d) = cwd.filter(|d| std::path::Path::new(d).is_dir()) {
             cmd.cwd(d);
         }
@@ -107,6 +119,13 @@ impl Terminal {
         })
         .detach();
         me
+    }
+
+    pub fn exited(&self) -> bool {
+        self.exited.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    pub fn error(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     fn send(&mut self, bytes: &[u8]) {
