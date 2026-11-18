@@ -45,6 +45,8 @@ pub struct ChatPanel {
     focused_msg: Option<String>,
     expanded: HashSet<String>,
     last_count: usize,
+    msg_list: gpui::ListState,
+    msg_list_sid: Option<String>,
     pending_new: bool,
     /// Sesi yang dibuat oleh pesan pertama dari halaman bawaan (tidak lagi menampilkan sambutan) — port sentFromDraft.
     sent_from_draft: HashSet<String>,
@@ -128,6 +130,12 @@ impl ChatPanel {
             focused_msg: None,
             expanded: HashSet::new(),
             last_count: 0,
+            msg_list: {
+                let l = gpui::ListState::new(0, gpui::ListAlignment::Top, gpui::px(600.));
+                l.set_follow_mode(gpui::FollowMode::Tail);
+                l
+            },
+            msg_list_sid: None,
             pending_new: false,
             sent_from_draft: HashSet::new(),
             sugg_ctx: None,
@@ -402,6 +410,81 @@ fn chat_width(t: &Theme, cx: &App) -> f32 {
 }
 
 /// Pesan pengguna: chip lampiran, gelembung teks, dan baris bawah (waktu + aksi) yang muncul saat hover.
+/// Data satu render untuk daftar pesan virtual.
+struct ChatItems {
+    turns: Vec<crate::core::chat::Turn>,
+    sid: String,
+    key: String,
+    has_pinned: bool,
+    has_project: bool,
+    busy: bool,
+    last_assistant: Option<usize>,
+    active_ix: Option<usize>,
+    loaded: bool,
+    retry: Option<(f64, String)>,
+    error: Option<String>,
+}
+
+impl ChatPanel {
+    /// Satu item daftar pesan: [bar pin] + giliran + trailer (memuat/kosong/retry/bekerja/galat).
+    fn chat_item(&mut self, ix: usize, c: &ChatItems, cx: &mut Context<Self>) -> AnyElement {
+        let t = cx.global::<Theme>().clone();
+        let i_owned = cx.global::<I18n>().clone();
+        let i = &i_owned;
+        let cw = chat_width(&t, cx);
+        let gap = t.rem(t.chat.gap.unwrap_or(0.75));
+        let wrap = |el: AnyElement| {
+            div()
+                .w_full()
+                .px(t.space(3))
+                .when(ix == 0, |d| d.pt(t.space(3)))
+                .child(div().w_full().max_w(t.rem(cw)).mx_auto().when_some(t.chat.font.clone(), |d, f| d.font_family(f)).child(el))
+                .into_any_element()
+        };
+        let off = usize::from(c.has_pinned);
+        if c.has_pinned && ix == 0 {
+            return wrap(self.pinned_bar(&t, i, &c.sid, &c.turns, cx).unwrap_or_else(|| div().into_any_element()));
+        }
+        let k = ix - off;
+        if k >= c.turns.len() {
+            let mut inner = div().flex().flex_col().gap(gap).pb(t.space(3));
+            if !c.loaded {
+                inner = inner.child(div().text_color(t.colors.fg_muted).child(i.t("chat.loading")));
+            } else if c.turns.is_empty() {
+                inner = inner.child(div().text_color(t.colors.fg_muted).child(i.t("chat.empty")));
+            }
+            if let Some((attempt, message)) = &c.retry {
+                inner = inner.child(div().text_color(t.colors.warning).child(i.tp("chat.retry", &[("attempt", &attempt.to_string()), ("message", message)])));
+            } else if c.busy {
+                inner = inner.child(div().flex().items_center().gap(t.space(2)).text_color(t.colors.fg_muted).child(working("chat-working")).child(i.t("chat.working")));
+            }
+            if let Some(e) = &c.error {
+                inner = inner.child(div().text_color(t.colors.danger).child(e.clone()));
+            }
+            return wrap(inner.into_any_element());
+        }
+        let turn = &c.turns[k];
+        let m = &turn.message;
+        let streaming = c.active_ix == Some(k);
+        let me = cx.entity().downgrade();
+        let el = match m.info.role {
+            Role::User => {
+                let tb = self.message_toolbar(&t, i, turn, &c.sid, &c.key, false, cx);
+                user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), tb).unwrap_or_else(|| div().into_any_element())
+            }
+            Role::Assistant => {
+                let pid = m.info.provider_id.clone();
+                let provider_name = self.models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
+                let is_last = c.last_assistant == Some(k) && !c.busy;
+                let tb = (m.info.completed.is_some() && !streaming).then(|| self.message_toolbar(&t, i, turn, &c.sid, &c.key, is_last, cx));
+                chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, c.has_project, &provider_name, tb)
+            }
+        };
+        let hl = self.focused_msg.as_deref() == Some(m.info.id.as_str());
+        wrap(div().w_full().mb(gap).rounded(t.rem(crate::theme::rem::RADIUS_LG)).when(hl, |d| d.border_1().border_color(t.colors.focus)).child(el).into_any_element())
+    }
+}
+
 fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, toolbar: AnyElement) -> Option<AnyElement> {
     let text = message_text(m);
     let files: Vec<String> = m
@@ -812,92 +895,65 @@ impl Render for ChatPanel {
         let has_project = cur.as_ref().is_some_and(|c| c.0 != CHAT_KEY);
 
         // ---- isi ----
-        let mut body = div()
-            .id("chat-scroll")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.scroll)
-            .p(t.space(3));
-        let mut inner = div().flex().flex_col().gap(t.rem(t.chat.gap.unwrap_or(0.75))).w_full().max_w(t.rem(cw)).mx_auto().when_some(t.chat.font.clone(), |d, f| d.font_family(f));
-        if !st.loaded {
-            inner = inner.child(div().text_color(t.colors.fg_muted).child(i.t("chat.loading")));
-        } else if st.messages.is_empty() {
-            inner = inner.child(div().text_color(t.colors.fg_muted).child(i.t("chat.empty")));
-        }
-        let mut count = 0;
-        // Pesan menjadi anak langsung area gulir agar bisa dituju (ScrollHandle::scroll_to_top_of_item) dari
-        // Trajectory "Ke pesan" (port requestMessageFocus).
-        let gap = t.rem(t.chat.gap.unwrap_or(0.75));
-        let focus = cx.try_global::<MessageFocus>().and_then(|f| f.0.clone());
+        // Daftar virtual (gpui::list): hanya pesan yang terlihat yang dirender/di-parse. Mode Tail mengikuti
+        // streaming selama pengguna berada di bawah.
         let turns = crate::core::chat::merge_assistant_turns(st.visible());
         let last_assistant = turns.iter().rposition(|x| x.message.info.role == Role::Assistant);
         let active_ix = if busy && last_assistant.is_some() && last_assistant == Some(turns.len().saturating_sub(1)) { last_assistant } else { None };
-        let models = self.models.clone();
-        if let Some(pb) = self.pinned_bar(&t, i, &sid, &turns, cx) {
-            body = body.child(div().w_full().max_w(t.rem(cw)).mx_auto().child(pb));
+        let count: usize = turns.iter().map(|x| x.message.parts.len() + 1).sum();
+        let has_pinned = self.pinned_bar(&t, i, &sid, &turns, cx).is_some();
+        let off = usize::from(has_pinned);
+        let n = off + turns.len() + 1;
+        let focus = cx.try_global::<MessageFocus>().and_then(|f| f.0.clone());
+        let ml = self.msg_list.clone();
+        if self.msg_list_sid.as_deref() != Some(sid.as_str()) {
+            self.msg_list_sid = Some(sid.clone());
+            ml.reset(n);
+            ml.scroll_to_end();
+            self.last_count = count;
+        } else if ml.item_count() != n {
+            let old = ml.item_count();
+            if n > old && old > 0 {
+                // pertahankan tinggi yang sudah diukur; ukur ulang ekor lama (trailer) + tambah item baru
+                ml.splice(old - 1..old, n - old + 1);
+            } else {
+                ml.reset(n);
+            }
         }
-        for (ix, turn) in turns.iter().enumerate() {
-            let m = &turn.message;
-            count += m.parts.len() + 1;
-            let streaming = active_ix == Some(ix);
-            let key = cur.as_ref().map(|c| c.0.clone()).unwrap_or_default();
-            let el = match m.info.role {
-                Role::User => {
-                    let tb = self.message_toolbar(&t, i, turn, &sid, &key, false, cx);
-                    let Some(el) = user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), tb) else { continue };
-                    el
-                }
-                Role::Assistant => {
-                    let pid = m.info.provider_id.clone();
-                    let provider_name = models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
-                    let is_last = last_assistant == Some(ix) && !busy;
-                    let tb = (m.info.completed.is_some() && !streaming).then(|| self.message_toolbar(&t, i, turn, &sid, &key, is_last, cx));
-                    chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, has_project, &provider_name, tb)
-                }
-            };
-            if focus.as_ref().is_some_and(|f| turn.source_ids.contains(f)) {
-                self.scroll.scroll_to_top_of_item(ix);
-                self.focused_msg = Some(m.info.id.clone());
+        ml.remeasure();
+        if let Some(f) = &focus {
+            if let Some(ix) = turns.iter().position(|x| x.source_ids.contains(f)) {
+                ml.scroll_to(gpui::ListOffset { item_ix: ix + off, offset_in_item: gpui::px(0.) });
+                self.focused_msg = Some(turns[ix].message.info.id.clone());
                 cx.set_global(MessageFocus(None));
             }
-            let hl = self.focused_msg.as_deref() == Some(m.info.id.as_str());
-            body = body.child(
-                div()
-                    .w_full()
-                    .max_w(t.rem(cw))
-                    .mx_auto()
-                    .mb(gap)
-                    .rounded(t.rem(crate::theme::rem::RADIUS_LG))
-                    .when(hl, |d| d.border_1().border_color(t.colors.focus))
-                    .when_some(t.chat.font.clone(), |d, f| d.font_family(f))
-                    .child(el),
-            );
-        }
-        if let SessionRunStatus::Retry { attempt, message } = &st.status {
-            inner = inner.child(div().text_color(t.colors.warning).child(i.tp("chat.retry", &[("attempt", &attempt.to_string()), ("message", message)])));
-        } else if busy {
-            inner = inner.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(t.space(2))
-                    .text_color(t.colors.fg_muted)
-                    .child(working("chat-working"))
-                    .child(i.t("chat.working")),
-            );
-        }
-        if let Some(e) = &st.error {
-            inner = inner.child(div().text_color(t.colors.danger).child(e.clone()));
-        }
-        body = body.child(inner);
-        if count != self.last_count && focus.is_none() {
+        } else if count != self.last_count {
             self.last_count = count;
             self.focused_msg = None;
-            self.scroll.scroll_to_bottom();
+            ml.scroll_to_end();
         }
+        let ictx = std::rc::Rc::new(ChatItems {
+            turns,
+            sid: sid.clone(),
+            key: cur.as_ref().map(|c| c.0.clone()).unwrap_or_default(),
+            has_pinned,
+            has_project,
+            busy,
+            last_assistant,
+            active_ix,
+            loaded: st.loaded,
+            retry: if let SessionRunStatus::Retry { attempt, message } = &st.status { Some((*attempt, message.clone())) } else { None },
+            error: st.error.clone(),
+        });
+        let me_list = cx.entity();
+        let body = div().flex().flex_col().flex_1().min_h_0().child(
+            gpui::list(ml, move |ix, _w, cx| {
+                let ictx = ictx.clone();
+                me_list.update(cx, |this, cx| this.chat_item(ix, &ictx, cx))
+            })
+            .flex_1()
+            .min_h_0(),
+        );
         let _ = &self.app;
 
         div()

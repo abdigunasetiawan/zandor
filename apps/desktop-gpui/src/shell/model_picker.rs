@@ -71,6 +71,16 @@ pub(super) struct PickerState {
     pub folded: HashSet<String>,
     pub sort: String,
     pub group: String,
+    /// Daftar virtual tab Models (dibuat saat pertama dirender; di-reset bila jumlah entri berubah).
+    pub list: Option<gpui::ListState>,
+}
+
+#[derive(Clone)]
+enum MpEntry {
+    Empty,
+    Sec(&'static str, String, usize),
+    Group(String, String, usize, bool),
+    Row(ModelOption, bool, &'static str, bool),
 }
 
 impl ChatPanel {
@@ -171,15 +181,12 @@ impl ChatPanel {
             .into_any_element()
     }
 
-    fn picker_section(&self, t: &Theme, id: &str, title: String, count: usize, body: Vec<AnyElement>, cx: &mut Context<Self>) -> AnyElement {
+    fn section_head(&self, t: &Theme, id: &str, title: String, count: usize, cx: &mut Context<Self>) -> AnyElement {
         let open = !self.picker.folded.contains(id);
         let key = id.to_string();
         div()
-            .flex()
-            .flex_col()
-            .gap(t.space(1))
-            .child(
-                div()
+                    .pt(t.space(1))
+                    .child(div()
                     .id(SharedString::from(format!("msec-{id}")))
                     .flex()
                     .items_center()
@@ -200,11 +207,36 @@ impl ChatPanel {
                     .child(title)
                     .child(div().text_color(t.colors.fg_subtle).font_weight(FontWeight::NORMAL).child(format!("({count})"))),
             )
-            .when(open, |d| d.children(body))
             .into_any_element()
     }
 
-    fn picker_models_tab(&self, t: &Theme, i: &I18n, visible: &[ModelOption], groups: &[(String, String, Vec<ModelOption>)], cx: &mut Context<Self>) -> AnyElement {
+    fn group_head(&self, t: &Theme, id: &str, name: &str, n: usize, is_open: bool, cx: &mut Context<Self>) -> AnyElement {
+        let gid = id.to_string();
+        div()
+            .id(SharedString::from(format!("mgrp-{id}")))
+            .flex()
+            .items_center()
+            .gap(t.space(2))
+            .px(t.space(1))
+            .py(t.space(1))
+            .rounded(t.rem(rem::RADIUS_MD))
+            .cursor_pointer()
+            .hover(|s| s.bg(t.colors.hover))
+            .on_click(cx.listener(move |s, _, _, cx| {
+                if !s.picker.expanded.remove(&gid) {
+                    s.picker.expanded.insert(gid.clone());
+                }
+                cx.notify();
+            }))
+            .child(icon(if is_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
+            .child(model_logo(t, cx, Some(id), None, name, false, &format!("mgl-{id}")))
+            .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(name.to_string()))
+            .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("({n})")))
+            .child(div().flex_1())
+            .into_any_element()
+    }
+
+    fn picker_models_tab(&mut self, t: &Theme, i: &I18n, visible: &[ModelOption], groups: &[(String, String, Vec<ModelOption>)], cx: &mut Context<Self>) -> AnyElement {
         let q = self.mp_search.read(cx).text().trim().to_lowercase();
         let find = |k: &String| visible.iter().find(|m| model_key(m) == *k).filter(|m| matches(m, &q)).cloned();
         let c = self.chat.read(cx);
@@ -215,55 +247,68 @@ impl ChatPanel {
             .map(|(id, name, ms)| (id.clone(), name.clone(), ms.iter().filter(|m| matches(m, &q)).cloned().collect::<Vec<_>>()))
             .filter(|g| !g.2.is_empty())
             .collect();
-        let mut page = div().flex().flex_col().gap(t.space(2));
+        // Entri datar → gpui::list: hanya yang terlihat dirender (grup provider bisa ratusan model).
+        let mut entries: Vec<MpEntry> = vec![];
         if recent.is_empty() && pinned.is_empty() && shown.is_empty() {
-            page = page.child(div().small(t).text_color(t.colors.fg_muted).child(i.t("mp.none")));
+            entries.push(MpEntry::Empty);
         }
+        let open = |id: &str| !self.picker.folded.contains(id);
         if !recent.is_empty() {
-            let rows = recent.iter().map(|m| self.model_row(t, i, m, true, "recent", cx)).collect();
-            page = page.child(self.picker_section(t, "recent", i.t("mp.recent"), recent.len(), rows, cx));
+            entries.push(MpEntry::Sec("recent", i.t("mp.recent"), recent.len()));
+            if open("recent") {
+                entries.extend(recent.into_iter().map(|m| MpEntry::Row(m, true, "recent", false)));
+            }
         }
         if !pinned.is_empty() {
-            let rows = pinned.iter().map(|m| self.model_row(t, i, m, true, "pin", cx)).collect();
-            page = page.child(self.picker_section(t, "pinned", i.t("mp.pinned"), pinned.len(), rows, cx));
+            entries.push(MpEntry::Sec("pinned", i.t("mp.pinned"), pinned.len()));
+            if open("pinned") {
+                entries.extend(pinned.into_iter().map(|m| MpEntry::Row(m, true, "pin", false)));
+            }
         }
         if !shown.is_empty() {
-            let mut body = vec![];
-            for (id, name, ms) in &shown {
-                let is_open = !q.is_empty() || self.picker.expanded.contains(id);
-                let gid = id.clone();
-                body.push(
-                    div()
-                        .id(SharedString::from(format!("mgrp-{id}")))
-                        .flex()
-                        .items_center()
-                        .gap(t.space(2))
-                        .px(t.space(1))
-                        .py(t.space(1))
-                        .rounded(t.rem(rem::RADIUS_MD))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(t.colors.hover))
-                        .on_click(cx.listener(move |s, _, _, cx| {
-                            if !s.picker.expanded.remove(&gid) {
-                                s.picker.expanded.insert(gid.clone());
-                            }
-                            cx.notify();
-                        }))
-                        .child(icon(if is_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
-                        .child(model_logo(t, cx, Some(id), None, name, false, &format!("mgl-{id}")))
-                        .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(name.clone()))
-                        .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("({})", ms.len())))
-                        .child(div().flex_1())
-                        .into_any_element(),
-                );
-                if is_open {
-                    for m in ms {
-                        body.push(div().pl(t.space(4)).child(self.model_row(t, i, m, false, "all", cx)).into_any_element());
+            entries.push(MpEntry::Sec("all", i.t("mp.all"), shown.len()));
+            if open("all") {
+                for (id, name, ms) in shown {
+                    let is_open = !q.is_empty() || self.picker.expanded.contains(&id);
+                    entries.push(MpEntry::Group(id, name, ms.len(), is_open));
+                    if is_open {
+                        entries.extend(ms.into_iter().map(|m| MpEntry::Row(m, false, "all", true)));
                     }
                 }
             }
-            page = page.child(self.picker_section(t, "all", i.t("mp.all"), shown.len(), body, cx));
         }
+        let state = match &self.picker.list {
+            Some(l) if l.item_count() == entries.len() => {
+                l.remeasure();
+                l.clone()
+            }
+            Some(l) => {
+                l.reset(entries.len());
+                l.clone()
+            }
+            None => {
+                let l = gpui::ListState::new(entries.len(), gpui::ListAlignment::Top, gpui::px(200.));
+                self.picker.list = Some(l.clone());
+                l
+            }
+        };
+        let entries = std::rc::Rc::new(entries);
+        let me = cx.entity();
+        let page = gpui::list(state, move |ix, _w, cx| {
+            let e = entries[ix].clone();
+            me.update(cx, |this, cx| {
+                let t = cx.global::<Theme>().clone();
+                let i = cx.global::<I18n>().clone();
+                match e {
+                    MpEntry::Empty => div().small(&t).text_color(t.colors.fg_muted).child(i.t("mp.none")).into_any_element(),
+                    MpEntry::Sec(id, title, n) => this.section_head(&t, id, title, n, cx),
+                    MpEntry::Group(id, name, n, o) => this.group_head(&t, &id, &name, n, o, cx),
+                    MpEntry::Row(m, prov, scope, indent) => div().pb(t.space(1)).when(indent, |d| d.pl(t.space(4))).child(this.model_row(&t, &i, &m, prov, scope, cx)).into_any_element(),
+                }
+            })
+        })
+        .flex_1()
+        .min_h_0();
         div()
             .flex()
             .flex_col()
@@ -281,7 +326,7 @@ impl ChatPanel {
                     .child(icon("search").size(IconSize::Sm).color(t.colors.fg_subtle))
                     .child(div().flex_1().min_w_0().child(self.mp_search.clone())),
             )
-            .child(div().id("mp-scroll").flex_1().min_h_0().overflow_y_scroll().child(page))
+            .child(page)
             .into_any_element()
     }
 
@@ -473,10 +518,19 @@ impl ChatPanel {
         let kind = i.t(if owned { "pv.kind.custom" } else { "pv.kind.builtin" });
         let sub = format!("{kind} · {}", i.tp("mp.provider.models", &[("n", &models.len().to_string())]));
         let ids: Vec<(String, String)> = models.iter().map(|m| (m.provider_id.clone(), m.model_id.clone())).collect();
-        let mut list = div().flex().flex_col().gap(t.space(1));
-        for m in models {
-            list = list.child(self.model_row(t, i, m, false, "prov", cx));
-        }
+        // Virtual: provider bisa punya ratusan model (mis. 831); hanya baris yang terlihat yang dirender.
+        let rows: std::rc::Rc<Vec<ModelOption>> = std::rc::Rc::new(models.to_vec());
+        let list = gpui::uniform_list(
+            SharedString::from(format!("mph-list-{id}")),
+            rows.len(),
+            cx.processor(move |this: &mut Self, range: std::ops::Range<usize>, _w, cx| {
+                let t = cx.global::<Theme>().clone();
+                let i = cx.global::<I18n>().clone();
+                range.map(|ix| div().pb(t.space(1)).child(this.model_row(&t, &i, &rows[ix], false, "prov", cx))).collect::<Vec<_>>()
+            }),
+        )
+        .flex_1()
+        .min_h_0();
         div()
             .flex()
             .flex_col()
@@ -511,7 +565,7 @@ impl ChatPanel {
                             }),
                     ),
             )
-            .child(div().id(SharedString::from(format!("mph-scroll-{id}"))).flex_1().min_h_0().overflow_y_scroll().child(list))
+            .child(list)
             .into_any_element()
     }
 
