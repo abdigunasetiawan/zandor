@@ -22,7 +22,7 @@ mod composer_assist;
 #[path = "queue_dock.rs"]
 mod queue_dock;
 #[path = "chat_parts.rs"]
-mod chat_parts;
+pub(crate) mod chat_parts;
 #[path = "prompt_dock.rs"]
 mod prompt_dock;
 #[path = "model_picker.rs"]

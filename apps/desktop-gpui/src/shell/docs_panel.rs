@@ -4,6 +4,7 @@
 //! (sumber + buka di peramban), DOCX/XLSX/PPTX/ipynb (pembaca best-effort), PDF/media/biner (info + buka di aplikasi
 //! lain — GPUI tidak punya mesin PDF/media).
 use crate::core::doc_kinds::{classify, decode_text, default_render, file_name, has_raw_mode, is_text_kind, parse_notebook, DocKind, NbOutput, MAX_TEXT_BYTES};
+use crate::core::patch::{drop_hunk, format_hunks, parse_patch, reverse_apply, revert_hunk, Hunk};
 use crate::core::office::{parse_docx, parse_pptx, parse_xlsx, DocxBlock};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
@@ -17,13 +18,15 @@ const MAX_TABLE_ROWS: usize = 2000;
 pub struct DocsState {
     pub open: Vec<String>,
     pub active: Option<String>,
+    /// Diff tinjauan per berkas (ADR-075): ada → panel menampilkan DiffViewer.
+    pub diffs: HashMap<String, String>,
 }
 struct Handle(Entity<DocsState>);
 impl Global for Handle {}
 
 impl DocsState {
     pub fn init(cx: &mut App) -> Entity<Self> {
-        let e = cx.new(|_| Self { open: vec![], active: None });
+        let e = cx.new(|_| Self { open: vec![], active: None, diffs: HashMap::new() });
         cx.set_global(Handle(e.clone()));
         e
     }
@@ -37,7 +40,19 @@ impl DocsState {
         self.active = Some(path);
         cx.notify();
     }
+    pub fn open_diff(&mut self, path: String, patch: String, cx: &mut Context<Self>) {
+        self.diffs.insert(path.clone(), patch);
+        self.open_file(path, cx);
+    }
+    pub fn set_diff(&mut self, path: &str, patch: Option<String>, cx: &mut Context<Self>) {
+        match patch {
+            Some(p) => self.diffs.insert(path.to_string(), p),
+            None => self.diffs.remove(path),
+        };
+        cx.notify();
+    }
     fn close(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.diffs.remove(path);
         self.open.retain(|p| p != path);
         if self.active.as_deref() == Some(path) {
             self.active = self.open.last().cloned();
@@ -58,6 +73,8 @@ pub struct DocsPanel {
     raw: HashSet<String>,
     nowrap: HashSet<String>,
     sheet: HashMap<String, usize>,
+    diff_at: HashMap<String, usize>,
+    confirm_all: bool,
 }
 
 impl DocsPanel {
@@ -69,7 +86,7 @@ impl DocsPanel {
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new() }
+        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false }
     }
 
     fn load(path: &str) -> Loaded {
@@ -492,7 +509,14 @@ impl Render for DocsPanel {
             }))
             .child(icon_button("doc-ext", "external_link", i.t("doc.openExternal")).size(ControlSize::Sm).on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&a7))));
 
-        let body = self.body(&t, &i, &active, cx);
+        let diff = self.state.read(cx).diffs.get(&active).cloned();
+        let (bar, body) = match diff {
+            Some(d) => {
+                let (b, body) = self.diff_view(&t, &i, &active, &d, cx);
+                (b.into_any_element(), body)
+            }
+            None => (bar.into_any_element(), self.body(&t, &i, &active, cx)),
+        };
         div()
             .flex()
             .flex_col()
@@ -501,6 +525,205 @@ impl Render for DocsPanel {
             .child(bar)
             .child(div().id("doc-body").flex_1().min_h_0().overflow_scroll().child(body))
             .into_any_element()
+    }
+}
+
+// ---- DiffViewer (port DiffViewer.tsx): tinjau perubahan agent per bagian. "Terima" hanya menandai selesai;
+// "Tolak" mengembalikan bagian itu ke isi semula dan langsung menyimpan berkas (bisa diurungkan dari toast). Sisi
+// "sebelum" dihitung dengan membalik diff terhadap isi berkas saat ini. GPUI tidak punya editor diff Monaco, jadi
+// tiap bagian ditampilkan sebagai blok unified (bagian aktif ditandai) — isinya sama, tata letaknya tidak berdampingan.
+impl DocsPanel {
+    /// Isi berkas saat ini bila aman ditulis ulang (UTF-8 utuh, tidak terpotong).
+    fn writable_text(&self, path: &str) -> Option<String> {
+        let l = self.cache.get(path)?;
+        let (txt, trunc) = l.text.clone()?;
+        let bytes = l.bytes.as_ref().ok()?;
+        (!trunc && std::str::from_utf8(bytes).is_ok()).then_some(txt)
+    }
+
+    fn write_file(&mut self, path: &str, text: &str, cx: &mut Context<Self>) -> bool {
+        let i = cx.global::<I18n>().clone();
+        // konflik: berkas berubah di disk sejak dimuat
+        let disk = std::fs::read(path).ok();
+        let loaded = self.cache.get(path).and_then(|l| l.bytes.as_ref().ok().cloned());
+        if disk.as_deref() != loaded.as_deref().map(|b| b.as_slice()) {
+            crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Danger, ..crate::ui::ToastInput::new(i.t("diff.conflict")) }, cx);
+            return false;
+        }
+        match std::fs::write(path, text.as_bytes()) {
+            Ok(()) => {
+                self.cache.insert(path.to_string(), Self::load(path));
+                true
+            }
+            Err(e) => {
+                crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Danger, ..crate::ui::ToastInput::new(i.tp("diff.saveError", &[("error", &e.to_string())])) }, cx);
+                false
+            }
+        }
+    }
+
+    fn finish(&mut self, path: &str, rest: Vec<Hunk>, cx: &mut Context<Self>) {
+        let p = path.to_string();
+        if rest.is_empty() {
+            self.state.update(cx, |d, cx| d.set_diff(&p, None, cx));
+            let title = cx.global::<I18n>().t("diff.done");
+            crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Success, ..crate::ui::ToastInput::new(title) }, cx);
+        } else {
+            let f = format_hunks(&rest);
+            self.state.update(cx, |d, cx| d.set_diff(&p, Some(f), cx));
+        }
+    }
+
+    fn hunks_of(&self, path: &str, cx: &App) -> Vec<Hunk> {
+        self.state.read(cx).diffs.get(path).map(|d| parse_patch(d)).unwrap_or_default()
+    }
+
+    fn accept_hunk(&mut self, path: &str, cx: &mut Context<Self>) {
+        let hunks = self.hunks_of(path, cx);
+        let at = self.diff_at.get(path).copied().unwrap_or(0).min(hunks.len().saturating_sub(1));
+        if hunks.is_empty() {
+            return;
+        }
+        self.finish(path, drop_hunk(&hunks, at, false), cx);
+    }
+
+    fn reject_hunk(&mut self, path: &str, cx: &mut Context<Self>) {
+        let i = cx.global::<I18n>().clone();
+        let hunks = self.hunks_of(path, cx);
+        let at = self.diff_at.get(path).copied().unwrap_or(0).min(hunks.len().saturating_sub(1));
+        let (Some(h), Some(cur)) = (hunks.get(at), self.writable_text(path)) else { return };
+        let Some(next) = revert_hunk(&cur, h) else {
+            crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Warning, ..crate::ui::ToastInput::new(i.t("diff.stale")) }, cx);
+            return;
+        };
+        let prev_patch = self.state.read(cx).diffs.get(path).cloned();
+        if !self.write_file(path, &next, cx) {
+            return;
+        }
+        self.finish(path, drop_hunk(&hunks, at, true), cx);
+        let me = cx.entity().downgrade();
+        let p = path.to_string();
+        crate::ui::Toasts::show(
+            crate::ui::ToastInput {
+                action: Some(crate::ui::ToastAction {
+                    label: i.t("diff.undo").into(),
+                    on_click: std::rc::Rc::new(move |_, cx| {
+                        let (p, cur, pp) = (p.clone(), cur.clone(), prev_patch.clone());
+                        me.update(cx, |s, cx| {
+                            if s.write_file(&p, &cur, cx) {
+                                s.state.update(cx, |d, cx| d.set_diff(&p, pp, cx));
+                            }
+                        })
+                        .ok();
+                    }),
+                }),
+                ..crate::ui::ToastInput::new(i.t("diff.rejected"))
+            },
+            cx,
+        );
+    }
+
+    fn reject_all(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.confirm_all = false;
+        let hunks = self.hunks_of(path, cx);
+        let Some(before) = self.writable_text(path).and_then(|c| reverse_apply(&c, &hunks)) else { return };
+        if self.write_file(path, &before, cx) {
+            self.state.update(cx, |d, cx| d.set_diff(path, None, cx));
+            let title = cx.global::<I18n>().t("diff.rejectedAll");
+            crate::ui::Toasts::show(crate::ui::ToastInput::new(title), cx);
+        }
+        cx.notify();
+    }
+
+    fn diff_view(&mut self, t: &Theme, i: &I18n, path: &str, patch: &str, cx: &mut Context<Self>) -> (gpui::Div, AnyElement) {
+        let hunks = parse_patch(patch);
+        let current = self.cache.get(path).and_then(|l| l.text.as_ref().map(|x| x.0.clone())).unwrap_or_default();
+        let before = reverse_apply(&current, &hunks);
+        let at = self.diff_at.get(path).copied().unwrap_or(0).min(hunks.len().saturating_sub(1));
+        let writable = self.writable_text(path).is_some();
+        let reject_reason = (!writable).then(|| i.t("diff.cantWrite"));
+        let can_reject = before.is_some() && writable;
+        let name = file_name(path).to_string();
+        let p = |s: &str| -> SharedString { SharedString::from(format!("{s}-{path}")) };
+        let (p1, p2, p3, p4, p5, p6, p7) = (path.to_string(), path.to_string(), path.to_string(), path.to_string(), path.to_string(), path.to_string(), path.to_string());
+        let n = hunks.len();
+        let bar = div()
+            .flex()
+            .flex_none()
+            .flex_wrap()
+            .items_center()
+            .gap(t.space(1))
+            .px(t.space(2))
+            .py(t.space(1))
+            .border_b_1()
+            .border_color(t.colors.border)
+            .child(div().small(t).text_color(t.colors.fg_muted).child(if n > 0 { i.tp("diff.pos", &[("i", &(at + 1).to_string()), ("n", &n.to_string())]) } else { i.t("diff.none") }))
+            .child(icon_button(p("dprev"), "chevron_up", i.t("diff.prev")).size(ControlSize::Sm).disabled(at == 0).on_click(cx.listener(move |s, _, _, cx| {
+                let e = s.diff_at.entry(p1.clone()).or_insert(0);
+                *e = e.saturating_sub(1);
+                cx.notify();
+            })))
+            .child(icon_button(p("dnext"), "chevron_down", i.t("diff.next")).size(ControlSize::Sm).disabled(at + 1 >= n).on_click(cx.listener(move |s, _, _, cx| {
+                s.diff_at.insert(p2.clone(), at + 1);
+                cx.notify();
+            })))
+            .child(div().flex_1())
+            .child(button(p("dacc")).size(ControlSize::Sm).variant(ButtonVariant::Solid).disabled(n == 0).child(icon("check").size(IconSize::Sm)).label(i.t("diff.accept")).on_click(cx.listener(move |s, _, _, cx| s.accept_hunk(&p3, cx))))
+            .child(button(p("drej")).size(ControlSize::Sm).disabled(n == 0 || !can_reject).child(icon("undo").size(IconSize::Sm)).label(i.t("diff.reject")).on_click(cx.listener(move |s, _, _, cx| s.reject_hunk(&p4, cx))))
+            .child(button(p("daccall")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).label(i.t("diff.acceptAll")).on_click(cx.listener(move |s, _, _, cx| s.state.update(cx, |d, cx| d.set_diff(&p5, None, cx)))))
+            .child(button(p("drejall")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).disabled(!can_reject).label(i.t("diff.rejectAll")).on_click(cx.listener(|s, _, _, cx| {
+                s.confirm_all = true;
+                cx.notify();
+            })))
+            .child(icon_button(p("dclose"), "close", i.t("diff.close")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.state.update(cx, |d, cx| d.set_diff(&p6, None, cx)))));
+
+        let mut body = div().flex().flex_col().gap(t.space(2)).p(t.space(3));
+        if let (Some(r), true) = (&reject_reason, before.is_some()) {
+            body = body.child(note(t, r.clone()));
+        }
+        if before.is_none() {
+            body = body.child(note(t, i.t("diff.mismatch")));
+        } else {
+            for (k, h) in hunks.iter().enumerate() {
+                let rows = crate::core::tool_view::parse_diff(&format_hunks(std::slice::from_ref(h)));
+                let pp = path.to_string();
+                body = body.child(
+                    div()
+                        .id(SharedString::from(format!("dh-{k}-{path}")))
+                        .rounded(t.rem(rem::RADIUS_MD))
+                        .border_1()
+                        .border_color(if k == at { t.colors.accent } else { t.colors.border_soft })
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |s, _, _, cx| {
+                            s.diff_at.insert(pp.clone(), k);
+                            cx.notify();
+                        }))
+                        .child(super::chat_panel::chat_parts::diff_block(t, i, SharedString::from(format!("dhb-{k}-{path}")), &rows)),
+                );
+            }
+        }
+        if self.confirm_all {
+            body = body.child(
+                crate::ui::dialog(i.t("diff.rejectAll.title"))
+                    .description(i.tp("diff.rejectAll.body", &[("n", &n.to_string()), ("name", &name)]))
+                    .on_dismiss(cx.listener(|s, _, _, cx| {
+                        s.confirm_all = false;
+                        cx.notify();
+                    }))
+                    .footer(
+                        div()
+                            .flex()
+                            .justify_end()
+                            .gap(t.space(2))
+                            .child(button("drejall-no").label(i.t("ui.cancel")).on_click(cx.listener(|s, _, _, cx| {
+                                s.confirm_all = false;
+                                cx.notify();
+                            })))
+                            .child(button("drejall-yes").variant(ButtonVariant::Danger).label(i.t("diff.rejectAll")).on_click(cx.listener(move |s, _, _, cx| s.reject_all(&p7, cx)))),
+                    ),
+            );
+        }
+        (bar, body.into_any_element())
     }
 }
 

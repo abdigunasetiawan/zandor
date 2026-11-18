@@ -26,3 +26,4 @@ pub mod usage;
 pub mod doc_kinds;
 pub mod office;
 pub mod session_search;
+pub mod patch;

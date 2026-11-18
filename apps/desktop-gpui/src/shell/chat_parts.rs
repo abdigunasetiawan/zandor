@@ -17,7 +17,7 @@ fn pre(t: &Theme, id: SharedString) -> gpui::Stateful<gpui::Div> {
 }
 
 /// DiffBlock: baris bernomor (tambah/hapus/konteks/hunk).
-pub(super) fn diff_block(t: &Theme, i: &I18n, id: impl Into<SharedString>, rows: &[DiffRow]) -> AnyElement {
+pub(crate) fn diff_block(t: &Theme, i: &I18n, id: impl Into<SharedString>, rows: &[DiffRow]) -> AnyElement {
     let mut col = div().flex().flex_col().rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.bg);
     let line = |kind: RowKind, no: Option<u32>, text: String| {
         let (fg, bg) = match kind {
@@ -325,6 +325,21 @@ pub(super) fn tool_card(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &Mes
                     }
                 }),
         );
+    }
+    if !file.is_empty() && v.kind == ToolKind::Edit && st.status == ToolStatus::Completed {
+        if let Some(d) = v.diff.clone().filter(|d| !d.is_empty()) {
+            let f = file.clone();
+            row = row.child(
+                icon_button(SharedString::from(format!("tdiff-{}", p.id)), "diff", i.t("diff.open")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(move |_, _, cx| {
+                    if std::path::Path::new(&f).is_file() {
+                        crate::shell::docs_panel::DocsState::global(cx).update(cx, |s, cx| s.open_diff(f.clone(), d.clone(), cx));
+                    } else {
+                        let title = cx.global::<I18n>().t("doc.outside");
+                        crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Warning, ..crate::ui::ToastInput::new(title) }, cx);
+                    }
+                }),
+            );
+        }
     }
     div()
         .flex()
