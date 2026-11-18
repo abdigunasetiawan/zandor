@@ -15,6 +15,8 @@ pub struct DesignSystemPage {
     app: Entity<AppState>,
     scroll: gpui::ScrollHandle,
     input: Entity<TextInput>,
+    folder: Entity<TextInput>,
+    scale_slider: Entity<crate::ui::Slider>,
     sw: bool,
     cb: bool,
     sel: SharedString,
@@ -27,7 +29,16 @@ pub struct DesignSystemPage {
 impl DesignSystemPage {
     pub fn new(app: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let input = cx.new(|cx| TextInput::new(cx, "Nama project"));
-        Self { app, scroll: gpui::ScrollHandle::new(), input, sw: true, cb: false, sel: "claude".into(), tab: "a".into(), menu: None, dialog: false, confirm: false }
+        let folder = cx.new(|cx| TextInput::new(cx, "Folder"));
+        let cur = crate::core::settings::SettingsStore::global(cx).read(cx).num("uiScale") as f32;
+        let scale_slider = cx.new(|_| crate::ui::Slider::new(cur * 100., UI_SCALES[0] * 100., UI_SCALES[UI_SCALES.len() - 1] * 100., 12.5, "Skala UI"));
+        cx.subscribe(&scale_slider, |_, _, e: &crate::ui::SliderChanged, cx| {
+            let v = UI_SCALES.iter().copied().find(|s| (s * 100. - e.0).abs() < 0.01).unwrap_or(1.);
+            let st = crate::core::settings::SettingsStore::global(cx);
+            let _ = st.update(cx, |s, cx| s.set("uiScale", serde_json::json!(v), cx));
+        })
+        .detach();
+        Self { app, scroll: gpui::ScrollHandle::new(), input, folder, scale_slider, sw: true, cb: false, sel: "claude".into(), tab: "a".into(), menu: None, dialog: false, confirm: false }
     }
 }
 
@@ -260,7 +271,17 @@ impl DesignSystemPage {
                     .child(button("ds-t2").label("Sukses").on_click(|_, _, cx| { Toasts::show(ToastInput { tone: ToastTone::Success, ..ToastInput::new("Project ditambahkan") }, cx); }))
                     .child(button("ds-t3").label("Galat").on_click(|_, _, cx| { Toasts::show(ToastInput { tone: ToastTone::Danger, ..ToastInput::new("Engine tidak merespons") }, cx); })),
             ))
-            .child(demo(t, "Field", crate::ui::field(t, "Nama", div().w(t.rem(20.)).child(div().small(t).text_color(t.colors.fg_muted).child("(kontrol)")), Some("Deskripsi singkat bidang.".into()), None)))
+            .child(demo(
+                t,
+                "Field",
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(t.space(3))
+                    .w(t.rem(20.))
+                    .child(crate::ui::field(t, "Nama project", self.input.clone(), Some("Huruf kecil, tanpa spasi.".into()), None))
+                    .child(crate::ui::field(t, "Folder", self.folder.clone(), None, Some("Folder tidak ditemukan.".into()))),
+            ))
             .into_any_element()
     }
 
@@ -303,8 +324,18 @@ impl DesignSystemPage {
                 .child(div().w(t.rem(8.)).px(t.space(2)).py(t.space(1)).child("Scope"))
                 .child(div().flex_1().px(t.space(2)).py(t.space(1)).child("ID")),
         );
+        let mut rows: Vec<(String, String, String)> = vec![];
         for c in super::commands::COMMANDS {
             let Some(combo) = super::commands::shortcut_of(c.id, cx) else { continue };
+            rows.push((combo, "global".into(), format!("{} — {}", c.id, i.t(c.title_key))));
+        }
+        // pintasan per scope dari keymap GPUI (konteks fokus: TextInput, Palette, PdfView, …)
+        for b in cx.key_bindings().borrow().bindings() {
+            let Some(pred) = b.predicate() else { continue };
+            let combo = b.keystrokes().iter().map(|k| combo_text(k.inner())).collect::<Vec<_>>().join(" ");
+            rows.push((combo, pred.to_string(), b.action().name().to_string()));
+        }
+        for (combo, scope, id) in rows {
             table = table.child(
                 div()
                     .flex()
@@ -312,12 +343,49 @@ impl DesignSystemPage {
                     .border_t_1()
                     .border_color(t.colors.border_soft)
                     .child(div().w(t.rem(12.)).px(t.space(2)).py(t.space(1)).child(kbd(combo)))
-                    .child(div().w(t.rem(8.)).px(t.space(2)).py(t.space(1)).small(t).child("global"))
-                    .child(div().flex_1().px(t.space(2)).py(t.space(1)).code(t).child(format!("{} — {}", c.id, i.t(c.title_key)))),
+                    .child(div().w(t.rem(8.)).px(t.space(2)).py(t.space(1)).small(t).child(scope))
+                    .child(div().flex_1().px(t.space(2)).py(t.space(1)).code(t).child(id)),
             );
         }
         div().flex().flex_col().gap(t.space(2)).child(div().small(t).text_color(t.colors.fg_muted).child("Pintasan terdaftar saat ini (global dan per scope). Scope ditentukan dari panel/popup tempat fokus berada.")).child(table).into_any_element()
     }
+}
+
+/// Keystroke GPUI → teks Kbd ("Ctrl+Shift+K").
+fn combo_text(k: &gpui::Keystroke) -> String {
+    let m = &k.modifiers;
+    let mut parts: Vec<String> = vec![];
+    if m.control {
+        parts.push("Ctrl".into());
+    }
+    if m.alt {
+        parts.push("Alt".into());
+    }
+    if m.shift {
+        parts.push("Shift".into());
+    }
+    if m.platform {
+        parts.push("Win".into());
+    }
+    let key = match k.key.as_str() {
+        "up" => "ArrowUp".to_string(),
+        "down" => "ArrowDown".to_string(),
+        "left" => "ArrowLeft".to_string(),
+        "right" => "ArrowRight".to_string(),
+        "escape" => "Esc".to_string(),
+        "enter" => "Enter".to_string(),
+        "backspace" => "Backspace".to_string(),
+        "delete" => "Delete".to_string(),
+        "tab" => "Tab".to_string(),
+        "space" => "Space".to_string(),
+        k if k.chars().count() == 1 => k.to_uppercase(),
+        k => {
+            let mut c = k.chars();
+            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+        }
+    };
+    parts.push(key);
+    parts.join("+")
 }
 
 impl Render for DesignSystemPage {
@@ -334,10 +402,14 @@ impl Render for DesignSystemPage {
             }
         };
         let set_theme = set("theme");
-        let set_scale = set("uiScale");
         let set_scale2 = set("uiScale");
         let theme_items = ["system", "light", "dark"].iter().map(|th| (SharedString::from(*th), SharedString::from(i.t(&format!("theme.{th}"))))).collect();
-        let k = UI_SCALES.iter().position(|s| (*s - scale).abs() < 1e-3).unwrap_or(2);
+        if (self.scale_slider.read(cx).value - scale * 100.).abs() > 0.01 {
+            self.scale_slider.update(cx, |s, cx| {
+                s.value = scale * 100.;
+                cx.notify();
+            });
+        }
         let app = self.app.clone();
         let header = div()
             .flex()
@@ -356,13 +428,7 @@ impl Render for DesignSystemPage {
                     .items_center()
                     .gap(t.space(1))
                     .child(div().typo(&t, LABEL).child(format!("{}: {}%", i.t("scale.label"), (scale * 100.).round())))
-                    .child(icon_button("ds-sc-", "minus", "−").size(ControlSize::Sm).disabled(k == 0).on_click(move |_, _, cx| set_scale(serde_json::json!(UI_SCALES[k.saturating_sub(1)]), cx)))
-                    .child(icon_button("ds-sc+", "plus", "+").size(ControlSize::Sm).disabled(k + 1 >= UI_SCALES.len()).on_click({
-                        let st = settings.clone();
-                        move |_, _, cx| {
-                            let _ = st.update(cx, |s, cx| s.set("uiScale", serde_json::json!(UI_SCALES[(k + 1).min(UI_SCALES.len() - 1)]), cx));
-                        }
-                    })),
+                    .child(div().w(t.rem(10.)).child(self.scale_slider.clone())),
             )
             .child(button("ds-100").size(ControlSize::Sm).label("100%").on_click(move |_, _, cx| set_scale2(serde_json::json!(1.0), cx)))
             .child(button("ds-back").size(ControlSize::Sm).variant(ButtonVariant::Ghost).label("← Aplikasi").on_click(move |_, _, cx| app.update(cx, |a, cx| a.push("/", cx))));
