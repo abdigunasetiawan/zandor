@@ -29,6 +29,8 @@ mod prompt_dock;
 mod model_picker;
 #[path = "composer_info.rs"]
 mod composer_info;
+#[path = "chat_tabs.rs"]
+mod chat_tabs;
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -58,6 +60,7 @@ pub struct ChatPanel {
     voice_device: String,
     queue: queue_dock::QueueState,
     dock: prompt_dock::DockState,
+    tabs_ui: chat_tabs::TabsState,
 }
 
 impl ChatPanel {
@@ -120,6 +123,7 @@ impl ChatPanel {
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
             queue: Default::default(),
             dock: Default::default(),
+            tabs_ui: Default::default(),
         };
         me.sync(cx);
         me
@@ -370,6 +374,7 @@ impl Render for ChatPanel {
         let i_owned = cx.global::<I18n>().clone();
         let i = &i_owned;
         let me = cx.entity().downgrade();
+        let tabs_bar = self.tabs_bar(&t, i, cx);
         let cur = self.current(cx);
         let engine_ready = self.engine.read(cx).state.info.is_some();
         let project_name = {
@@ -678,6 +683,7 @@ impl Render for ChatPanel {
                 .flex()
                 .flex_col()
                 .size_full()
+                .child(tabs_bar)
                 .children(head)
                 .child(
                     div()
@@ -796,6 +802,7 @@ impl Render for ChatPanel {
             .flex()
             .flex_col()
             .size_full()
+            .child(tabs_bar)
             .children(head)
             .child(body)
             .child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer))
