@@ -115,7 +115,7 @@ impl BrowserPanel {
         }
     }
 
-    fn go(&mut self, raw: String, cx: &mut Context<Self>) {
+    pub fn go(&mut self, raw: String, cx: &mut Context<Self>) {
         let i = cx.global::<I18n>().clone();
         match normalize_browser_url(&raw) {
             Ok(url) => {

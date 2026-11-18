@@ -8,7 +8,7 @@ use crate::core::services::app_data_dir;
 use crate::core::types::{PartKind, Role, TodoStatus, ToolStatus};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
-use crate::ui::{badge, button, icon, icon_button, BadgeTone, ButtonVariant, ControlSize, IconSize, TypeExt};
+use crate::ui::{button, icon, icon_button, ButtonVariant, ControlSize, IconSize, TypeExt};
 use gpui::{div, prelude::*, AnyElement, Context, Entity, FontWeight, IntoElement, SharedString, Window};
 use std::path::PathBuf;
 
@@ -19,8 +19,7 @@ pub struct ToolsHost {
     changes: Option<Result<Vec<SessionFileDiff>, String>>,
     changes_for: Option<String>,
     open_change: Option<String>,
-    jobs: Vec<serde_json::Value>,
-    job_log: Option<(String, String)>,
+    jobs_panel: Option<Entity<super::jobs_panel::JobsPanel>>,
     terminal: Option<Entity<super::terminal::Terminal>>,
     browser: Option<Entity<super::browser::BrowserPanel>>,
     log_filter: String,
@@ -28,9 +27,6 @@ pub struct ToolsHost {
     log_observed: bool,
 }
 
-fn jobs_dir() -> PathBuf {
-    app_data_dir().join("jobs")
-}
 
 impl ToolsHost {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -48,8 +44,7 @@ impl ToolsHost {
             changes: None,
             changes_for: None,
             open_change: None,
-            jobs: vec![],
-            job_log: None,
+            jobs_panel: None,
             terminal: None,
             browser: None,
             log_filter: "all".into(),
@@ -80,7 +75,6 @@ impl ToolsHost {
             self.changes = None;
             self.refresh_changes(cx);
         }
-        self.jobs = crate::jobs::list(&jobs_dir());
     }
 
     fn refresh_changes(&mut self, cx: &mut Context<Self>) {
@@ -212,81 +206,19 @@ impl ToolsHost {
         col.into_any_element()
     }
 
-    fn render_jobs(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
-        let mut col = div().flex().flex_col().gap(t.space(2)).p(t.space(3));
-        let running = self.jobs.iter().filter(|j| j["status"] == "running").count();
-        col = col.child(
-            div()
-                .flex()
-                .items_center()
-                .child(div().flex_1().small(t).text_color(t.colors.fg_muted).child(i.tp("jobs.count", &[("count", &self.jobs.len().to_string()), ("running", &running.to_string())])))
-                .child(icon_button("jobs-refresh", "refresh", i.t("jobs.refresh")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| {
-                    s.jobs = crate::jobs::list(&jobs_dir());
-                    cx.notify();
-                }))),
-        );
-        if self.jobs.is_empty() {
-            col = col.child(div().text_color(t.colors.fg_muted).child(i.t("jobs.empty")));
+    fn render_jobs(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        if self.jobs_panel.is_none() {
+            let p = cx.new(super::jobs_panel::JobsPanel::new);
+            cx.subscribe(&p, |s, _, e: &super::jobs_panel::OpenInBrowser, cx| {
+                let url = e.0.clone();
+                let b = s.browser.get_or_insert_with(|| cx.new(super::browser::BrowserPanel::new)).clone();
+                b.update(cx, |b, cx| b.go(url, cx));
+                cx.set_global(super::layout::OpenToolRequest(Some(ToolId::Browser)));
+            })
+            .detach();
+            self.jobs_panel = Some(p);
         }
-        for j in self.jobs.clone() {
-            let id = j["id"].as_str().unwrap_or("").to_string();
-            let name = j["name"].as_str().or(j["command"].as_str()).unwrap_or(&id).to_string();
-            let status = j["status"].as_str().unwrap_or("lost").to_string();
-            let tone = match status.as_str() {
-                "running" | "starting" => BadgeTone::Warning,
-                "exited" => BadgeTone::Success,
-                "failed" | "lost" => BadgeTone::Danger,
-                _ => BadgeTone::Neutral,
-            };
-            let act = |a: &'static str, ic: &'static str, label: String, id: String| {
-                icon_button(SharedString::from(format!("job-{a}-{id}")), ic, label).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |s, _, _, cx| {
-                    if let Err(e) = crate::jobs::control(&jobs_dir(), &id, a) {
-                        eprintln!("[zandor] {e}");
-                    }
-                    s.jobs = crate::jobs::list(&jobs_dir());
-                    cx.notify();
-                }))
-            };
-            let id2 = id.clone();
-            let open_log = self.job_log.as_ref().is_some_and(|(x, _)| *x == id);
-            col = col.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(t.space(1))
-                    .p(t.space(2))
-                    .rounded(t.rem(rem::RADIUS_MD))
-                    .border_1()
-                    .border_color(t.colors.border_soft)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(t.space(2))
-                            .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(name.clone()))
-                            .child(badge(i.t(&format!("jobs.status.{status}"))).tone(tone))
-                            .child(
-                                icon_button(SharedString::from(format!("job-log-{id}")), "file_text", i.tp("jobs.log", &[("name", &name)])).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |s, _, _, cx| {
-                                    s.job_log = if s.job_log.as_ref().is_some_and(|(x, _)| *x == id2) {
-                                        None
-                                    } else {
-                                        Some((id2.clone(), crate::jobs::log(&jobs_dir(), &id2, 64 * 1024).unwrap_or_else(|e| e)))
-                                    };
-                                    cx.notify();
-                                })),
-                            )
-                            .child(act("stop", "stop", i.t("jobs.stop"), id.clone()))
-                            .child(act("restart", "refresh", i.t("jobs.restart"), id.clone()))
-                            .child(act("remove", "trash", i.t("jobs.remove"), id.clone())),
-                    )
-                    .children(j["command"].as_str().map(|c| div().code(t).text_color(t.colors.fg_muted).truncate().child(c.to_string())))
-                    .when(open_log, |d| {
-                        let text = self.job_log.as_ref().map(|(_, l)| l.clone()).unwrap_or_default();
-                        d.child(div().p(t.space(2)).rounded(t.rem(rem::RADIUS_SM)).bg(t.colors.raised).code(t).child(if text.is_empty() { i.t("jobs.noOutput") } else { text }))
-                    }),
-            );
-        }
-        col.into_any_element()
+        self.jobs_panel.clone().unwrap().into_any_element()
     }
 
     fn render_info(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>, plan: bool) -> AnyElement {
@@ -463,6 +395,10 @@ impl Render for ToolsHost {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
+        if let Some(j) = &self.jobs_panel {
+            let on = self.tool == ToolId::Jobs;
+            j.update(cx, |j, _| j.shown = on);
+        }
         if self.tool == ToolId::Browser {
             let b = self.browser.get_or_insert_with(|| cx.new(super::browser::BrowserPanel::new)).clone();
             return div().size_full().child(b).into_any_element();
@@ -485,7 +421,7 @@ impl Render for ToolsHost {
             ToolId::Git => self.render_git(cx),
             ToolId::Files => self.render_files(cx),
             ToolId::Changes => self.render_changes(&t, &i, cx),
-            ToolId::Jobs => self.render_jobs(&t, &i, cx),
+            ToolId::Jobs => self.render_jobs(cx),
             ToolId::Info => self.render_info(&t, &i, cx, false),
             ToolId::Session => self.render_info(&t, &i, cx, true),
             ToolId::Trajectory => self.render_trajectory(&t, &i, cx),

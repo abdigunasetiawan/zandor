@@ -37,4 +37,5 @@ pub mod titlebar;
 pub mod tools;
 pub mod files_tree;
 pub mod git_panel;
+pub mod jobs_panel;
 pub mod font_picker;

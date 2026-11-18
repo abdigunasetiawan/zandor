@@ -35,6 +35,11 @@ pub enum ToolId {
     Trajectory,
     Log,
 }
+/// Permintaan dari bagian lain aplikasi untuk menampilkan satu alat Panel 4 (mis. Jobs → Browser).
+#[derive(Default)]
+pub struct OpenToolRequest(pub Option<ToolId>);
+impl gpui::Global for OpenToolRequest {}
+
 pub const TOOL_IDS: [ToolId; 10] = [
     ToolId::Terminal, ToolId::Jobs, ToolId::Git, ToolId::Changes, ToolId::Files,
     ToolId::Browser, ToolId::Info, ToolId::Session, ToolId::Trajectory, ToolId::Log,
@@ -102,6 +107,13 @@ impl ShellLayout {
         cx.observe(&app, |s, _, cx| {
             s.persist(cx);
             cx.notify();
+        })
+        .detach();
+        cx.set_global(OpenToolRequest(None));
+        cx.observe_global::<OpenToolRequest>(|s, cx| {
+            if let Some(t) = cx.global::<OpenToolRequest>().0 {
+                s.open_tool(t, cx);
+            }
         })
         .detach();
         let mut me = Self { app, sizes: DEFAULT_LAYOUT, active_tool: ToolId::Terminal, group: None, dragging: None, content, saved: String::new() };
