@@ -110,6 +110,8 @@ struct DocLook {
     code_font: Option<SharedString>,
     line_numbers: bool,
     whitespace: bool,
+    minimap: bool,
+    ligatures: bool,
     /// (latar, teks, teks redup) tema baca.
     theme: Option<(gpui::Hsla, gpui::Hsla, gpui::Hsla)>,
     prose_font: Option<SharedString>,
@@ -141,6 +143,8 @@ impl DocLook {
             code_font: font("codeFont"),
             line_numbers: d.get("lineNumbers").and_then(|v| v.as_bool()).unwrap_or(true),
             whitespace: d.get("whitespace").and_then(|v| v.as_bool()).unwrap_or(false),
+            minimap: d.get("minimap").and_then(|v| v.as_bool()).unwrap_or(false),
+            ligatures: d.get("ligatures").and_then(|v| v.as_bool()).unwrap_or(false),
             theme,
             prose_font: font("proseFont"),
             prose_size: has("proseSize").then(|| doc_num(d, "proseSize", 0.875)),
@@ -478,10 +482,31 @@ fn code_view_find(t: &Theme, look: &DocLook, text: &str, wrap: bool, q: &str, cu
     let ql = q.len();
     let lines: Vec<&str> = text.lines().collect();
     let w = lines.len().to_string().len().max(2);
-    div()
+    // minimap: ringkasan berkas berupa batang per baris (lebar ~ panjang baris, indentasi dipertahankan)
+    let minimap = look.minimap.then(|| {
+        let n = lines.len().max(1);
+        let step = n.div_ceil(1500);
+        div()
+            .flex_none()
+            .w(gpui::px(72.))
+            .pt(t.space(3))
+            .border_l_1()
+            .border_color(t.colors.border)
+            .flex()
+            .flex_col()
+            .children(lines.iter().step_by(step).map(|l| {
+                let ind = l.len() - l.trim_start().len();
+                let len = l.trim().chars().count();
+                div().h(gpui::px(2.)).mb(gpui::px(1.)).pl(gpui::px((ind.min(40) as f32) * 1.2)).child(div().h_full().w(gpui::px((len.min(80) as f32) * 0.8)).bg(t.colors.fg_subtle.opacity(0.45)))
+            }))
+    });
+    let body = div()
+        .flex_1()
+        .min_w_0()
         .flex()
         .flex_col()
         .p(t.space(3))
+        .font_features(if look.ligatures { gpui::FontFeatures(std::sync::Arc::new(vec![("calt".into(), 1), ("liga".into(), 1)])) } else { gpui::FontFeatures::disable_ligatures() })
         .font_family(t.font_code.clone())
         .code(t)
         .when_some(look.code_font.clone(), |d, f| d.font_family(f))
@@ -504,8 +529,8 @@ fn code_view_find(t: &Theme, look: &DocLook, text: &str, wrap: bool, q: &str, cu
                 .gap(t.space(3))
                 .when(look.line_numbers, |d| d.child(div().flex_none().text_color(t.colors.fg_subtle).child(format!("{:>w$}", n + 1, w = w))))
                 .child(if wrap { div().flex_1().min_w_0().child(content) } else { div().whitespace_nowrap().child(content) })
-        }))
-        .into_any_element()
+        }));
+    div().flex().items_start().w_full().child(body).children(minimap).into_any_element()
 }
 
 /// Parse CSV/TSV sederhana (tanda kutip ganda, pemisah koma/tab).
