@@ -1,6 +1,6 @@
 //! Diagram Mermaid — port rich/Mermaid.tsx. Mermaid butuh DOM, jadi dijalankan di WebView2 tersembunyi (wry, jendela
 //! anak tak terlihat) yang memuat mermaid.min.js tertanam (12.3.0, sama dengan versi React) lewat protokol lokal — tanpa
-//! jaringan. Aman: securityLevel "strict", label teks SVG (htmlLabels mati) agar bisa digambar ke kanvas. Hasil: SVG +
+//! jaringan. Aman: securityLevel "strict"; label HTML bawaan (foreignObject, sama dengan React) tetap bisa digambar ke kanvas di Chromium. Hasil: SVG +
 //! PNG 2× (dirasterisasi di webview) → ditampilkan GPUI sebagai gambar, di-cache per (kode, tema).
 //! Diagram dirender setelah kode tidak berubah ±600 ms (pengganti status "streaming" versi React).
 use crate::theme::Theme;
@@ -21,7 +21,7 @@ let seq = 0;
 async function zrender(id, code, dark) {
   const post = (m) => window.ipc.postMessage(JSON.stringify(m));
   try {
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default", htmlLabels: false, flowchart: { htmlLabels: false }, layout: "dagre" });
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: dark ? "dark" : "default", layout: "dagre" });
     const { svg } = await mermaid.render("zm" + (seq++), code);
     const holder = document.getElementById("host");
     holder.innerHTML = svg;
