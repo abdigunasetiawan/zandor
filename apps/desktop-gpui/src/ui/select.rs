@@ -13,11 +13,13 @@ pub struct Select {
     size: ControlSize,
     disabled: bool,
     on_change: Option<Rc<dyn Fn(SharedString, &mut Window, &mut App)>>,
+    /// Ikon per nilai opsi (dipakai di pemicu dan daftar).
+    icons: Option<Rc<dyn Fn(&str) -> gpui::AnyElement>>,
 }
 
 /// `items`: (nilai, label).
 pub fn select(id: impl Into<ElementId>, items: Vec<(SharedString, SharedString)>, value: impl Into<SharedString>) -> Select {
-    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None }
+    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None }
 }
 
 impl Select {
@@ -27,6 +29,10 @@ impl Select {
     }
     pub fn disabled(mut self, d: bool) -> Self {
         self.disabled = d;
+        self
+    }
+    pub fn icons(mut self, f: impl Fn(&str) -> gpui::AnyElement + 'static) -> Self {
+        self.icons = Some(Rc::new(f));
         self
     }
     pub fn on_change(mut self, f: impl Fn(SharedString, &mut Window, &mut App) + 'static) -> Self {
@@ -68,6 +74,7 @@ impl RenderOnce for Select {
                             })
                         })
                     })
+                    .children(self.icons.as_ref().map(|f| f(&self.value)))
                     .child(div().flex_1().min_w_0().truncate().child(label))
                     .child(icon("chevron_down").size(IconSize::Sm).color(t.colors.fg_muted)),
             );
@@ -77,12 +84,19 @@ impl RenderOnce for Select {
                 .iter()
                 .map(|(v, l)| {
                     let (v2, cb) = (v.clone(), self.on_change.clone());
-                    entry(l.clone(), move |w, cx| {
+                    let e = entry(l.clone(), move |w, cx| {
                         if let Some(f) = &cb {
                             f(v2.clone(), w, cx);
                         }
                     })
-                    .checked(*v == self.value)
+                    .checked(*v == self.value);
+                    match self.icons.clone() {
+                        Some(f) => {
+                            let v3 = v.clone();
+                            e.lead(move || f(&v3))
+                        }
+                        None => e,
+                    }
                 })
                 .collect();
             let o3 = open.clone();

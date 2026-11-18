@@ -11,6 +11,8 @@ pub enum MenuEntry {
     Item {
         label: SharedString,
         icon: Option<&'static str>,
+        /// Pembuat elemen pembuka (ikon gambar); AnyElement tidak bisa di-clone, jadi disimpan sebagai fungsi.
+        lead: Option<Rc<dyn Fn() -> AnyElement>>,
         shortcut: Option<SharedString>,
         danger: bool,
         disabled: bool,
@@ -24,6 +26,7 @@ pub fn entry(label: impl Into<SharedString>, action: impl Fn(&mut Window, &mut A
     MenuEntry::Item {
         label: label.into(),
         icon: None,
+        lead: None,
         shortcut: None,
         danger: false,
         disabled: false,
@@ -54,6 +57,12 @@ impl MenuEntry {
     pub fn checked(mut self, v: bool) -> Self {
         if let MenuEntry::Item { checked, .. } = &mut self {
             *checked = v;
+        }
+        self
+    }
+    pub fn lead(mut self, f: impl Fn() -> AnyElement + 'static) -> Self {
+        if let MenuEntry::Item { lead, .. } = &mut self {
+            *lead = Some(Rc::new(f));
         }
         self
     }
@@ -95,7 +104,7 @@ pub fn menu_popup(
     for (n, e) in tidy(entries).into_iter().enumerate() {
         match e {
             MenuEntry::Separator => list = list.child(separator(t)),
-            MenuEntry::Item { label, icon, shortcut, danger, disabled, checked, action } => {
+            MenuEntry::Item { label, icon, lead, shortcut, danger, disabled, checked, action } => {
                 let close = on_close.clone();
                 let mut it = menu_item(SharedString::from(format!("{id}-{n}")), label)
                     .danger(danger)
@@ -107,6 +116,9 @@ pub fn menu_popup(
                     });
                 if let Some(i) = icon {
                     it = it.icon(i);
+                }
+                if let Some(l) = lead {
+                    it = it.lead(l());
                 }
                 if let Some(s) = shortcut {
                     it = it.shortcut(s);

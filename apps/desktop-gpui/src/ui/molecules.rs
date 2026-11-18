@@ -36,6 +36,7 @@ pub struct MenuItem {
     label: SharedString,
     description: Option<SharedString>,
     icon: Option<&'static str>,
+    lead: Option<AnyElement>,
     checked: bool,
     danger: bool,
     disabled: bool,
@@ -49,6 +50,7 @@ pub fn menu_item(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Me
         label: label.into(),
         description: None,
         icon: None,
+        lead: None,
         checked: false,
         danger: false,
         disabled: false,
@@ -64,6 +66,11 @@ impl MenuItem {
     }
     pub fn icon(mut self, name: &'static str) -> Self {
         self.icon = Some(name);
+        self
+    }
+    /// Elemen pembuka bebas (mis. ikon gambar aplikasi) menggantikan ikon nama.
+    pub fn lead(mut self, el: AnyElement) -> Self {
+        self.lead = Some(el);
         self
     }
     pub fn checked(mut self, v: bool) -> Self {
@@ -111,7 +118,9 @@ impl RenderOnce for MenuItem {
             .when(described, |d| d.items_start().py(t.space(2)))
             .when(!described, |d| d.items_center())
             .when(self.highlighted, |d| d.bg(hover));
-        if let Some(name) = self.icon {
+        if let Some(l) = self.lead {
+            el = el.child(l);
+        } else if let Some(name) = self.icon {
             el = el.child(icon(name).color(icon_fg));
         }
         el = match self.description {

@@ -277,7 +277,8 @@ impl Render for TerminalPanel {
             );
         if self.shells.len() > 1 {
             let cur = self.current().map(|s| s.id.clone()).unwrap_or_default();
-            head = head.child(select("tm-shell", self.shells.iter().map(|s| (SharedString::from(s.id.clone()), SharedString::from(s.name.clone()))).collect(), cur).on_change(move |v, _, cx| {
+            let (shells, ti) = (self.shells.clone(), t.clone());
+            head = head.child(select("tm-shell", self.shells.iter().map(|s| (SharedString::from(s.id.clone()), SharedString::from(s.name.clone()))).collect(), cur).icons(move |id| shell_icon(&ti, shells.iter().find(|s| s.id == id))).on_change(move |v, _, cx| {
                 me.update(cx, |s, cx| {
                     s.shell = Some(v.to_string());
                     cx.notify();
