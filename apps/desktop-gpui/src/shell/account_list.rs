@@ -29,6 +29,8 @@ pub struct AccountList {
     label: Entity<TextInput>,
     key: Entity<TextInput>,
     confirm: Option<(String, String)>,
+    /// false = tanpa tombol Tambah akun (OpenWork menambah akun lewat login).
+    pub with_add: bool,
 }
 
 impl AccountList {
@@ -42,12 +44,12 @@ impl AccountList {
             k
         });
         cx.subscribe(&key, |_, _, _: &crate::ui::InputChanged, cx| cx.notify()).detach();
-        let mut me = Self { provider_id, name, accounts: vec![], renaming: None, draft, adding: false, label, key, confirm: None };
+        let mut me = Self { provider_id, name, accounts: vec![], renaming: None, draft, adding: false, label, key, confirm: None, with_add: true };
         me.reload();
         me
     }
 
-    fn reload(&mut self) {
+    pub fn reload(&mut self) {
         self.accounts = store().views().ok().and_then(|v| v.into_iter().find(|p| p.id == self.provider_id)).map(|p| p.accounts).unwrap_or_default();
     }
 
@@ -86,7 +88,7 @@ impl Render for AccountList {
                 .gap(t.space(2))
                 .child(div().font_weight(FontWeight::MEDIUM).child(i.t("acc.title")))
                 .child(div().small(&t).text_color(t.colors.fg_muted).flex_1().child(i.tp("acc.count", &[("count", &self.accounts.len().to_string())])))
-                .when(!self.adding, |d| {
+                .when(!self.adding && self.with_add, |d| {
                     d.child(button("acc-add").size(ControlSize::Sm).child(icon("plus").size(IconSize::Sm)).label(i.t("acc.add")).on_click(cx.listener(|s, _, _, cx| {
                         s.adding = true;
                         cx.notify();

@@ -26,6 +26,7 @@ struct Form {
     models: Entity<TextInput>,
     error: Option<String>,
     accounts: Option<Entity<super::account_list::AccountList>>,
+    signin: Option<Entity<super::signin_tab::SignInTab>>,
 }
 
 pub struct ProvidersSection {
@@ -99,6 +100,7 @@ impl ProvidersSection {
             models: Self::input(cx, "model-a, model-b", &models),
             error: None,
             accounts: pv.map(|p| (p.id.clone(), p.name.clone())).map(|(id, name)| cx.new(|cx| super::account_list::AccountList::new(id, name, cx))),
+            signin: None,
         });
         cx.notify();
     }
@@ -155,6 +157,22 @@ impl ProvidersSection {
         cx.notify();
     }
 
+    fn set_tab(&mut self, k: &'static str, cx: &mut Context<Self>) {
+        if k == "signin" && self.form.as_ref().is_some_and(|f| f.signin.is_none()) {
+            let e = cx.new(super::signin_tab::SignInTab::new);
+            cx.subscribe(&e, |s, _, _: &super::signin_tab::SignedIn, cx| {
+                s.views = store().views();
+                s.load_catalog(cx);
+                cx.notify();
+            })
+            .detach();
+            if let Some(f) = self.form.as_mut() {
+                f.signin = Some(e);
+            }
+        }
+        self.set_form(|f| f.tab = k.into(), cx);
+    }
+
     fn set_form(&mut self, f: impl FnOnce(&mut Form), cx: &mut Context<Self>) {
         if let Some(form) = self.form.as_mut() {
             f(form);
@@ -183,7 +201,7 @@ impl Render for ProvidersSection {
         if let Some(f) = &self.form {
             let field = |label: String, el: AnyElement| div().flex().flex_col().gap(t.space(1)).child(div().small(&t).font_weight(FontWeight::MEDIUM).child(label)).child(el);
             let me = cx.entity().downgrade();
-            let tabs_el = div().flex().gap(t.space(1)).children(["catalog", "custom", "local"].into_iter().map(|k| {
+            let tabs_el = div().flex().gap(t.space(1)).children(["custom", "local", "catalog", "signin"].into_iter().map(|k| {
                 let me = me.clone();
                 button(SharedString::from(format!("pv-tab-{k}")))
                     .label(i.t(&format!("pv.tab.{k}")))
@@ -191,10 +209,17 @@ impl Render for ProvidersSection {
                     .variant(if f.tab.as_ref() == k { ButtonVariant::Solid } else { ButtonVariant::Outline })
                     .disabled(f.editing)
                     .on_click(move |_, _, cx| {
-                        me.update(cx, |s, cx| s.set_form(|f| f.tab = k.into(), cx)).ok();
+                        me.update(cx, |s, cx| s.set_tab(k, cx)).ok();
                     })
             }));
             let mut form = div().flex().flex_col().gap(t.space(3)).p(t.space(3)).rounded(t.rem(rem::RADIUS_MD)).border_1().border_color(t.colors.border).bg(t.colors.bg).child(tabs_el);
+            if f.tab.as_ref() == "signin" {
+                form = form.children(f.signin.clone()).child(div().flex().justify_end().child(button("pv-close").label(i.t("ui.close")).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| {
+                    s.form = None;
+                    cx.notify();
+                }))));
+                col = col.child(form);
+            } else {
             if f.tab.as_ref() == "catalog" {
                 let items: Vec<(SharedString, SharedString)> = self.catalog.iter().map(|c| (c.id.clone().into(), format!("{} ({})", c.name, c.model_count).into())).collect();
                 let me2 = me.clone();
@@ -253,6 +278,7 @@ impl Render for ProvidersSection {
                         .child(button("pv-save").label(i.t("sb.save")).variant(ButtonVariant::Solid).on_click(cx.listener(|s, _, _, cx| s.save(cx)))),
                 );
             col = col.child(form);
+            }
         }
 
         // ---- daftar ----
