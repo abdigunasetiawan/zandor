@@ -43,6 +43,10 @@ pub struct ChatPanel {
     expanded: HashSet<String>,
     last_count: usize,
     pending_new: bool,
+    /// Pilihan memori/skill tertunda di halaman sesi-baru Chat: (memori, skill) — diterapkan saat sesi dibuat (ADR-060).
+    pending_memory: (Option<bool>, Option<bool>),
+    /// Cache pengaturan memori (memory/settings.json) untuk sakelar composer.
+    mem_settings: crate::core::mem::MemorySettings,
     models: Vec<crate::core::engine::ModelOption>,
     models_loaded: bool,
     assist: composer_assist::AssistState,
@@ -107,6 +111,8 @@ impl ChatPanel {
             expanded: HashSet::new(),
             last_count: 0,
             pending_new: false,
+            pending_memory: (None, None),
+            mem_settings: crate::core::mem::parse_settings(&super::memory_page::read(crate::core::mem::FILE_SETTINGS)),
             models: vec![],
             models_loaded: false,
             assist: Default::default(),
@@ -130,6 +136,83 @@ impl ChatPanel {
     }
 
     /// Sesi terpilih: (kunci, id, direktori).
+    fn patch_mem(&mut self, f: impl FnOnce(&mut crate::core::mem::MemorySettings), cx: &mut Context<Self>) {
+        use crate::core::mem;
+        let mut cur = mem::parse_settings(&super::memory_page::read(mem::FILE_SETTINGS));
+        f(&mut cur);
+        match super::memory_page::write(mem::FILE_SETTINGS, &mem::serialize_settings(&cur)) {
+            Ok(()) => self.mem_settings = cur,
+            Err(e) => {
+                crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Danger, ..crate::ui::ToastInput::new(e) }, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Sakelar Memori + Skill creator di composer (port ComposerMemory.tsx). Sesi project berbagi pengaturan project;
+    /// sesi Chat diatur per sesi; halaman sesi-baru menahan pilihan sampai sesi dibuat.
+    fn memory_toggles(&self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> gpui::Div {
+        use crate::core::mem;
+        let cur = self.current(cx);
+        let sid = cur.as_ref().map(|c| c.1.clone());
+        let key = cur.as_ref().map(|c| c.0.clone()).filter(|k| k != CHAT_KEY);
+        let pkey = key.and_then(|k| self.store.read(cx).projects.iter().find(|p| p.id == k).map(|p| mem::project_key(&p.path)));
+        let in_project = pkey.is_some();
+        let s = &self.mem_settings;
+        let value = |skill: bool| -> bool {
+            if sid.is_none() && !in_project {
+                if let Some(v) = if skill { self.pending_memory.1 } else { self.pending_memory.0 } {
+                    return v;
+                }
+            }
+            if skill { mem::skill_creator_enabled(s, pkey.as_deref(), sid.as_deref()) } else { mem::memory_enabled(s, pkey.as_deref(), sid.as_deref()) }
+        };
+        let scope = i.t(if in_project { "memtoggle.scopeProject" } else { "memtoggle.scopeSession" });
+        let mut row = div().flex().items_center().gap(t.space(1));
+        for skill in [false, true] {
+            let on = value(skill);
+            let label = i.t(if skill { "memtoggle.skill" } else { "memtoggle.memory" });
+            let tip = format!("{label} — {}. {scope}", i.t(if on { "memtoggle.on" } else { "memtoggle.off" }));
+            let (sid, pkey) = (sid.clone(), pkey.clone());
+            row = row.child(
+                icon_button(if skill { "mt-skill" } else { "mt-mem" }, if skill { "bookmark" } else { "brain" }, label)
+                    .size(ControlSize::Sm)
+                    .variant(ButtonVariant::Ghost)
+                    .pressed(on)
+                    .tooltip_text(tip)
+                    .on_click(cx.listener(move |me, _, _, cx| {
+                        let on = !on;
+                        match (&sid, &pkey) {
+                            (None, None) => {
+                                if skill {
+                                    me.pending_memory.1 = Some(on);
+                                } else {
+                                    me.pending_memory.0 = Some(on);
+                                }
+                                cx.notify();
+                            }
+                            _ => {
+                                let (sid, pkey) = (sid.clone().unwrap_or_default(), pkey.clone());
+                                me.patch_mem(move |st| {
+                                    let (sessions, projects) = if skill { (&mut st.skill_creator_sessions, &mut st.skill_creator_projects) } else { (&mut st.sessions, &mut st.projects) };
+                                    match pkey {
+                                        Some(k) => {
+                                            projects.insert(k, on);
+                                            sessions.remove(&sid);
+                                        }
+                                        None => {
+                                            sessions.insert(sid, on);
+                                        }
+                                    }
+                                }, cx);
+                            }
+                        }
+                    })),
+            );
+        }
+        row
+    }
+
     fn current(&self, cx: &App) -> Option<(String, String, String, String)> {
         let (key, s, p) = self.store.read(cx).selected()?;
         let dir = if !s.directory.is_empty() { s.directory.clone() } else { p.map(|p| p.path).unwrap_or_default() };
@@ -168,6 +251,8 @@ impl ChatPanel {
 
     fn sync(&mut self, cx: &mut Context<Self>) {
         self.load_models(cx);
+        // pengaturan memori bisa berubah dari halaman Memori: muat ulang saat sesi/terpilih berubah
+        self.mem_settings = crate::core::mem::parse_settings(&super::memory_page::read(crate::core::mem::FILE_SETTINGS));
         if let Some((_, id, dir, _)) = self.current(cx) {
             if !dir.is_empty() {
                 self.chat.update(cx, |c, cx| c.open(&dir, &id, cx));
@@ -228,6 +313,18 @@ impl ChatPanel {
                 me.pending_new = false;
                 match r {
                     Ok(s) => {
+                        // terapkan pilihan memori/skill tertunda ke sesi Chat baru
+                        let (m, k) = std::mem::take(&mut me.pending_memory);
+                        if m.is_some() || k.is_some() {
+                            me.patch_mem(|st| {
+                                if let Some(on) = m {
+                                    st.sessions.insert(s.id.clone(), on);
+                                }
+                                if let Some(on) = k {
+                                    st.skill_creator_sessions.insert(s.id.clone(), on);
+                                }
+                            }, cx);
+                        }
                         me.sync(cx);
                         me.chat.update(cx, |c, cx| c.send_with(&s.id, text, files, cx));
                     }
@@ -647,6 +744,7 @@ impl Render for ChatPanel {
             crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone())
                 .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_permission_mode(&v, cx)))
         };
+        let mem_toggles = self.memory_toggles(&t, i, cx);
         let qdock = cur.as_ref().and_then(|c| self.render_queue(&c.1.clone(), cx));
         let qdock = match (&state, &cur) {
             (Some(st), Some(c)) => self.render_dock(st, &c.1.clone(), qdock, cx),
@@ -664,7 +762,7 @@ impl Render for ChatPanel {
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).children(info_el).child(div().flex_1()).children(model_sel).children(variant_sel).child(div().flex().items_center().child(voice_btn).child(voice_dev)).children(add_btn).child(send_btn)),
+                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(mem_toggles).children(info_el).child(div().flex_1()).children(model_sel).children(variant_sel).child(div().flex().items_center().child(voice_btn).child(voice_dev)).children(add_btn).child(send_btn)),
         );
 
         let Some(st) = state else {

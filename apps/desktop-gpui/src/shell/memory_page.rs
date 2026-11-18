@@ -21,10 +21,10 @@ fn mem_dir() -> std::path::PathBuf {
 fn skills_root(scope: &str, project: Option<&str>) -> std::path::PathBuf {
     crate::memory::skills_root(scope, project.map(Path::new), &app_data_dir().join("engine")).unwrap_or_default()
 }
-fn read(rel: &str) -> String {
+pub(crate) fn read(rel: &str) -> String {
     crate::memory::read_memory(&mem_dir(), rel).unwrap_or_default()
 }
-fn write(rel: &str, text: &str) -> Result<(), String> {
+pub(crate) fn write(rel: &str, text: &str) -> Result<(), String> {
     let _ = std::fs::create_dir_all(mem_dir());
     crate::memory::write_memory(&mem_dir(), rel, text)
 }
