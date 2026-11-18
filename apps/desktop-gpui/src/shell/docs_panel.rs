@@ -90,6 +90,15 @@ pub struct DocsPanel {
     find: Option<Entity<crate::ui::TextInput>>,
     find_at: usize,
     body_scroll: gpui::ScrollHandle,
+    /// Popover "Buka dengan": posisi + status daftar aplikasi.
+    open_with: Option<(gpui::Point<gpui::Pixels>, OwLoad)>,
+}
+
+#[derive(Clone)]
+enum OwLoad {
+    Loading,
+    Ready(Vec<crate::openwith::OpenApp>),
+    Error(String),
 }
 
 /// Dialog konfirmasi yang menunggu jawaban.
@@ -115,7 +124,7 @@ impl DocsPanel {
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new() }
+        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None }
     }
 
     /// Penampil mandiri untuk byte lampiran (port AttachmentPreview.tsx → PreviewBody).
@@ -128,7 +137,7 @@ impl DocsPanel {
         });
         let mut cache = HashMap::new();
         cache.insert(name, Loaded { kind, bytes: Ok(std::sync::Arc::new(bytes)), text });
-        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new() }
+        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None }
     }
 
     fn load(path: &str) -> Loaded {
@@ -595,11 +604,9 @@ impl DocsPanel {
                     Err(e) => div().child(note(t, i.tp("doc.jsonInvalid", &[("error", &e.to_string())]))).child(code_view(t, &text, wrap)).into_any_element(),
                 },
                 DocKind::Html => {
-                    let p = path.to_string();
                     div()
                         .flex()
                         .flex_col()
-                        .child(div().p(t.space(3)).child(button("doc-html-open").size(ControlSize::Sm).label(i.t("doc.openInBrowser")).on_click(move |_, _, cx| cx.open_url(&format!("file:///{}", p.replace('\\', "/"))))))
                         .child(code_view(t, &text, wrap))
                         .into_any_element()
                 }
@@ -801,27 +808,41 @@ impl Render for DocsPanel {
                     cx.notify();
                 })));
         }
-        if is_text_kind(kind) {
-            bar = bar
-                .child(icon_button("doc-wrap", "wrap", i.t("doc.wrap")).size(ControlSize::Sm).pressed(wrap).on_click(cx.listener(move |s, _, _, cx| {
-                    if !s.nowrap.remove(&a3) {
-                        s.nowrap.insert(a3.clone());
-                    }
-                    cx.notify();
-                })))
-                .child(icon_button("doc-copy", "copy", i.t("doc.copy")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| {
-                    if let Some((txt, _)) = s.cache.get(&a4).and_then(|l| l.text.clone()) {
-                        cx.write_to_clipboard(ClipboardItem::new_string(txt));
-                    }
-                })));
-        }
         let editing = self.editors.contains_key(&active);
         let dirty = self.is_dirty(&active, cx);
-        let can_find = is_text_kind(kind) && (raw || kind == DocKind::Code) && !self.editors.contains_key(&active);
-        bar = bar.child(icon_button("doc-find", "search", i.t(if can_find { "doc.find" } else { "doc.findUnavailable" })).size(ControlSize::Sm).disabled(!can_find).pressed(self.find.is_some()).on_click(cx.listener(|s, _, w, cx| s.toggle_find(w, cx))));
-        let a_dl = active.clone();
-        bar = bar.child(icon_button("doc-dl", "download", i.t("doc.download")).size(ControlSize::Sm).disabled(self.cache.get(&active).is_none_or(|l| l.bytes.is_err())).on_click(cx.listener(move |s, _, _, cx| s.save_copy(&a_dl, cx))));
         let textual = is_text_kind(kind) && (raw || kind == DocKind::Code);
+        let can_find = textual && !editing;
+        if kind == DocKind::Html {
+            let p = active.clone();
+            bar = bar.child(icon_button("doc-live", "globe", i.t("doc.openInBrowser")).size(ControlSize::Sm).on_click(move |_, _, cx| cx.open_url(&format!("file:///{}", p.replace('\\', "/")))));
+        }
+        bar = bar
+            .child(icon_button("doc-find", "search", i.t(if can_find { "doc.find" } else { "doc.findUnavailable" })).size(ControlSize::Sm).disabled(!can_find).pressed(self.find.is_some()).on_click(cx.listener(|s, _, w, cx| s.toggle_find(w, cx))))
+            .child(icon_button("doc-wrap", "wrap", i.t("doc.wrap")).size(ControlSize::Sm).disabled(!textual).pressed(wrap).on_click(cx.listener(move |s, _, _, cx| {
+                if !s.nowrap.remove(&a3) {
+                    s.nowrap.insert(a3.clone());
+                }
+                cx.notify();
+            })))
+            .child(icon_button("doc-copy", "copy", i.t("doc.copy")).size(ControlSize::Sm).disabled(!is_text_kind(kind)).on_click(cx.listener(move |s, _, _, cx| {
+                if let Some((txt, _)) = s.cache.get(&a4).and_then(|l| l.text.clone()) {
+                    cx.write_to_clipboard(ClipboardItem::new_string(txt));
+                    let i = cx.global::<I18n>().clone();
+                    toast_ok(cx, i.t("doc.copied"));
+                }
+            })))
+            .child(button("doc-copypath").size(ControlSize::Sm).label(i.t("doc.copyPath")).on_click(move |_, _, cx| {
+                cx.write_to_clipboard(ClipboardItem::new_string(a6.clone()));
+                let i = cx.global::<I18n>().clone();
+                toast_ok(cx, i.t("doc.copied"));
+            }));
+        let a_dl = active.clone();
+        bar = bar
+            .child(icon_button("doc-dl", "download", i.t("doc.download")).size(ControlSize::Sm).disabled(self.cache.get(&active).is_none_or(|l| l.bytes.is_err())).on_click(cx.listener(move |s, _, _, cx| s.save_copy(&a_dl, cx))))
+            .child(icon_button("doc-ext", "external_link", i.t("doc.openExternal")).size(ControlSize::Sm).pressed(self.open_with.is_some()).on_click(cx.listener(move |s, e: &gpui::ClickEvent, _, cx| {
+                let _ = &a7;
+                s.toggle_open_with(e.position(), cx);
+            })));
         if textual && !editing {
             let block = self.edit_block(&active);
             let a_ed = active.clone();
@@ -835,15 +856,8 @@ impl Render for DocsPanel {
         }
         let a_close = active.clone();
         bar = bar
-            .child(div().flex_1())
             .child(icon_button("doc-reload", "refresh", i.t("doc.reload")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.guarded(DiscardThen::Reload(a5.clone()), cx))))
-            .child(icon_button("doc-close", "close", i.t("doc.close")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.guarded(DiscardThen::Close(vec![a_close.clone()]), cx))))
-            .child(icon_button("doc-copypath", "link", i.t("doc.copyPath")).size(ControlSize::Sm).on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(a6.clone()))))
-            .child(icon_button("doc-reveal", "folder_open", i.t("doc.openWith.reveal")).size(ControlSize::Sm).on_click({
-                let p = active.clone();
-                move |_, _, cx| cx.reveal_path(std::path::Path::new(&p))
-            }))
-            .child(icon_button("doc-ext", "external_link", i.t("doc.openExternal")).size(ControlSize::Sm).on_click(move |_, _, cx| cx.open_with_system(std::path::Path::new(&a7))));
+            .child(icon_button("doc-close", "close", i.t("doc.close")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.guarded(DiscardThen::Close(vec![a_close.clone()]), cx))));
 
         let diff = self.state.read(cx).diffs.get(&active).cloned();
         let (bar, body) = match diff {
@@ -875,6 +889,7 @@ impl Render for DocsPanel {
             }
         };
         let ask = self.ask_dialog(&t, &i, cx);
+        let ow = self.open_with_popup(&t, &i, &active, kind, cx);
         let find_bar = self.find.clone().filter(|_| can_find).map(|f| {
             let text = self.cache.get(&active).and_then(|l| l.text.as_ref()).map(|x| x.0.clone()).unwrap_or_default();
             let n = find_matches(&text, f.read(cx).text().as_ref()).len();
@@ -937,6 +952,7 @@ impl Render for DocsPanel {
             .children(find_bar)
             .child(div().id("doc-body").flex_1().min_h_0().overflow_scroll().track_scroll(&self.body_scroll).child(body))
             .children(menu)
+            .children(ow)
             .children(ask)
             .into_any_element()
     }
@@ -1204,5 +1220,144 @@ impl DocsPanel {
         let lh = t.rem(ty.size) * ty.lh;
         let y = t.space(3) + lh * line as f32 - gpui::px(80.);
         self.body_scroll.set_offset(gpui::point(self.body_scroll.offset().x, -y.max(gpui::px(0.))));
+    }
+}
+
+impl DocsPanel {
+    fn toggle_open_with(&mut self, pos: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        if self.open_with.take().is_some() {
+            cx.notify();
+            return;
+        }
+        self.open_with = Some((pos, OwLoad::Loading));
+        self.fetch_apps(false, cx);
+    }
+
+    fn fetch_apps(&mut self, refresh: bool, cx: &mut Context<Self>) {
+        let Some(active) = self.state.read(cx).active.clone() else { return };
+        let text_like = self.cache.get(&active).is_some_and(|l| is_text_kind(l.kind));
+        let ext = std::path::Path::new(&active).extension().and_then(|e| e.to_str()).map(str::to_string);
+        if let Some((_, l)) = &mut self.open_with {
+            *l = OwLoad::Loading;
+        }
+        let task = cx.background_spawn(async move {
+            match ext {
+                Some(e) => crate::openwith::apps_for(&e, text_like, refresh),
+                None => Err("berkas tanpa ekstensi".to_string()),
+            }
+        });
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |s, cx| {
+                if let Some((_, l)) = &mut s.open_with {
+                    *l = match r {
+                        Ok(a) => OwLoad::Ready(a),
+                        Err(e) => OwLoad::Error(e),
+                    };
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn open_with_popup(&mut self, t: &Theme, i: &I18n, path: &str, kind: DocKind, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (pos, load) = self.open_with.clone()?;
+        let text_like = is_text_kind(kind);
+        let item = |id: SharedString, lead: AnyElement, name: String| {
+            div()
+                .id(id)
+                .flex()
+                .items_center()
+                .gap(t.space(2))
+                .px(t.space(2))
+                .h(t.rem(rem::CONTROL_MD))
+                .rounded(t.rem(rem::RADIUS_SM))
+                .cursor_pointer()
+                .hover(|s| s.bg(t.colors.hover))
+                .child(div().flex_none().size(t.rem(1.)).flex().items_center().justify_center().child(lead))
+                .child(div().flex_1().min_w_0().truncate().child(name))
+        };
+        let generic = || icon("external_link").size(IconSize::Sm).into_any_element();
+        let close = cx.listener(|s: &mut Self, _: &gpui::MouseDownEvent, _, cx| {
+            s.open_with = None;
+            cx.notify();
+        });
+        let p0 = path.to_string();
+        let mut list = crate::ui::popup(t)
+            .w(t.rem(18.))
+            .child(div().px(t.space(2)).py(t.space(1)).small(t).font_weight(FontWeight::SEMIBOLD).child(i.t("doc.openWith.title")))
+            .child(item("ow-system".into(), generic(), i.t("doc.openWith.system")).on_click(cx.listener(move |s, _, _, cx| {
+                s.open_with = None;
+                cx.open_with_system(std::path::Path::new(&p0));
+                cx.notify();
+            })));
+        match load {
+            OwLoad::Loading => list = list.child(div().flex().items_center().gap(t.space(1)).px(t.space(2)).py(t.space(1)).small(t).child(crate::ui::spinner(IconSize::Sm)).child(i.t("doc.openWith.loading"))),
+            OwLoad::Error(e) => {
+                list = list.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t.space(1))
+                        .px(t.space(2))
+                        .py(t.space(1))
+                        .small(t)
+                        .text_color(t.colors.danger)
+                        .child(i.tp("doc.openWith.error", &[("error", &e)]))
+                        .child(button("ow-retry").size(ControlSize::Sm).variant(ButtonVariant::Ghost).label(i.t("doc.reload")).on_click(cx.listener(|s, _, _, cx| s.fetch_apps(true, cx)))),
+                )
+            }
+            OwLoad::Ready(apps) => {
+                if apps.is_empty() {
+                    list = list.child(div().px(t.space(2)).py(t.space(1)).small(t).child(i.t("doc.openWith.none")));
+                }
+                for (n, a) in apps.into_iter().enumerate() {
+                    let lead = if a.icon.is_empty() {
+                        generic()
+                    } else {
+                        crate::core::gradient::image_of(&format!("data:image/png;base64,{}", a.icon)).map(|img| gpui::img(img).size(t.rem(1.)).into_any_element()).unwrap_or_else(generic)
+                    };
+                    let (app, file) = (a.path.clone(), path.to_string());
+                    let mut row = item(SharedString::from(format!("ow-{n}")), lead, a.name.clone()).tooltip(crate::ui::tooltip::text_tooltip(a.path.clone().into()));
+                    if a.is_default {
+                        row = row.child(crate::ui::badge(i.t("doc.openWith.default")));
+                    }
+                    list = list.child(row.on_click(cx.listener(move |s, _, _, cx| {
+                        s.open_with = None;
+                        let (app, file) = (app.clone(), file.clone());
+                        let r = (|| {
+                            if crate::files::is_executable_ext(std::path::Path::new(&file)) {
+                                return Err("berkas yang dapat dieksekusi tidak dibuka dari Zandor".to_string());
+                            }
+                            let ext = std::path::Path::new(&file).extension().and_then(|e| e.to_str()).ok_or("berkas tanpa ekstensi")?.to_string();
+                            let apps = crate::openwith::apps_for(&ext, text_like, false)?;
+                            if !crate::openwith::app_allowed(&apps, &app) {
+                                return Err("aplikasi ini tidak terdaftar untuk jenis berkas tersebut".to_string());
+                            }
+                            crate::openwith::launch(&app, std::path::Path::new(&file))
+                        })();
+                        if let Err(e) = r {
+                            let i = cx.global::<I18n>().clone();
+                            toast_err(cx, i.tp("sb.error", &[("error", &e)]));
+                        }
+                        cx.notify();
+                    })));
+                }
+            }
+        }
+        let p1 = path.to_string();
+        list = list.child(crate::ui::separator(t)).child(item("ow-reveal".into(), icon("folder_open").size(IconSize::Sm).into_any_element(), i.t("doc.openWith.reveal")).on_click(cx.listener(move |s, _, _, cx| {
+            s.open_with = None;
+            cx.reveal_path(std::path::Path::new(&p1));
+            cx.notify();
+        })));
+        Some(
+            crate::ui::overlay_deferred(gpui::anchored().position(pos).anchor(gpui::Anchor::TopRight).snap_to_window_with_margin(gpui::px(8.)).child(div().mt(t.space(2)).child(list.occlude().on_mouse_down_out(close))))
+                .with_priority(65)
+                .into_any_element(),
+        )
     }
 }
