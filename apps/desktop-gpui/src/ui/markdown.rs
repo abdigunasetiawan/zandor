@@ -233,7 +233,8 @@ pub fn markdown(src: &str, t: &Theme, i: &crate::i18n::I18n) -> AnyElement {
                 TagEnd::CodeBlock => {
                     if let Some((lang, body)) = code.take() {
                         let raw = body.trim_end_matches('\n').to_string();
-                        push_child(&mut stack, super::rich::code_block(t, i, &lang, &raw));
+                        let el = if lang.trim().eq_ignore_ascii_case("mermaid") { super::mermaid::block(t, i, &raw) } else { super::rich::code_block(t, i, &lang, &raw) };
+                        push_child(&mut stack, el);
                     }
                 }
                 TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item => {

@@ -8,6 +8,7 @@ pub mod icon;
 pub mod markdown;
 pub mod math;
 pub mod menu;
+pub mod mermaid;
 pub mod rich;
 pub mod molecules;
 pub mod select;

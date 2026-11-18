@@ -87,6 +87,16 @@ impl Root {
         if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
             app.update(cx, |a, cx| a.push("/welcome", cx));
         }
+        crate::ui::mermaid::selftest();
+        // Diagram Mermaid: webview tersembunyi dipompa berkala (detak cepat hanya saat ada pekerjaan).
+        cx.spawn_in(window, async move |this, cx| loop {
+            let fast = crate::ui::mermaid::busy();
+            cx.background_executor().timer(std::time::Duration::from_millis(if fast { 120 } else { 500 })).await;
+            if this.update_in(cx, |_, w, cx| crate::ui::mermaid::pump(w, cx)).is_err() {
+                return;
+            }
+        })
+        .detach();
         // Kontrol aplikasi oleh agent (ADR-077): ambil antrean tiap POLL_MS, jalankan, jawab.
         cx.spawn_in(window, async move |this, cx| loop {
             cx.background_executor().timer(std::time::Duration::from_millis(super::agent_control::POLL_MS)).await;

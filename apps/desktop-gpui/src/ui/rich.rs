@@ -134,10 +134,15 @@ fn home() -> std::path::PathBuf {
 
 /// Simpan teks lewat dialog Simpan sebagai (port saveText).
 fn save_text(name: String, text: String, cx: &mut App) {
+    save_bytes(name, text.into_bytes(), cx)
+}
+
+/// Simpan byte lewat dialog Simpan sebagai (port saveBytes).
+fn save_bytes(name: String, text: Vec<u8>, cx: &mut App) {
     let rx = cx.prompt_for_new_path(&home(), Some(&name));
     cx.spawn(async move |cx| {
         let Ok(Ok(Some(path))) = rx.await else { return };
-        let r = std::fs::write(&path, text.as_bytes());
+        let r = std::fs::write(&path, &text);
         cx.update(|cx| {
             let i = cx.global::<I18n>().clone();
             let input = match r {
@@ -282,6 +287,34 @@ $$"), cx)).icon("copy"),
         .gap(t.space(1))
         .child(icon_button(ElementId::Name(format!("mb-copy-{key:x}").into()), "sigma", i.t("rich.copyLatex")).size(ControlSize::Sm).on_click(move |_, _, cx| copy_text(l1.clone(), cx)))
         .child(more_button(format!("mb-more-{key:x}"), i, more))
+        .into_any_element()
+}
+
+/// Bilah aksi diagram Mermaid (port Mermaid.tsx): salin sumber, simpan PNG + menu ⋯.
+pub fn mermaid_bar(t: &Theme, i: &I18n, code: &str, svg: &str, png: std::sync::Arc<gpui::Image>) -> AnyElement {
+    let key = block_key(&["mmd", code]);
+    let (c1, c2, c3) = (code.to_string(), code.to_string(), code.to_string());
+    let (s1, s2) = (svg.to_string(), svg.to_string());
+    let (p1, p2) = (png.clone(), png);
+    let more = vec![
+        entry(i.t("rich.copyImage"), move |_, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_image(&p2));
+            let title = cx.global::<I18n>().t("rich.imageCopied");
+            super::Toasts::show(super::ToastInput { tone: super::ToastTone::Success, timeout_ms: Some(1500), ..super::ToastInput::new(title) }, cx);
+        })
+        .icon("image_down"),
+        entry(i.t("rich.copySvg"), move |_, cx| copy_text(s1.clone(), cx)).icon("code"),
+        entry(i.t("rich.saveSvg"), move |_, cx| save_text(stamped_name("diagram", "svg"), s2.clone(), cx)).icon("code"),
+        entry(i.tp("rich.saveFile", &[("ext", ".mmd")]), move |_, cx| save_text(stamped_name("diagram", "mmd"), c2.clone(), cx)).icon("download"),
+        entry(i.t("rich.copyFenced"), move |_, cx| copy_text(fenced("mermaid", &c3), cx)).icon("file_text"),
+    ];
+    div()
+        .flex()
+        .justify_end()
+        .gap(t.space(1))
+        .child(icon_button(ElementId::Name(format!("mm-src-{key:x}").into()), "copy", i.t("rich.copySource")).size(ControlSize::Sm).on_click(move |_, _, cx| copy_text(c1.clone(), cx)))
+        .child(icon_button(ElementId::Name(format!("mm-png-{key:x}").into()), "image", i.t("rich.saveImage")).size(ControlSize::Sm).on_click(move |_, _, cx| save_bytes(stamped_name("diagram", "png"), p1.bytes().to_vec(), cx)))
+        .child(more_button(format!("mm-more-{key:x}"), i, more))
         .into_any_element()
 }
 
