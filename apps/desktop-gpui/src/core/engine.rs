@@ -201,7 +201,12 @@ impl EngineApi {
         if let Some(d) = dir {
             let k = super::projects::path_key(d);
             if let Ok(r) = self.routes.read() {
-                if let Some((_, u, a)) = r.iter().find(|(p, _, _)| *p == k) {
+                // port routeOf: project yang memuat direktori (atau sama persis), path terpanjang menang
+                let inside = |p: &str| {
+                    let base = p.trim_end_matches(['/', '\\']);
+                    k == p || k.starts_with(&format!("{base}/")) || k.starts_with(&format!("{base}\\"))
+                };
+                if let Some((_, u, a)) = r.iter().filter(|(p, _, _)| inside(p)).max_by_key(|(p, _, _)| p.len()) {
                     return (u.clone(), a.clone());
                 }
             }
@@ -310,7 +315,11 @@ impl EngineApi {
         let v: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
         let ticket = v["ticket"].as_str().filter(|t| !t.is_empty()).ok_or_else(|| EngineError("engine tidak memberi tiket terminal".into()))?;
         let base = self.target(Some(dir)).0;
-        let ws = base.strip_prefix("http://").map(|r| format!("ws://{r}")).ok_or_else(|| EngineError("terminal engine via https belum didukung".into()))?;
+        let ws = base
+            .strip_prefix("http://")
+            .map(|r| format!("ws://{r}"))
+            .or_else(|| base.strip_prefix("https://").map(|r| format!("wss://{r}")))
+            .ok_or_else(|| EngineError(format!("URL engine tidak dikenal: {base}")))?;
         Ok(format!("{ws}/pty/{}/connect?ticket={}&cursor={cursor}&directory={}", q(id), q(ticket), q(dir)))
     }
     pub fn delete_session(&self, dir: &str, id: &str) -> Result<()> {

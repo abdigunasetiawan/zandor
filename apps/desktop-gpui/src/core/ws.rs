@@ -1,7 +1,79 @@
-//! Klien WebSocket minimal (RFC 6455) di atas TCP polos, untuk I/O terminal PTY engine lokal (`ws://`). Tanpa crate
-//! tambahan: handshake HTTP Upgrade, bingkai klien bermasker, pembacaan bingkai teks/biner/close/ping.
+//! Klien WebSocket minimal (RFC 6455) untuk I/O terminal PTY engine: `ws://` (engine lokal) di atas TCP polos dan
+//! `wss://` (engine remote HTTPS) lewat native-tls. Handshake HTTP Upgrade, bingkai klien bermasker, pembacaan bingkai
+//! teks/biner/close/ping.
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
+
+/// Aliran koneksi: TCP polos (klon terpisah untuk baca/tulis) atau TLS bersama. TLS tidak bisa dipisah, jadi pembaca
+/// memakai batas waktu baca pendek agar kunci dilepas berkala dan penulis di thread lain bisa menulis.
+pub enum Stream {
+    Plain(TcpStream),
+    Tls(Arc<Mutex<native_tls::TlsStream<TcpStream>>>, TcpStream),
+}
+
+impl Stream {
+    fn try_clone(&self) -> std::io::Result<Stream> {
+        Ok(match self {
+            Stream::Plain(s) => Stream::Plain(s.try_clone()?),
+            Stream::Tls(t, raw) => Stream::Tls(t.clone(), raw.try_clone()?),
+        })
+    }
+    fn shutdown(&self) {
+        let _ = match self {
+            Stream::Plain(s) => s.shutdown(std::net::Shutdown::Both),
+            Stream::Tls(_, raw) => raw.shutdown(std::net::Shutdown::Both),
+        };
+    }
+}
+
+impl Read for Stream {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Stream::Plain(s) => s.read(buf),
+            Stream::Tls(t, _) => loop {
+                let r = t.lock().map_err(|_| std::io::Error::other("kunci TLS rusak"))?.read(buf);
+                match r {
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => std::thread::sleep(std::time::Duration::from_millis(2)),
+                    other => return other,
+                }
+            },
+        }
+    }
+}
+
+impl Write for Stream {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Stream::Plain(s) => s.write(buf),
+            Stream::Tls(t, _) => t.lock().map_err(|_| std::io::Error::other("kunci TLS rusak"))?.write(buf),
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Stream::Plain(s) => s.flush(),
+            Stream::Tls(t, _) => t.lock().map_err(|_| std::io::Error::other("kunci TLS rusak"))?.flush(),
+        }
+    }
+}
+
+/// (tls, host:port, host tanpa port, path) dari URL ws:// atau wss://.
+pub fn parse_ws_url(url: &str) -> Result<(bool, String, String, String), String> {
+    let (tls, rest) = if let Some(r) = url.strip_prefix("wss://") {
+        (true, r)
+    } else if let Some(r) = url.strip_prefix("ws://") {
+        (false, r)
+    } else {
+        return Err("hanya ws:// atau wss:// yang didukung".into());
+    };
+    let (host, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/"),
+    };
+    let name = host.rsplit_once(':').filter(|(_, p)| p.chars().all(|c| c.is_ascii_digit())).map(|(h, _)| h).unwrap_or(host).to_string();
+    let addr = if name.len() != host.len() { host.to_string() } else { format!("{host}:{}", if tls { 443 } else { 80 }) };
+    Ok((tls, addr, name, path.to_string()))
+}
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -28,12 +100,12 @@ pub enum Frame {
 }
 
 pub struct WsReader {
-    r: BufReader<TcpStream>,
-    w: TcpStream,
+    r: BufReader<Stream>,
+    w: Stream,
 }
 
 /// Penulis: tiap `write` = satu bingkai teks bermasker (input terminal).
-pub struct WsWriter(TcpStream);
+pub struct WsWriter(Stream);
 
 fn mask_key() -> [u8; 4] {
     let mut k = [0u8; 4];
@@ -41,7 +113,7 @@ fn mask_key() -> [u8; 4] {
     k
 }
 
-fn write_frame(s: &mut TcpStream, opcode: u8, data: &[u8]) -> std::io::Result<()> {
+fn write_frame(s: &mut Stream, opcode: u8, data: &[u8]) -> std::io::Result<()> {
     let mut f = vec![0x80 | opcode];
     let n = data.len();
     if n < 126 {
@@ -72,20 +144,25 @@ impl Drop for WsWriter {
     /// Menutup penulis menutup koneksi; pembaca di thread lain ikut berhenti.
     fn drop(&mut self) {
         let _ = write_frame(&mut self.0, 0x8, &[]);
-        let _ = self.0.shutdown(std::net::Shutdown::Both);
+        self.0.shutdown();
     }
 }
 
 /// Sambung ke `ws://host:port/path?query`; header tambahan (mis. Authorization) opsional.
 pub fn connect(url: &str, headers: &[(&str, &str)]) -> Result<(WsReader, WsWriter), String> {
-    let rest = url.strip_prefix("ws://").ok_or_else(|| "hanya ws:// yang didukung".to_string())?;
-    let (host, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
+    let (tls, addr, name, path) = parse_ws_url(url)?;
+    let host = addr.as_str();
+    let tcp = TcpStream::connect(&addr).map_err(|e| e.to_string())?;
+    tcp.set_nodelay(true).ok();
+    let mut s = if tls {
+        let raw = tcp.try_clone().map_err(|e| e.to_string())?;
+        let t = native_tls::TlsConnector::new().map_err(|e| e.to_string())?.connect(&name, tcp).map_err(|e| format!("TLS: {e}"))?;
+        // batas waktu baca pendek setelah handshake: pembaca melepas kunci berkala (lihat Stream)
+        raw.set_read_timeout(Some(std::time::Duration::from_millis(20))).ok();
+        Stream::Tls(Arc::new(Mutex::new(t)), raw)
+    } else {
+        Stream::Plain(tcp)
     };
-    let addr = if host.contains(':') { host.to_string() } else { format!("{host}:80") };
-    let mut s = TcpStream::connect(&addr).map_err(|e| e.to_string())?;
-    s.set_nodelay(true).ok();
     let mut key = [0u8; 16];
     let _ = getrandom::fill(&mut key);
     let mut req = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {}\r\nSec-WebSocket-Version: 13\r\n", base64(&key));
@@ -201,5 +278,32 @@ mod engine_tests {
         assert!(api.pty_list(&dir).unwrap().iter().any(|x| x.id == p.id));
         api.pty_remove(&dir, &p.id).unwrap();
         assert!(got.matches("ZANDOR_OK").count() >= 2, "{got}");
+    }
+}
+
+#[cfg(test)]
+mod url_tests {
+    #[test]
+    fn url_ws_dan_wss() {
+        assert_eq!(super::parse_ws_url("ws://127.0.0.1:4096/pty/x").unwrap(), (false, "127.0.0.1:4096".into(), "127.0.0.1".into(), "/pty/x".into()));
+        assert_eq!(super::parse_ws_url("wss://eng.example.com/a?b=1").unwrap(), (true, "eng.example.com:443".into(), "eng.example.com".into(), "/a?b=1".into()));
+        assert!(super::parse_ws_url("http://x").is_err());
+    }
+
+    /// Uji nyata TLS + handshake WebSocket ke server echo publik: `cargo test wss_nyata -- --ignored`.
+    #[test]
+    #[ignore]
+    fn wss_nyata() {
+        let (mut r, mut w) = super::connect("wss://echo.websocket.org/", &[]).unwrap();
+        use std::io::Write;
+        w.write_all(b"zandor").unwrap();
+        for _ in 0..5 {
+            if let super::Frame::Text(d) = r.next().unwrap() {
+                if d == b"zandor" {
+                    return;
+                }
+            }
+        }
+        panic!("tidak ada echo");
     }
 }

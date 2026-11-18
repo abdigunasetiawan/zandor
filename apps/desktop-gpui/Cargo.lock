@@ -7515,6 +7515,7 @@ dependencies = [
  "gpui_platform",
  "image",
  "keyring",
+ "native-tls",
  "portable-pty",
  "pulldown-cmark",
  "regex",

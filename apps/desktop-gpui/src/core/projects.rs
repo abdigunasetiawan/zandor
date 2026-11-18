@@ -1,7 +1,7 @@
 //! Project & sesi — port packages/core/src/engine/projects.ts (ProjectStore).
 //! PROJECT = folder (registry JSON milik Zandor). SESI milik engine, terikat direktori. Sesi tanpa project ("Chat")
 //! memakai folder `chats/<chat-…>/` per sesi. Hapus project = lepas dari daftar; sesi di engine tidak dihapus.
-//! Engine remote (ADR) belum diport: registry tetap menyimpan `remotes` apa adanya agar tidak hilang.
+//! Engine remote: `remotes` + rute per project (EngineApi::set_routes) — chat dan terminal project remote ke engine-nya.
 #![allow(dead_code)]
 use super::engine::{is_default_session_title, EngineApi, SessionInfo};
 use gpui::{App, AppContext, Context, Entity, EventEmitter, Global, Task};
