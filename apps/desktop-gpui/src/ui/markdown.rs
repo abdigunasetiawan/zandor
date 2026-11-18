@@ -12,6 +12,7 @@ struct Inline {
     hl: Vec<(Range<usize>, HighlightStyle)>,
     bold: usize,
     italic: usize,
+    strike: usize,
     link: usize,
     /// URL tautan yang sedang terbuka (hanya http/https yang bisa diklik).
     href: Option<String>,
@@ -77,6 +78,10 @@ impl Inline {
             h.font_style = Some(FontStyle::Italic);
             any = true;
         }
+        if self.strike > 0 {
+            h.strikethrough = Some(gpui::StrikethroughStyle { thickness: gpui::px(1.), color: None });
+            any = true;
+        }
         if let Some(u) = self.href.clone().filter(|_| self.link > 0) {
             self.links.push((r.clone(), u));
         }
@@ -136,7 +141,7 @@ enum Container {
     Item(String),
 }
 
-pub fn markdown(src: &str, t: &Theme) -> AnyElement {
+pub fn markdown(src: &str, t: &Theme, i: &crate::i18n::I18n) -> AnyElement {
     let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES;
     let mut stack: Vec<Block> = vec![Block::Container { kind: Container::Root, children: vec![] }];
     let mut inl = Inline::default();
@@ -144,6 +149,9 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
     let mut code: Option<(String, String)> = None;
     let mut table_row: Vec<AnyElement> = vec![];
     let mut table_rows: Vec<(bool, Vec<AnyElement>)> = vec![];
+    // teks polos sel untuk salin/simpan tabel
+    let mut text_row: Vec<String> = vec![];
+    let mut text_rows: Vec<Vec<String>> = vec![];
     let mut in_head = false;
 
     fn push_child(stack: &mut [Block], el: AnyElement) {
@@ -175,6 +183,7 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                 Tag::Paragraph => flush(&mut inl, &mut stack, None),
                 Tag::Strong => inl.bold += 1,
                 Tag::Emphasis => inl.italic += 1,
+                Tag::Strikethrough => inl.strike += 1,
                 Tag::Link { dest_url, .. } => {
                     inl.link += 1;
                     inl.href = is_web_link(&dest_url).then(|| dest_url.to_string());
@@ -216,43 +225,15 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                 TagEnd::Paragraph => flush(&mut inl, &mut stack, None),
                 TagEnd::Strong => inl.bold = inl.bold.saturating_sub(1),
                 TagEnd::Emphasis => inl.italic = inl.italic.saturating_sub(1),
+                TagEnd::Strikethrough => inl.strike = inl.strike.saturating_sub(1),
                 TagEnd::Link => {
                     inl.link = inl.link.saturating_sub(1);
                     inl.href = None;
                 }
                 TagEnd::CodeBlock => {
                     if let Some((lang, body)) = code.take() {
-                        let el = div()
-                            .w_full()
-                            .flex()
-                            .flex_col()
-                            .rounded(t.rem(rem::RADIUS_MD))
-                            .border_1()
-                            .border_color(t.colors.border_soft)
-                            .bg(t.colors.code_bg.unwrap_or(t.colors.raised))
-                            .when_some(t.colors.code_fg, |d, c| d.text_color(c))
-                            .overflow_hidden()
-                            .when(!lang.is_empty(), |d| {
-                                d.child(
-                                    div()
-                                        .px(t.space(3))
-                                        .py(t.space(1))
-                                        .border_b_1()
-                                        .border_color(t.colors.border_soft)
-                                        .small(t)
-                                        .text_color(t.colors.fg_subtle)
-                                        .child(lang),
-                                )
-                            })
-                            .child(
-                                div()
-                                    .px(t.space(3))
-                                    .py(t.space(2))
-                                    .font_family(t.font_code.clone())
-                                    .code(t)
-                                    .child(body.trim_end_matches('\n').to_string()),
-                            );
-                        push_child(&mut stack, el.into_any_element());
+                        let raw = body.trim_end_matches('\n').to_string();
+                        push_child(&mut stack, super::rich::code_block(t, i, &lang, &raw));
                     }
                 }
                 TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item => {
@@ -280,13 +261,18 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                     }
                 }
                 TagEnd::TableCell => {
+                    text_row.push(inl.text.trim().to_string());
                     table_row.push(inl.take().unwrap_or_else(|| div().into_any_element()));
                 }
                 TagEnd::TableHead => {
                     table_rows.push((true, std::mem::take(&mut table_row)));
+                    text_rows.push(std::mem::take(&mut text_row));
                     in_head = false;
                 }
-                TagEnd::TableRow => table_rows.push((in_head, std::mem::take(&mut table_row))),
+                TagEnd::TableRow => {
+                    table_rows.push((in_head, std::mem::take(&mut table_row)));
+                    text_rows.push(std::mem::take(&mut text_row));
+                }
                 TagEnd::Table => {
                     let mut tbl = div().flex().flex_col().w_full().border_1().border_color(t.colors.border_soft).rounded(t.rem(rem::RADIUS_MD));
                     for (head, cells) in table_rows.drain(..) {
@@ -298,7 +284,8 @@ pub fn markdown(src: &str, t: &Theme) -> AnyElement {
                             .children(cells.into_iter().map(|c| div().flex_1().min_w_0().px(t.space(2)).py(t.space(1)).child(c)));
                         tbl = tbl.child(row);
                     }
-                    push_child(&mut stack, tbl.into_any_element());
+                    let bar = super::rich::table_bar(t, i, std::mem::take(&mut text_rows));
+                    push_child(&mut stack, div().flex().flex_col().gap(t.space(1)).w_full().child(bar).child(tbl).into_any_element());
                 }
                 _ => {}
             },

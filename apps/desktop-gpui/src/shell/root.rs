@@ -279,6 +279,7 @@ impl Render for Root {
             .children(self.gsearch.clone())
             .children(self.imagegen.clone())
             .children(link_menu(&t, cx))
+            .children(crate::ui::rich::rich_menu(&t, cx))
             .child(self.toasts.clone())
     }
 }

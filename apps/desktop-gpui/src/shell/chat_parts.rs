@@ -466,7 +466,7 @@ fn shimmer(t: &Theme, id: &str, text: String) -> AnyElement {
 /// Part (teks, berpikir, tool); `answer` = bagian jawaban (teks memakai gaya chat).
 fn part_el(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &MessagePart, expanded: &HashSet<String>, answer: bool) -> Option<AnyElement> {
     match &p.kind {
-        PartKind::Text { text, synthetic: false } if !text.is_empty() => Some(if answer { chat_text(div(), t).child(markdown(text, &msg_theme(t))).into_any_element() } else { div().child(markdown(text, &msg_theme(t))).into_any_element() }),
+        PartKind::Text { text, synthetic: false } if !text.is_empty() => Some(if answer { chat_text(div(), t).child(markdown(text, &msg_theme(t), i)).into_any_element() } else { div().child(markdown(text, &msg_theme(t), i)).into_any_element() }),
         PartKind::Reasoning { text } if !text.is_empty() => {
             let key = format!("think:{}", p.id);
             let open = expanded.contains(&key);

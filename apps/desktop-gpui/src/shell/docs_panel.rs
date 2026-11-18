@@ -676,7 +676,7 @@ impl DocsPanel {
             match kind {
                 DocKind::Markdown => {
                     let t2 = self.look.themed(t);
-                    self.look.prose(t, div().p(t.space(3)).child(markdown(&text, &t2)).into_any_element())
+                    self.look.prose(t, div().p(t.space(3)).child(markdown(&text, &t2, i)).into_any_element())
                 }
                 DocKind::Image | DocKind::Svg => div()
                     .relative()
@@ -746,7 +746,7 @@ impl DocsPanel {
                         for c in nb.cells {
                             let mut cell = div().flex().flex_col().gap(t.space(1));
                             cell = match c.kind {
-                                "markdown" => cell.child(markdown(&c.source, t)),
+                                "markdown" => cell.child(markdown(&c.source, t, i)),
                                 _ => cell
                                     .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("[{}]", c.execution_count.map(|n| n.to_string()).unwrap_or_else(|| " ".into()))))
                                     .child(div().rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.segment).child(code_view(t, &c.source, true))),
