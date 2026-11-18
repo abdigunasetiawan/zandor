@@ -566,6 +566,28 @@ impl MathStyle for gpui::Div {
     }
 }
 
+fn structural(n: &Node) -> bool {
+    match n {
+        Node::Frac(..) | Node::Binom(..) | Node::Matrix(..) => true,
+        Node::Sqrt(k, v) => k.is_some() || to_text(v).trim().chars().count() > 1,
+        Node::SubSup(b, ..) => matches!(**b, Node::BigOp(_)),
+        Node::Bold(v) | Node::Group(v) => v.iter().any(structural),
+        Node::Sup(b, s) | Node::Sub(b, s) => structural(b) || structural(s),
+        _ => false,
+    }
+}
+
+/// Rumus sebaris butuh tata letak bertumpuk (pecahan, akar majemuk, matriks, operator dengan batas)?
+pub fn is_structural(latex: &str) -> bool {
+    parse(latex).iter().any(structural)
+}
+
+/// Rumus sebaris bertumpuk (port KaTeX inline): tata letak seukuran teks, disisipkan di baris paragraf.
+pub fn render_inline(latex: &str, t: &Theme) -> AnyElement {
+    let size = f32::from(t.rem(t.ty(crate::theme::P).size)) * 0.95;
+    render_list(&parse(latex), t, size).font_style_math().into_any_element()
+}
+
 /// Teks rumus sebaris (Unicode).
 pub fn inline_text(latex: &str) -> String {
     to_text(&parse(latex)).trim().to_string()
@@ -659,6 +681,15 @@ mod tests {
         assert_eq!(inline_text("e^{i\\pi}"), "e^(iπ)");
         assert_eq!(inline_text("\\sum_{i=1}^{n} i"), "∑ᵢ₌₁ⁿ i");
         assert_eq!(inline_text("\\foo x"), "\\foo x");
+    }
+    #[test]
+    fn struktural() {
+        assert!(is_structural(r"\frac{1}{2}"));
+        assert!(is_structural(r"\sqrt{x+1}"));
+        assert!(is_structural(r"\sum_{i=1}^{n} i"));
+        assert!(!is_structural(r"x^2 + y_1"));
+        assert!(!is_structural(r"\sqrt{x}"));
+        assert!(!is_structural(r"\alpha \leq \beta"));
     }
     #[test]
     fn mathml() {

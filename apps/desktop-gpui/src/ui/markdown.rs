@@ -19,6 +19,60 @@ struct Inline {
     links: Vec<(Range<usize>, String)>,
     /// Penghitung blok untuk id elemen yang stabil antar frame.
     seq: usize,
+    /// Potongan paragraf bila ada rumus sebaris bertumpuk: teks (+gaya, tautan) dan rumus bergantian.
+    segs: Vec<Seg>,
+    /// Tema untuk merender rumus sebaris di `take`.
+    theme: Option<Theme>,
+}
+
+enum Seg {
+    Text(String, Vec<(Range<usize>, HighlightStyle)>, Vec<(Range<usize>, String)>),
+    Math(String),
+}
+
+/// Potong gaya/tautan ke rentang [a, b) dan geser ke awal potongan.
+fn clip<T: Clone>(v: &[(Range<usize>, T)], a: usize, b: usize) -> Vec<(Range<usize>, T)> {
+    v.iter().filter(|(r, _)| r.start < b && r.end > a).map(|(r, x)| (r.start.max(a) - a..r.end.min(b) - a, x.clone())).collect()
+}
+
+/// Pecah teks menjadi rentang kata (tanpa spasi penutup) + apakah diikuti spasi; `None` = baris baru paksa.
+fn words(text: &str) -> Vec<Option<(Range<usize>, bool)>> {
+    let mut out = vec![];
+    let mut start: Option<usize> = None;
+    let mut it = text.char_indices().peekable();
+    while let Some((k, c)) = it.next() {
+        if c == '\n' {
+            if let Some(s) = start.take() {
+                out.push(Some((s..k, false)));
+            }
+            out.push(None);
+        } else if c.is_whitespace() {
+            if let Some(s) = start.take() {
+                out.push(Some((s..k, true)));
+            }
+        } else if start.is_none() {
+            start = Some(k);
+        }
+    }
+    if let Some(s) = start {
+        out.push(Some((s..text.len(), false)));
+    }
+    out
+}
+
+fn link_text(id: gpui::ElementId, text: String, hl: Vec<(Range<usize>, HighlightStyle)>, links: Vec<(Range<usize>, String)>) -> AnyElement {
+    if links.is_empty() {
+        return StyledText::new(text).with_highlights(hl).into_any_element();
+    }
+    let (ranges, urls): (Vec<_>, Vec<_>) = links.into_iter().unzip();
+    gpui::InteractiveText::new(id, StyledText::new(text).with_highlights(hl))
+        .on_click(ranges, move |ix, window, cx| {
+            if let Some(u) = urls.get(ix) {
+                cx.set_global(LinkMenu(Some((u.clone(), window.mouse_position()))));
+                cx.refresh_windows();
+            }
+        })
+        .into_any_element()
 }
 
 /// Tautan yang diklik di respons model: menu kecil (buka di Browser Zandor / eksternal / salin) di posisi mouse.
@@ -61,6 +115,50 @@ pub fn is_web_link(href: &str) -> bool {
 }
 
 impl Inline {
+    fn push_math(&mut self, latex: &str) {
+        let text = std::mem::take(&mut self.text);
+        let hl = std::mem::take(&mut self.hl);
+        let links = std::mem::take(&mut self.links);
+        if !text.is_empty() {
+            self.segs.push(Seg::Text(text, hl, links));
+        }
+        self.segs.push(Seg::Math(latex.to_string()));
+    }
+    /// Paragraf campuran: baris flex-wrap per kata + rumus bertumpuk (pengganti KaTeX inline).
+    fn take_mixed(&mut self) -> AnyElement {
+        let text = std::mem::take(&mut self.text);
+        let hl = std::mem::take(&mut self.hl);
+        let links = std::mem::take(&mut self.links);
+        if !text.is_empty() {
+            self.segs.push(Seg::Text(text, hl, links));
+        }
+        self.seq += 1;
+        let Some(t) = self.theme.clone() else {
+            self.segs.clear();
+            return div().into_any_element();
+        };
+        let gap = gpui::px(f32::from(t.rem(0.28)));
+        let mut row = div().flex().flex_row().flex_wrap().items_center().w_full();
+        let mut n = 0usize;
+        for seg in std::mem::take(&mut self.segs) {
+            match seg {
+                Seg::Math(l) => row = row.child(div().flex_none().pr(gap).child(super::math::render_inline(&l, &t))),
+                Seg::Text(text, hl, links) => {
+                    for w in words(&text) {
+                        let Some((r, space)) = w else {
+                            row = row.child(div().w_full().h(gpui::px(0.)));
+                            continue;
+                        };
+                        n += 1;
+                        let id = gpui::ElementId::Name(format!("md-w-{}-{n}", self.seq).into());
+                        let el = link_text(id, text[r.clone()].to_string(), clip(&hl, r.start, r.end), clip(&links, r.start, r.end));
+                        row = row.child(div().flex_none().when(space, |d| d.pr(gap)).child(el));
+                    }
+                }
+            }
+        }
+        row.into_any_element()
+    }
     fn push(&mut self, s: &str, t: &Theme, code: bool) {
         let start = self.text.len();
         self.text.push_str(s);
@@ -100,6 +198,9 @@ impl Inline {
         }
     }
     fn take(&mut self) -> Option<AnyElement> {
+        if !self.segs.is_empty() {
+            return Some(self.take_mixed());
+        }
         if self.text.trim().is_empty() {
             self.text.clear();
             self.hl.clear();
@@ -144,7 +245,7 @@ enum Container {
 pub fn markdown(src: &str, t: &Theme, i: &crate::i18n::I18n) -> AnyElement {
     let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_TABLES | Options::ENABLE_MATH;
     let mut stack: Vec<Block> = vec![Block::Container { kind: Container::Root, children: vec![] }];
-    let mut inl = Inline::default();
+    let mut inl = Inline { theme: Some(t.clone()), ..Inline::default() };
     let mut heading: Option<HeadingLevel> = None;
     let mut code: Option<(String, String)> = None;
     let mut table_row: Vec<AnyElement> = vec![];
@@ -313,6 +414,7 @@ pub fn markdown(src: &str, t: &Theme, i: &crate::i18n::I18n) -> AnyElement {
                 }
             }
             Event::Code(s) => inl.push(&s, t, true),
+            Event::InlineMath(s) if super::math::is_structural(&s) => inl.push_math(&s),
             Event::InlineMath(s) => {
                 inl.italic += 1;
                 inl.push(&super::math::inline_text(&s), t, false);
@@ -353,5 +455,17 @@ mod link_tests {
         let v = super::split_autolinks("lihat https://a.id/x. dan httpx lalu http://b.c");
         assert_eq!(v, vec![("lihat ", false), ("https://a.id/x.", true), (" dan http", false), ("x lalu ", false), ("http://b.c", true)]);
         assert!(super::is_web_link("HTTPS://x") && !super::is_web_link("javascript:alert(1)") && !super::is_web_link("file:///c"));
+    }
+}
+
+#[cfg(test)]
+mod word_tests {
+    #[test]
+    fn pecah_kata() {
+        let v = super::words("a bc\nd ");
+        assert_eq!(v, vec![Some((0..1, true)), Some((2..4, false)), None, Some((5..6, true))]);
+        let hl = vec![(1..5, 7u8)];
+        assert_eq!(super::clip(&hl, 2, 4), vec![(0..2, 7u8)]);
+        assert_eq!(super::clip(&hl, 5, 6), vec![]);
     }
 }
