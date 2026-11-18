@@ -25,6 +25,7 @@ struct Form {
     key: Entity<TextInput>,
     models: Entity<TextInput>,
     error: Option<String>,
+    accounts: Option<Entity<super::account_list::AccountList>>,
 }
 
 pub struct ProvidersSection {
@@ -92,6 +93,7 @@ impl ProvidersSection {
             },
             models: Self::input(cx, "model-a, model-b", &models),
             error: None,
+            accounts: pv.map(|p| (p.id.clone(), p.name.clone())).map(|(id, name)| cx.new(|cx| super::account_list::AccountList::new(id, name, cx))),
         });
         cx.notify();
     }
@@ -230,6 +232,7 @@ impl Render for ProvidersSection {
             form = form
                 .child(field(i.t("pv.apiKey"), f.key.clone().into_any_element()))
                 .child(div().small(&t).text_color(t.colors.fg_subtle).child(i.t(if f.editing { "pv.apiKeyKeep" } else if f.tab.as_ref() == "local" { "pv.apiKeyOptional" } else { "pv.secure.yes" })))
+                .children(f.accounts.clone())
                 .children(f.error.clone().map(|e| div().text_color(t.colors.danger).child(e)))
                 .child(
                     div()
