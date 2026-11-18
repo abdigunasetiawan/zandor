@@ -193,10 +193,12 @@ pub fn code_block(t: &Theme, i: &I18n, lang: &str, raw: &str) -> AnyElement {
         .child(icon_button(ElementId::Name(format!("cb-copy-{key:x}").into()), "copy", i.t("md.copyCode")).size(ControlSize::Sm).on_click(move |_, _, cx| copy_text(r1.clone(), cx)))
         .child(more_button(format!("cb-more-{key:x}"), i, more));
     let body = div().px(t.space(3)).py(t.space(2)).font_family(t.font_code.clone()).code(t);
+    let hl = super::highlight::highlight_text(lang, &shown, t);
+    let styled = gpui::StyledText::new(shown).with_highlights(hl);
     let body: AnyElement = if wrap {
-        body.child(shown).into_any_element()
+        body.child(styled).into_any_element()
     } else {
-        div().id(ElementId::Name(format!("cb-x-{key:x}").into())).overflow_x_scroll().child(body.whitespace_nowrap().child(shown)).into_any_element()
+        div().id(ElementId::Name(format!("cb-x-{key:x}").into())).overflow_x_scroll().child(body.whitespace_nowrap().child(styled)).into_any_element()
     };
     div()
         .w_full()

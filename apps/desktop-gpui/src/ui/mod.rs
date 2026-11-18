@@ -3,6 +3,7 @@
 pub mod button;
 pub mod choice;
 pub mod feedback;
+pub mod highlight;
 pub mod icon;
 pub mod markdown;
 pub mod menu;

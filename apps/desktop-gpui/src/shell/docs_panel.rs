@@ -451,12 +451,12 @@ fn note(t: &Theme, s: String) -> AnyElement {
     div().p(t.space(3)).small(t).text_color(t.colors.fg_muted).child(s).into_any_element()
 }
 
-fn code_view(t: &Theme, text: &str, wrap: bool) -> AnyElement {
-    code_view_find(t, &DocLook { line_numbers: true, prose_width: 48., ..Default::default() }, text, wrap, "", usize::MAX)
+fn code_view(t: &Theme, text: &str, wrap: bool, lang: &str) -> AnyElement {
+    code_view_find(t, &DocLook { line_numbers: true, prose_width: 48., ..Default::default() }, text, wrap, "", usize::MAX, lang)
 }
 
-fn code_view_look(t: &Theme, look: &DocLook, text: &str, wrap: bool) -> AnyElement {
-    code_view_find(t, look, text, wrap, "", usize::MAX)
+fn code_view_look(t: &Theme, look: &DocLook, text: &str, wrap: bool, lang: &str) -> AnyElement {
+    code_view_find(t, look, text, wrap, "", usize::MAX, lang)
 }
 
 /// Posisi temuan (baris, kolom byte) untuk kueri tanpa membedakan huruf besar/kecil.
@@ -477,7 +477,8 @@ pub fn find_matches(text: &str, q: &str) -> Vec<(usize, usize)> {
     out
 }
 
-fn code_view_find(t: &Theme, look: &DocLook, text: &str, wrap: bool, q: &str, current: usize) -> AnyElement {
+fn code_view_find(t: &Theme, look: &DocLook, text: &str, wrap: bool, q: &str, current: usize, lang: &str) -> AnyElement {
+    let mut carry = crate::ui::highlight::Carry::None;
     let hits = find_matches(text, q);
     let ql = q.len();
     let lines: Vec<&str> = text.lines().collect();
@@ -523,6 +524,8 @@ fn code_view_find(t: &Theme, look: &DocLook, text: &str, wrap: bool, q: &str, cu
                 .filter(|(_, h)| h.0 == n && h.1 + ql <= line.len() && line.is_char_boundary(h.1) && line.is_char_boundary(h.1 + ql))
                 .map(|(k, h)| (h.1..h.1 + ql, gpui::HighlightStyle { background_color: Some(if k == current { t.colors.warning.opacity(0.6) } else { t.colors.warning.opacity(0.25) }), ..Default::default() }))
                 .collect();
+            let syn = crate::ui::highlight::highlight_line(lang, &line, &mut carry, t);
+            let hl = if hl.is_empty() { syn } else { hl };
             let content: AnyElement = if hl.is_empty() { line.into_any_element() } else { gpui::StyledText::new(line).with_highlights(hl).into_any_element() };
             div()
                 .flex()
@@ -671,7 +674,7 @@ impl DocsPanel {
         let trunc = truncated.then(|| note(t, i.t("doc.truncated")));
         let el: AnyElement = if (raw || kind == DocKind::Code) && is_text_kind(kind) {
             let q = self.find.as_ref().map(|f| f.read(cx).text().to_string()).unwrap_or_default();
-            code_view_find(t, &self.look, &text, wrap, &q, self.find_at)
+            code_view_find(t, &self.look, &text, wrap, &q, self.find_at, &crate::ui::highlight::lang_of_path(path))
         } else {
             match kind {
                 DocKind::Markdown => {
@@ -729,14 +732,14 @@ impl DocsPanel {
                     }
                 }
                 DocKind::Json => match serde_json::from_str::<serde_json::Value>(&text) {
-                    Ok(v) => div().when_some(self.look.table_size, |d, sz| d.text_size(t.rem(sz))).child(code_view_look(t, &self.look, &serde_json::to_string_pretty(&v).unwrap_or_default(), wrap)).into_any_element(),
-                    Err(e) => div().child(note(t, i.tp("doc.jsonInvalid", &[("error", &e.to_string())]))).child(code_view(t, &text, wrap)).into_any_element(),
+                    Ok(v) => div().when_some(self.look.table_size, |d, sz| d.text_size(t.rem(sz))).child(code_view_look(t, &self.look, &serde_json::to_string_pretty(&v).unwrap_or_default(), wrap, "json")).into_any_element(),
+                    Err(e) => div().child(note(t, i.tp("doc.jsonInvalid", &[("error", &e.to_string())]))).child(code_view(t, &text, wrap, "json")).into_any_element(),
                 },
                 DocKind::Html => {
                     div()
                         .flex()
                         .flex_col()
-                        .child(code_view_look(t, &self.look, &text, wrap))
+                        .child(code_view_look(t, &self.look, &text, wrap, &crate::ui::highlight::lang_of_path(path)))
                         .into_any_element()
                 }
                 DocKind::Notebook => match parse_notebook(&text) {
@@ -749,7 +752,7 @@ impl DocsPanel {
                                 "markdown" => cell.child(markdown(&c.source, t, i)),
                                 _ => cell
                                     .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("[{}]", c.execution_count.map(|n| n.to_string()).unwrap_or_else(|| " ".into()))))
-                                    .child(div().rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.segment).child(code_view(t, &c.source, true))),
+                                    .child(div().rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.segment).child(code_view(t, &c.source, true, "python"))),
                             };
                             for o in c.outputs {
                                 cell = cell.child(match o {
