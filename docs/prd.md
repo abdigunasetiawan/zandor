@@ -3,6 +3,8 @@
 > Status: **Draf disepakati — 13-11-2026**. Menggantikan PRD "XYZ" di project lama.
 > Nama "Zandor" masih menunggu cek GitHub, DJKI, dan USPTO. Domain: `zandor.web.id`.
 
+> **Pembaruan 19-11-2026 (ADR-078):** pengembangan aktif pindah ke Rust GPUI (`apps/desktop-gpui`, lihat `docs/features/gpui.md`). Produk, prinsip, dan scope tidak berubah; yang berubah adalah teknologi UI (native Rust GPUI menggantikan Tauri + webview).
+
 ## 1. Ringkasan
 
 Zandor adalah aplikasi desktop _agentic harness_ untuk vibecoder dan pekerja yang memakai banyak AI. Aplikasi ini bisa memakai AI apa saja (BYOK, lokal, maupun sign-in provider), bisa mengerjakan banyak project sekaligus, dan punya 5 panel. Memori dan skill creator bersifat opsional, dinyalakan per project atau per sesi. Zandor dipakai untuk ngoding sekaligus untuk pekerjaan harian lain.

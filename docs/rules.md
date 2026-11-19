@@ -40,3 +40,6 @@
 
 - Pesan dalam Bahasa Indonesia, baris pertama ringkas (≤ 72 karakter), badan menjelaskan "kenapa".
 - Satu commit = satu perubahan logis. Jangan commit file hasil build, `node_modules`, atau binary sidecar.
+
+
+> **Pembaruan 19-11-2026 (ADR-078):** pengembangan aktif pindah ke Rust GPUI (`apps/desktop-gpui`, lihat `docs/features/gpui.md`). Konvensi kode, test, dan commit berlaku juga untuk `apps/desktop-gpui`; bagian TypeScript/React/Playwright hanya untuk versi React yang dibekukan.

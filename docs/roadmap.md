@@ -3,6 +3,8 @@
 > Draf 13-11-2026. Setiap fase punya **kriteria keluar**. Fase berikutnya tidak dimulai sebelum kriteria keluar fase sebelumnya terpenuhi.
 > **MVP = Fase 0–8.** Fase 9 ke atas dikerjakan setelah MVP dipakai sendiri setiap hari.
 
+> **Pembaruan 19-11-2026 (ADR-078):** pengembangan aktif pindah ke Rust GPUI (`apps/desktop-gpui`, lihat `docs/features/gpui.md`). Fase 0–11 tercapai di versi Tauri/React (dibekukan). Pekerjaan berikutnya adalah paritas 1:1 dan penyelesaian di Rust GPUI; kriteria "selesai" di bawah tetap berlaku dengan padanan `cargo test`/`cargo build --release` di `apps/desktop-gpui` (lihat `docs/agents.md`). Langkah "build Tauri" dan e2e Playwright hanya untuk versi React.
+
 ## Definisi "Selesai" untuk setiap task (berlaku di semua fase)
 
 1. Kode lulus lint, typecheck, dan test (`bun test` / `vitest`, `cargo test`).

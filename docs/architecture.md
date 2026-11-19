@@ -3,6 +3,8 @@
 > Status: Fase 1. Bagian bertanda _(rencana)_ belum diimplementasikan di kode produk; buktinya ada di spike
 > dan ADR yang dirujuk.
 
+> **Pembaruan 19-11-2026 (ADR-078):** pengembangan aktif pindah ke Rust GPUI (`apps/desktop-gpui`, lihat `docs/features/gpui.md`). Diagram dan bagian bertanda Tauri/React/webview di bawah menggambarkan versi React yang kini dibekukan sebagai referensi paritas; kontrak dengan engine opencode, plugin, dan keychain tidak berubah. Di GPUI tidak ada webview: dokumen dan UI dirender native.
+
 ## Gambaran
 
 ```
