@@ -16,7 +16,7 @@
   Unix: `/etc/shells` + shell umum di PATH, tanpa ikon (`TODO(port)`).
 - **Git:** cabang + tracking, perubahan staged/unstaged/konflik, diff berwarna, stage/unstage per berkas atau semua, commit,
   buat/pindah cabang, commit terbaru. Hanya di aplikasi desktop (git CLI); di luar itu ada pesan jelas.
-- **Browser:** child webview native (default tanpa halaman; ketik alamat), mundur/maju/muat ulang, buka di browser sistem.
+- **Browser:** child webview native (tab baru membuka google.com; ketik alamat lain), mundur/maju/muat ulang, buka di browser sistem.
   Hanya http/https; konten remote tidak punya akses IPC. Disembunyikan saat overlay UI terbuka.
 - **Info sesi:** project, direktori, model, jumlah pesan, konteks terpakai/batas, token (masuk/keluar/reasoning), biaya bila
   dilaporkan, panggilan tool per jenis, waktu kerja, ID sesi.
@@ -39,6 +39,10 @@
   `tab` opsional (tanpa `tab` = label lama `browser`); id tab divalidasi.
 - Tes: vitest `browser-tabs.test.ts` (state tab), cargo `tab_ids_become_safe_webview_labels`, smoke native (dua tab = dua
   webview, tutup tab membuang webview). Smoke native (15-11-2026, build debug): tab kedua memuat halamannya sendiri, dua tab = dua webview, menutup tab membuang webview-nya — lulus. Catatan: langkah smoke sesudah Panel 4 (3 project/10 sesi dan seterusnya) basi terhadap UI baru (layar sapaan sesi baru tidak punya `role=log`) dan perlu diperbarui terpisah.
+
+## Browser untuk agent (ADR-079)
+
+Tab Agent di Panel 4 dikendalikan agent lewat `zandor_browser` (F1 baca saja): lihat [`browser-agent.md`](browser-agent.md).
 
 ## Belum / terbatas
 

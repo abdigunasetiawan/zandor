@@ -48,6 +48,7 @@ pub const COMMANDS: &[CommandDef] = &[
     c("view.smartResize", "cmd.smartResize", Group::View, Some("Ctrl+Alt+0")),
     c("view.resetLayout", "cmd.resetLayout", Group::View, None),
     c("dev.designSystem", "cmd.designSystem", Group::Dev, None),
+    c("dev.deleteChats", "cmd.deleteChats", Group::Dev, None),
     c("help.about", "cmd.about", Group::Help, None),
     c("help.tour", "cmd.tour", Group::Help, None),
     CommandDef {

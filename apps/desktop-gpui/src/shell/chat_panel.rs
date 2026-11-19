@@ -67,6 +67,8 @@ pub struct ChatPanel {
     attach_menu: bool,
     voice_menu: bool,
     ticking: bool,
+    /// Sesi yang sibuk pada render sebelumnya (mendeteksi peralihan sibuk → selesai).
+    busy_sid: Option<String>,
     msg_menu: Option<(String, u8)>,
     pins_open: bool,
     picker: model_picker::PickerState,
@@ -165,6 +167,7 @@ impl ChatPanel {
             focused_msg: None,
             expanded: HashSet::new(),
             last_count: 0,
+            busy_sid: None,
             msg_list: {
                 let l = gpui::ListState::new(0, gpui::ListAlignment::Top, gpui::px(600.));
                 l.set_follow_mode(gpui::FollowMode::Tail);
@@ -459,6 +462,8 @@ struct ChatItems {
     key: String,
     has_pinned: bool,
     has_project: bool,
+    /// Folder kerja sesi (untuk kartu dokumen sesi Chat).
+    dir: String,
     busy: bool,
     last_assistant: Option<usize>,
     active_ix: Option<usize>,
@@ -519,7 +524,7 @@ impl ChatPanel {
                 let provider_name = self.models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
                 let is_last = c.last_assistant == Some(k) && !c.busy;
                 let tb = (m.info.completed.is_some() && !streaming && c.key != crate::core::demo::DEMO_KEY).then(|| self.message_toolbar(&t, i, turn, &c.sid, &c.key, is_last, cx));
-                chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, c.has_project, &provider_name, tb)
+                chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, c.has_project, &c.dir, &provider_name, tb)
             }
         };
         let hl = self.focused_msg.as_deref() == Some(m.info.id.as_str());
@@ -616,7 +621,7 @@ fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, toolbar: AnyElement) -
 }
 
 impl Render for ChatPanel {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
         let i_owned = cx.global::<I18n>().clone();
         let i = &i_owned;
@@ -760,7 +765,7 @@ impl Render for ChatPanel {
                 let mut items = vec![(SharedString::from(""), SharedString::from(i.t("chat.variant.default")))];
                 items.extend(vars.iter().map(|v| (SharedString::from(v.clone()), SharedString::from(v.clone()))));
                 let chat = self.chat.clone();
-                crate::ui::select("chat-variant", items, c.variant.clone().unwrap_or_default()).flat_left(true)
+                crate::ui::select("chat-variant", items, c.variant.clone().unwrap_or_default()).pill(true).flat_left(true)
                     .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_variant((!v.is_empty()).then(|| v.to_string()), cx)))
             })
         };
@@ -771,7 +776,7 @@ impl Render for ChatPanel {
                 s.submit(text, cx);
             }))
         });
-        let model_sel = self.model_picker(&t, i, cx);
+        let model_sel = self.model_picker(&t, i, variant_sel.is_some(), window.viewport_size().height, cx);
         let info_sid = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
         let info_el = self.composer_info(&t, i, &info_sid, cx);
         let cw = chat_width(&t, cx);
@@ -971,6 +976,21 @@ impl Render for ChatPanel {
         // streaming selama pengguna berada di bawah.
         let turns = crate::core::chat::merge_assistant_turns(st.visible());
         let last_assistant = turns.iter().rposition(|x| x.message.info.role == Role::Assistant);
+        // Sesi Chat (tanpa project): begitu jawaban selesai, dokumen yang dihasilkan dibuka di Panel Dokumen.
+        let finished = self.busy_sid.as_deref() == Some(sid.as_str()) && !busy;
+        self.busy_sid = busy.then(|| sid.clone());
+        if finished && !has_project && !is_demo {
+            if let Some(m) = last_assistant.map(|k| &turns[k]) {
+                let parts: Vec<&MessagePart> = m.message.parts.iter().filter(|p| !matches!(p.kind, PartKind::Other { .. } | PartKind::StepFinish { .. })).collect();
+                let (process, _) = crate::core::tool_view::split_turn(&parts);
+                let turn_id = m.source_ids.first().cloned().unwrap_or_else(|| m.message.info.id.clone());
+                let dir = cur.as_ref().map(|c| c.2.clone()).unwrap_or_default();
+                let docs = chat_parts::chat_turn_documents(&process, &dir, &m.message.info, &turn_id, true);
+                if !docs.is_empty() {
+                    cx.defer(move |cx| super::agent_control::open_documents(docs, cx));
+                }
+            }
+        }
         let active_ix = if busy && last_assistant.is_some() && last_assistant == Some(turns.len().saturating_sub(1)) { last_assistant } else { None };
         let count: usize = turns.iter().map(|x| x.message.parts.len() + 1).sum();
         let has_pinned = self.pinned_bar(&t, i, &sid, &turns, cx).is_some();
@@ -1010,6 +1030,7 @@ impl Render for ChatPanel {
             key: cur.as_ref().map(|c| c.0.clone()).unwrap_or_default(),
             has_pinned,
             has_project,
+            dir: cur.as_ref().map(|c| c.2.clone()).unwrap_or_default(),
             busy,
             last_assistant,
             active_ix,

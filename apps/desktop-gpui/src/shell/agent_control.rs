@@ -13,7 +13,7 @@ pub const POLL_MS: u64 = 700;
 /// Aksi baca-saja: tanpa toast.
 const QUIET: [&str; 4] = ["status", "list_commands", "list_terminals", "get_settings"];
 /// Pengaturan yang tidak boleh diubah agent: izin kontrol agent sendiri.
-pub const PROTECTED_SETTINGS: [&str; 1] = ["agentControl"];
+pub const PROTECTED_SETTINGS: [&str; 2] = ["agentControl", "browserAgent"];
 /// Perintah palet yang tidak boleh dijalankan agent (menutup aplikasi, alat pengembang).
 pub const BLOCKED_COMMANDS: [&str; 3] = ["window.close", "dev.openDevtools", "dev.copyChatHtml"];
 pub const IMAGE_SIZES: [&str; 3] = ["1024x1024", "1536x1024", "1024x1536"];
@@ -106,7 +106,7 @@ pub fn is_route(path: &str) -> bool {
     matches!(path, "/" | "/settings" | "/appearance" | "/memory" | "/automation" | "/welcome" | "/design-system") || path.strip_prefix("/settings/").is_some_and(|s| !s.is_empty() && !s.contains('/'))
 }
 
-fn known_roots(cx: &App) -> Vec<String> {
+pub(super) fn known_roots(cx: &App) -> Vec<String> {
     let s = crate::core::projects::ProjectStore::global(cx).read(cx);
     s.projects.iter().map(|p| p.path.clone()).chain(s.chat_dir.clone()).collect()
 }
@@ -136,6 +136,20 @@ fn open_file(path: &str, dir: &str, cx: &mut App) -> bool {
     true
 }
 
+/// Buka dokumen (path absolut) di Panel 3 dan munculkan panelnya; dokumen pertama menjadi tab aktif.
+pub(super) fn open_documents(paths: Vec<String>, cx: &mut App) {
+    let docs = super::docs_panel::DocsState::global(cx);
+    for p in paths.into_iter().rev() {
+        docs.update(cx, |d, cx| d.open_file(p, cx));
+    }
+    reveal(PanelId::Docs, cx);
+}
+
+/// Munculkan Panel 4 (alat) bila sedang dilipat.
+pub(super) fn reveal_tools(cx: &mut App) {
+    reveal(PanelId::Tools, cx);
+}
+
 fn reveal(p: PanelId, cx: &mut App) {
     let app = AppState::global(cx);
     if app.read(cx).is_collapsed(p) {
@@ -151,6 +165,8 @@ fn str_arg(a: &serde_json::Map<String, Value>, k: &str) -> String {
 pub enum Outcome {
     Done(Result<Value, String>),
     Image { provider: String, model: String, prompt: String, size: String, root: String, rel: String },
+    /// Aksi browser-use (F1): berjalan async di browser_agent.rs; jawaban dikirim setelah selesai.
+    Browser(super::browser_agent::Job),
 }
 
 fn ok(s: impl Into<String>) -> Outcome {
@@ -309,6 +325,12 @@ pub fn execute(req: &ControlRequest, window: &mut Window, cx: &mut App, run: &mu
             Toasts::show(ToastInput { timeout_ms: Some(4000), ..ToastInput::new(i.t("agent.imageBusy")) }, cx);
             Outcome::Image { provider: r.provider_id, model: r.model_id, prompt, size, root: req.directory.clone(), rel }
         }
+        other if other.starts_with("browser_") => {
+            if !settings.read(cx).bool("browserAgent") {
+                return fail("Kendali browser oleh agent dimatikan pengguna (Pengaturan → Umum → Agent boleh mengendalikan browser Panel 4).");
+            }
+            Outcome::Browser(super::browser_agent::Job { action: other["browser_".len()..].to_string(), args: a.clone(), directory: req.directory.clone() })
+        }
         other => fail(format!("Aksi \"{other}\" tidak dikenal.")),
     }
 }
@@ -367,7 +389,8 @@ pub fn finish(req: &ControlRequest, res: Result<Value, String>, cx: &mut App) {
         Err(e) => {
             Toasts::show(ToastInput { tone: ToastTone::Danger, timeout_ms: Some(6000), ..ToastInput::new(i.tp("agent.failed", &[("error", e)])) }, cx);
         }
-        Ok(Value::String(s)) if !QUIET.contains(&req.action.as_str()) => {
+        // aksi browser tidak memunculkan toast (hasil panjang; Panel 4 sudah menunjukkan aktivitasnya)
+        Ok(Value::String(s)) if !QUIET.contains(&req.action.as_str()) && !req.action.starts_with("browser_") => {
             Toasts::show(ToastInput { timeout_ms: Some(3500), ..ToastInput::new(i.tp("agent.toast", &[("what", s)])) }, cx);
         }
         _ => {}

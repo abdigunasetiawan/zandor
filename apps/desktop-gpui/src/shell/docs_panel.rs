@@ -867,6 +867,16 @@ impl DocsPanel {
     }
 }
 
+/// Tombol tutup Panel 3 (Dokumen) di ujung kanan bilah atas — sama dengan Chat dan Tools.
+fn close_panel_button(i: &I18n) -> gpui::AnyElement {
+    icon_button("docs-close-panel", "close", i.t("panel.close.docs"))
+        .size(ControlSize::Sm)
+        .on_click(|_, _, cx| {
+            super::state::AppState::global(cx).update(cx, |a, cx| a.toggle(super::state::PanelId::Docs, cx));
+        })
+        .into_any_element()
+}
+
 impl Render for DocsPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
@@ -878,12 +888,30 @@ impl Render for DocsPanel {
                 .flex()
                 .flex_col()
                 .size_full()
-                .items_center()
-                .justify_center()
-                .gap(t.space(1))
-                .p(t.space(4))
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(i.t("empty.p3.title")))
-                .child(div().text_color(t.colors.fg_muted).child(i.t("empty.p3.body")))
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_end()
+                        .h(t.rem(rem::TITLEBAR_HEIGHT))
+                        .px(t.space(2))
+                        .border_b_1()
+                        .border_color(t.colors.border)
+                        .child(close_panel_button(&i)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .items_center()
+                        .justify_center()
+                        .gap(t.space(1))
+                        .p(t.space(4))
+                        .child(div().font_weight(FontWeight::SEMIBOLD).child(i.t("empty.p3.title")))
+                        .child(div().text_color(t.colors.fg_muted).child(i.t("empty.p3.body"))),
+                )
                 .into_any_element();
         };
         if !self.cache.contains_key(&active) {
@@ -956,7 +984,8 @@ impl Render for DocsPanel {
             .child(div().flex_none().px(t.space(1)).child(icon_button("doc-customize", "customize", i.t("docStyle.open")).size(ControlSize::Sm).pressed(self.customize).on_click(cx.listener(|s, _, _, cx| {
                 s.customize = !s.customize;
                 cx.notify();
-            }))));
+            }))))
+            .child(div().flex_none().pr(t.space(2)).child(close_panel_button(&i)));
         let raw = self.raw.contains(&active);
         let wrap = !self.nowrap.contains(&active);
         let (a1, a2, a3, a4, a5, a6, a7) = (active.clone(), active.clone(), active.clone(), active.clone(), active.clone(), active.clone(), active.clone());

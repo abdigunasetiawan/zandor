@@ -7508,6 +7508,7 @@ dependencies = [
 name = "zandor-gpui"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "embed-resource",
  "futures",
@@ -7531,7 +7532,9 @@ dependencies = [
  "unicode-segmentation",
  "ureq",
  "vt100",
+ "webview2-com",
  "windows 0.61.3",
+ "windows 0.62.2",
  "windows-sys 0.61.2",
  "wry",
  "zandor-engine-supervisor",

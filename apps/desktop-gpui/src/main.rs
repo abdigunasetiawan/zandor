@@ -73,6 +73,11 @@ mod voice;
 #[path = "host/sound.rs"]
 mod sound;
 
+/// `syscheck.rs` (dibagi dengan Tauri) memanggil `crate::sidecar_path()`.
+pub(crate) fn sidecar_path() -> std::path::PathBuf {
+    core::services::sidecar_path()
+}
+
 use gpui::{px, size, App, AppContext, Bounds, TitlebarOptions, WindowBounds, WindowDecorations, WindowOptions};
 use i18n::{detect_locale, I18n};
 use shell::root::Root;

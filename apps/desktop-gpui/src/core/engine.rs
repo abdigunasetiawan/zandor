@@ -136,6 +136,15 @@ fn sv(o: &Value, k: &str) -> String {
     o.get(k).and_then(Value::as_str).unwrap_or_default().to_string()
 }
 
+/// Teks balasan asisten dari respons `POST /session/:id/message` (`{info, parts}`): gabungan bagian bertipe teks.
+fn reply_text(v: &Value) -> String {
+    v.get("parts")
+        .and_then(Value::as_array)
+        .map(|ps| ps.iter().filter(|p| p.get("type").and_then(Value::as_str) == Some("text")).filter_map(|p| p.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("
+"))
+        .unwrap_or_default()
+}
+
 fn to_session(v: &Value) -> SessionInfo {
     let t = v.get("time").cloned().unwrap_or(Value::Null);
     SessionInfo {
@@ -472,6 +481,21 @@ impl EngineApi {
         }
         self.post(&format!("/session/{id}/command"), Some(dir), body).map(|_| ())
     }
+    /// Satu panggilan model sinkron (mis. membuat judul): sesi sementara berjudul eksplisit (agar engine tidak membuat
+    /// judul otomatis untuknya) → `POST /session/:id/message` (menunggu balasan) → sesi selalu dihapus lagi.
+    pub fn complete_once(&self, dir: &str, prompt: &str, model: Option<&ModelRef>) -> Result<String> {
+        let s = self.create_session(dir, Some("Zandor · tugas singkat"))?;
+        let run = || {
+            let mut body = json!({ "parts": [{ "type": "text", "text": prompt }] });
+            if let Some(m) = model {
+                body["model"] = json!({ "providerID": m.provider_id, "modelID": m.model_id });
+            }
+            self.post(&format!("/session/{}/message", s.id), Some(dir), body).map(|v| reply_text(&v))
+        };
+        let out = run();
+        let _ = self.delete_session(dir, &s.id);
+        out
+    }
     pub fn summarize(&self, dir: &str, id: &str, model: &ModelRef) -> Result<()> {
         self.post(&format!("/session/{id}/summarize"), Some(dir), json!({ "providerID": model.provider_id, "modelID": model.model_id })).map(|_| ())
     }
@@ -591,6 +615,10 @@ mod tests {
     fn judul_bawaan() {
         assert!(is_default_session_title("New session - 2026-11-18T01:02:03.000Z"));
         assert!(!is_default_session_title("Rapat"));
+        let r = json!({"info":{"id":"m"},"parts":[{"type":"reasoning","text":"abaikan"},{"type":"text","text":"Judul A"},{"type":"text","text":"baris 2"}]});
+        assert_eq!(reply_text(&r), "Judul A
+baris 2");
+        assert_eq!(reply_text(&json!({})), "");
     }
     #[test]
     fn auth() {

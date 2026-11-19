@@ -501,10 +501,68 @@ pub fn created_documents(parts: &[&MessagePart]) -> Vec<String> {
     out
 }
 
+/// Dokumen yang dihasilkan satu giliran di sesi Chat (path absolut): yang ditulis lewat tool `write` ditambah berkas dokumen
+/// di folder kerja sesi yang berubah selama giliran itu (mis. dibuat lewat skrip bash/python, yang tidak terlihat sebagai
+/// `write`). Folder sesi Chat khusus satu sesi, jadi pemindaian satu tingkat cukup; `until_ms` = batas atas waktu ubah.
+pub fn turn_documents(process: &[&MessagePart], dir: &str, from_ms: f64, until_ms: Option<f64>) -> Vec<String> {
+    let base = std::path::Path::new(dir);
+    let mut out: Vec<String> = vec![];
+    let key = |p: &str| p.replace('\\', "/").to_lowercase();
+    let mut add = |p: String, out: &mut Vec<String>| {
+        if !out.iter().any(|x| key(x) == key(&p)) {
+            out.push(p);
+        }
+    };
+    for rel in created_documents(process) {
+        let p = std::path::Path::new(&rel);
+        let abs = if p.is_absolute() || dir.is_empty() { rel.clone() } else { base.join(rel.replace('/', "\\")).to_string_lossy().into_owned() };
+        add(abs, &mut out);
+    }
+    if dir.is_empty() {
+        return out;
+    }
+    let ms = |t: std::time::SystemTime| t.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.);
+    let mut found: Vec<(f64, String)> = std::fs::read_dir(base)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let meta = e.metadata().ok().filter(|m| m.is_file())?;
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !is_document_path(&name) {
+                return None;
+            }
+            let at = ms(meta.modified().ok()?);
+            (at >= from_ms - 2000. && until_ms.is_none_or(|u| at <= u)).then(|| (at, e.path().to_string_lossy().into_owned()))
+        })
+        .collect();
+    found.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for (_, p) in found {
+        add(p, &mut out);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn dokumen_giliran_dari_folder_sesi() {
+        let dir = std::env::temp_dir().join(format!("zandor-td-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(dir.join("a.pdf"), b"x").unwrap();
+        std::fs::write(dir.join("b.rs"), b"x").unwrap();
+        let d = dir.to_string_lossy().into_owned();
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as f64;
+        let found = turn_documents(&[], &d, now - 5000., None);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].ends_with("a.pdf"));
+        assert!(turn_documents(&[], &d, now + 60_000., None).is_empty());
+        assert!(turn_documents(&[], &d, 0., Some(1.)).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn st(input: Value, meta: Option<Value>, title: Option<&str>) -> ToolState {
         ToolState {

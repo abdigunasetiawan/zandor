@@ -14,6 +14,11 @@ perintah build/tes, dan struktur: [`docs/features/gpui.md`](features/gpui.md).
 4. Bila menyentuh area tertentu: `docs/architecture.md`, `docs/rules.md`, `docs/design.md`, dan ADR terkait
    di `docs/decisions/`
 
+## Branch aktif
+
+Selalu bekerja di branch **`zandor/rewrite-gpui`**. Jangan checkout ke branch lain kecuali diminta
+secara eksplisit.
+
 ## Aturan tetap
 
 - Jawab dan dokumentasikan dalam **Bahasa Indonesia**. Jujur bila ada yang gagal, tidak teruji, atau

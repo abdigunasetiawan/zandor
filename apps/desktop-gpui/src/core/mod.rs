@@ -7,6 +7,7 @@ pub mod ws;
 pub mod appearance;
 pub mod attachments;
 pub mod automation;
+pub mod autotitle;
 pub mod chat;
 pub mod chat_store;
 pub mod composer;

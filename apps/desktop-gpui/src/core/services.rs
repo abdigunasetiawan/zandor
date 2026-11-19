@@ -48,7 +48,7 @@ fn repo_tauri_dir() -> PathBuf {
 }
 
 /// Binary engine: di samping exe (rilis) atau binaries/ milik Tauri (dev).
-fn sidecar_path() -> PathBuf {
+pub(crate) fn sidecar_path() -> PathBuf {
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)).unwrap_or_default();
     let beside = exe_dir.join(if cfg!(windows) { "opencode.exe" } else { "opencode" });
     if beside.exists() {

@@ -271,18 +271,25 @@ impl RenderOnce for Working {
                 row
             }
             WorkingVariant::Grid => {
-                let cell = side * 0.25;
+                // 3 baris × 3 kolom eksplisit (bukan flex-wrap): pembungkusan bergantung pada muatnya 3 sel + 2 celah
+                // di kotak sekecil 12px, dan pembulatan/skala UI membuat sel turun baris (kolom jadi < 3).
+                let (cell, gap) = (side * 0.26, side * 0.11);
                 let delays = [0u64, 120, 240, 120, 240, 360, 240, 360, 480];
-                let mut grid = root.flex_wrap().gap(side * 0.12).content_center();
-                for (i, delay) in delays.iter().enumerate() {
-                    let off = *delay as f32 / 1400.;
-                    grid = grid.child(
-                        div().size(cell).rounded(cell * 0.3).bg(color).with_animation(
-                            SharedString::from(format!("{id}-g{i}")),
-                            Animation::new(Duration::from_millis(1400)).repeat().with_easing(gpui::ease_in_out),
-                            move |el, d| el.opacity(0.2 + 0.8 * bump((d + 1. - off) % 1., 0.5)),
-                        ),
-                    );
+                let mut grid = root.flex_col().gap(gap);
+                for r in 0..3usize {
+                    let mut row = div().flex().flex_none().gap(gap);
+                    for c in 0..3usize {
+                        let i = r * 3 + c;
+                        let off = delays[i] as f32 / 1400.;
+                        row = row.child(
+                            div().flex_none().size(cell).rounded(cell * 0.3).bg(color).with_animation(
+                                SharedString::from(format!("{id}-g{i}")),
+                                Animation::new(Duration::from_millis(1400)).repeat().with_easing(gpui::ease_in_out),
+                                move |el, d| el.opacity(0.2 + 0.8 * bump((d + 1. - off) % 1., 0.5)),
+                            ),
+                        );
+                    }
+                    grid = grid.child(row);
                 }
                 grid
             }

@@ -239,8 +239,7 @@ impl RenderOnce for Tabs {
                 .font_weight(FontWeight(t.ty(crate::theme::BUTTON).weight))
                 .text_color(if active { c.fg } else { c.fg_muted })
                 .when(active && !self.nav, |d| d.bg(c.segment_active).shadow(t.shadow_1()))
-                .when(active && self.nav, |d| d.bg(c.active).font_weight(FontWeight::MEDIUM))
-                .when(!active && self.nav, |d| d.hover(|s| s.bg(c.hover)));
+                .when(active && self.nav, |d| d.bg(c.active).font_weight(FontWeight::MEDIUM));
             if let Some(l) = self.leads.as_ref().and_then(|f| f(&it.value)) {
                 tab = tab.child(l);
             } else if let Some(name) = it.icon {
@@ -250,7 +249,14 @@ impl RenderOnce for Tabs {
             if it.disabled {
                 tab = tab.opacity(0.5).cursor_not_allowed();
             } else {
-                tab = tab.cursor_pointer().hover(move |s| s.text_color(fg));
+                let hover_bg = (!active && self.nav).then_some(c.hover);
+                tab = tab.cursor_pointer().hover(move |s| {
+                    let s = s.text_color(fg);
+                    match hover_bg {
+                        Some(bg) => s.bg(bg),
+                        None => s,
+                    }
+                });
                 if let Some(f) = on_change.clone() {
                     let v = it.value.clone();
                     tab = tab.on_click(move |_, w, cx| f(v.clone(), w, cx));
@@ -361,12 +367,13 @@ impl RenderOnce for Dialog {
             .when(!self.footer.is_empty(), |d| {
                 d.child(div().flex().justify_end().gap(t.space(2)).mt(t.space(2)).children(self.footer))
             });
-        crate::ui::overlay_deferred(
+        // Dialog selalu menutupi jendela penuh, juga saat dibuat di dalam panel (mis. sidebar): `anchored` di (0,0)
+        // melepaskannya dari kotak induk, ukuran = viewport.
+        crate::ui::overlay_deferred(gpui::anchored().position(gpui::point(gpui::px(0.), gpui::px(0.))).anchor(gpui::Anchor::TopLeft).child(
             div()
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
+                .relative()
+                .w(vp.width)
+                .h(vp.height)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -380,7 +387,7 @@ impl RenderOnce for Dialog {
                     gpui::Animation::new(crate::theme::dur_ms(crate::theme::DURATION_BASE_MS)).with_easing(gpui::ease_out_quint()),
                     |el, d| el.opacity(d),
                 )),
-        )
+        ))
         .with_priority(60)
     }
 }

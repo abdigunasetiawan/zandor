@@ -24,6 +24,8 @@ struct Form {
 }
 
 pub struct AutomationPage {
+    /// Tertanam di halaman Pengaturan: tanpa bingkai halaman dan tombol kembali.
+    pub embedded: bool,
     app: Entity<AppState>,
     store: Entity<AutomationStore>,
     form: Option<Form>,
@@ -33,7 +35,7 @@ impl AutomationPage {
     pub fn new(app: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let store = AutomationStore::global(cx);
         cx.observe(&store, |_, _, cx| cx.notify()).detach();
-        Self { app, store, form: None }
+        Self { embedded: false, app, store, form: None }
     }
 
     fn open_form(&mut self, task: Option<Task>, cx: &mut Context<Self>) {
@@ -279,26 +281,26 @@ impl Render for AutomationPage {
             );
         }
 
-        div().id("auto-page").flex().flex_col().size_full().overflow_y_scroll().bg(t.colors.frame).child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(t.space(4))
-                .w_full()
-                .max_w(t.rem(rem::SPACE[7] * 16.))
-                .mx_auto()
-                .px(t.space(4))
-                .py(t.space(5))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(t.space(2))
-                        .child(icon_button("auto-back", "arrow_left", i.t("mem.back")).on_click(cx.listener(|s, _, _, cx| s.app.update(cx, |a, cx| a.push("/", cx)))))
-                        .child(div().flex_1().typo(&t, H3).child(i.t("auto.title")))
-                        .child(button("auto-new").label(i.t("auto.new")).variant(ButtonVariant::Solid).size(ControlSize::Sm).on_click(cx.listener(|s, _, _, cx| s.open_form(None, cx)))),
-                )
-                .child(body),
-        )
+        let embedded = self.embedded;
+        let col = div()
+            .flex()
+            .flex_col()
+            .gap(t.space(4))
+            .w_full()
+            .when(!embedded, |d| d.max_w(t.rem(rem::SPACE[7] * 16.)).mx_auto().px(t.space(4)).py(t.space(5)))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t.space(2))
+                    .when(!embedded, |d| d.child(icon_button("auto-back", "arrow_left", i.t("mem.back")).on_click(cx.listener(|s, _, _, cx| s.app.update(cx, |a, cx| a.push("/", cx))))))
+                    .child(div().flex_1().typo(&t, H3).child(i.t("auto.title")))
+                    .child(button("auto-new").label(i.t("auto.new")).variant(ButtonVariant::Solid).size(ControlSize::Sm).on_click(cx.listener(|s, _, _, cx| s.open_form(None, cx)))),
+            )
+            .child(body);
+        if embedded {
+            return div().w_full().child(col).into_any_element();
+        }
+        div().id("auto-page").flex().flex_col().size_full().overflow_y_scroll().bg(t.colors.frame).child(col).into_any_element()
     }
 }

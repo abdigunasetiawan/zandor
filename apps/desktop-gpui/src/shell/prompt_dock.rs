@@ -91,10 +91,10 @@ impl ChatPanel {
         let mut dock = div().id("prompt-dock").flex().flex_col().gap(t.space(2)).max_h(t.rem(28.)).overflow_y_scroll().pb(t.space(1));
         let live: Vec<String> = st.questions.iter().map(|q| q.id.clone()).collect();
         self.dock.q.retain(|k, _| live.contains(k));
-        for q in &st.questions {
+        // Satu permintaan saja yang tampil (tidak ditumpuk); berikutnya muncul setelah yang ini dijawab.
+        if let Some(q) = st.questions.first() {
             dock = dock.child(self.question_card(&t, &i, q, sid, cx));
-        }
-        for p in &st.permissions {
+        } else if let Some(p) = st.permissions.first() {
             dock = dock.child(self.permission_card(&t, &i, p, sid, pending > 0, cx));
         }
         if !st.todos.is_empty() {

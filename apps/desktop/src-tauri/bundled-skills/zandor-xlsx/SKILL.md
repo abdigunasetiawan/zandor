@@ -39,7 +39,7 @@ membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
    ws = wb["Sheet1"]
    for row in ws.iter_rows(min_row=1, max_row=10, values_only=True): print(row)
    ```
-2. **Ubah** (skrip sementara di folder temp):
+2. **Ubah** (skrip sementara di folder `.zandor-tmp/` di dalam folder kerja sesi (bukan folder temp sistem: di luar folder kerja akan memicu izin tambahan); hapus setelah selesai):
 
    ```python
    ws["D2"] = "=B2*C2"            # rumus, bukan angka
@@ -51,7 +51,7 @@ membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
    Saat menambah baris, perbarui juga rentang rumus agregat (mis. `=SUM(D2:D10)` → `D2:D11`).
 3. **Verifikasi wajib**: `{{OFFICE_CHECK}} data.xlsx --expect "Baru"` → `valid: true`.
    Bila LibreOffice tersedia, hitung ulang untuk memeriksa galat rumus:
-   `soffice --headless --convert-to xlsx --outdir <temp> data.xlsx`, lalu muat hasilnya dengan `data_only=True`
+   `soffice --headless --convert-to xlsx --outdir .zandor-tmp data.xlsx`, lalu muat hasilnya dengan `data_only=True`
    dan pastikan tidak ada `#REF!`, `#DIV/0!`, `#NAME?`, `#VALUE!`.
 4. **Laporkan**: berkas hasil, sel/lembar yang berubah, cadangan, dan apakah rumus sudah dihitung ulang atau belum.
 

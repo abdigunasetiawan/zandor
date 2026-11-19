@@ -37,6 +37,9 @@ pub struct ChatStore {
     /// Model yang disematkan (zandor.pinnedModels) dan terakhir dipakai (zandor.recentModels, maks 3), kunci provider/model.
     pub pinned_models: Vec<String>,
     pub recent_models: Vec<String>,
+    /// Penamaan ulang judul (lihat `autotitle`): jumlah giliran pengguna yang sudah dinilai per sesi, supaya event
+    /// `session.updated` yang beruntun tidak memicu panggilan model berulang untuk keadaan yang sama.
+    retitled_at: HashMap<String, usize>,
 }
 
 pub const MAX_QUEUE: usize = 50;
@@ -105,7 +108,7 @@ impl Global for ChatHandle {}
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect() });
+        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect(), retitled_at: HashMap::new() });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -141,6 +144,9 @@ impl ChatStore {
                                     s.activity.pop_front();
                                 }
                             }
+                            if let EngineEvent::SessionUpdated { session_id, title, updated, .. } = &ev {
+                                super::projects::ProjectStore::global(cx).update(cx, |p, cx| p.apply_session_update(session_id, title.as_deref(), *updated, cx));
+                            }
                             if let EngineEvent::PermissionAsked(req) = &ev {
                                 if s.maybe_auto_reply(req, cx) {
                                     return;
@@ -160,6 +166,12 @@ impl ChatStore {
                                 }
                             }
                             s.pump(&sid, false, cx);
+                            if matches!(
+                                ev,
+                                EngineEvent::SessionStatus { status: super::types::SessionRunStatus::Idle, .. } | EngineEvent::SessionUpdated { title: Some(_), .. }
+                            ) {
+                                s.maybe_retitle(&sid, cx);
+                            }
                         }
                         Msg::Reconnected(dir) => {
                             let ids: Vec<String> =
@@ -174,6 +186,55 @@ impl ChatStore {
         })
         .detach();
         e
+    }
+
+    /// Nilai ulang judul sesi dari awal percakapan (lihat `autotitle`): sapaan pembuka tidak boleh jadi judul tetap.
+    /// Dipanggil saat sesi idle dan saat engine mengirim judul; hanya berjalan sekali per giliran pengguna.
+    fn maybe_retitle(&mut self, sid: &str, cx: &mut Context<Self>) {
+        use super::autotitle::{self, Verdict};
+        let (Some(st), Some(dir)) = (self.sessions.get(sid), self.dirs.get(sid).cloned()) else { return };
+        if st.busy() || !st.loaded {
+            return;
+        }
+        let turns = autotitle::user_turns(&st.messages);
+        if turns == 0 || turns > autotitle::MAX_TURNS || self.retitled_at.get(sid).is_some_and(|n| *n >= turns) {
+            return;
+        }
+        let transcript = autotitle::transcript(&st.messages);
+        let pstore = super::projects::ProjectStore::global(cx);
+        let Some((current, api)) = pstore.update(cx, |p, _| p.begin_retitle(sid)) else { return };
+        self.retitled_at.insert(sid.to_string(), turns);
+        // model kecil dari peran model; bila tidak diatur, model sesi (atau bawaan engine bila juga kosong)
+        let small = crate::engine::read_small_model(&super::services::app_data_dir().join("model-roles.json"))
+            .and_then(|m| m.split_once('/').map(|(p, m)| ModelRef { provider_id: p.to_string(), model_id: m.to_string() }));
+        let model = small.or_else(|| self.model.clone());
+        let prompt = autotitle::prompt(&current, &transcript);
+        let sid = sid.to_string();
+        let sid_bg = sid.clone();
+        let work = cx.background_spawn(async move {
+            let reply = api.complete_once(&dir, &prompt, model.as_ref()).map_err(|e| e.0)?;
+            match autotitle::parse_reply(&reply) {
+                Verdict::Title(t) => {
+                    api.rename_session(&dir, &sid_bg, &t).map_err(|e| e.0)?;
+                    Ok(Verdict::Title(t))
+                }
+                v => Ok(v),
+            }
+        });
+        cx.spawn(async move |_, cx| {
+            let res: Result<Verdict, String> = work.await;
+            cx.update(|cx| {
+                if let Err(e) = &res {
+                    super::activity::log(cx, "chat", "warn", format!("penamaan ulang judul gagal: {e}"));
+                }
+                pstore.update(cx, |p, cx| match res {
+                    Ok(Verdict::Title(t)) => p.finish_retitle(&sid, Some(t), true, cx),
+                    Ok(Verdict::Keep) => p.finish_retitle(&sid, None, true, cx),
+                    Ok(Verdict::NoTopic) | Err(_) => p.finish_retitle(&sid, None, false, cx),
+                });
+            });
+        })
+        .detach();
     }
 
     pub fn global(cx: &App) -> Entity<ChatStore> {

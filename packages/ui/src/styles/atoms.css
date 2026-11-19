@@ -436,6 +436,13 @@
 .z-select__list {
   outline: none;
 }
+/* Item Select disorot hanya saat dihover/keyboard (focus-visible); item terpilih yang sekadar terfokus saat popup dibuka tidak berlatar. */
+.z-select__popup .z-item[data-highlighted]:not(:hover, :focus-visible) {
+  background: transparent;
+}
+.z-select__popup .z-item:focus-visible {
+  outline: none;
+}
 
 /* ---------- Switch, Checkbox, Slider ---------- */
 .z-choice {

@@ -238,6 +238,14 @@ pub struct ProjectStore {
     host: ProjectHost,
     request_seq: HashMap<String, u64>,
     pub last_error: Option<String>,
+    /// Penamaan ulang otomatis (lihat `autotitle`): judul terakhir yang berasal dari engine/Zandor per sesi.
+    auto_titles: HashMap<String, String>,
+    /// Sesi yang pernah diganti namanya pengguna — tidak pernah diubah otomatis.
+    user_titled: std::collections::HashSet<String>,
+    /// Sesi yang judulnya sudah dinilai cukup (model menjawab TETAP atau judul baru sudah dipasang).
+    title_settled: std::collections::HashSet<String>,
+    /// Penilaian judul yang sedang berjalan (satu per sesi).
+    retitling: std::collections::HashSet<String>,
 }
 
 pub enum ProjectEvent {
@@ -320,6 +328,10 @@ impl ProjectStore {
             api: None,
             host,
             request_seq: HashMap::new(),
+            auto_titles: HashMap::new(),
+            user_titled: Default::default(),
+            title_settled: Default::default(),
+            retitling: Default::default(),
             last_error: err,
         });
         cx.set_global(ProjectStoreHandle(e.clone()));
@@ -393,6 +405,59 @@ impl ProjectStore {
             return s.map(|s| s.directory.clone()).filter(|d| !d.is_empty()).or_else(|| self.chat_dir.clone());
         }
         self.directory_of(key)
+    }
+
+    /// Terapkan metadata sesi dari event `session.updated` (judul otomatis engine, waktu update) ke daftar sidebar.
+    /// Sesi yang tidak ada di daftar diabaikan (daftar dimuat dari engine, bukan dibuat dari event).
+    pub fn apply_session_update(&mut self, session_id: &str, title: Option<&str>, updated: Option<f64>, cx: &mut Context<Self>) {
+        let mut touched = false;
+        if let Some(t) = title.filter(|t| !is_default_session_title(t) && !self.user_titled.contains(session_id)) {
+            self.auto_titles.insert(session_id.to_string(), t.to_string());
+        }
+        for g in self.sessions.values_mut() {
+            let Some(it) = g.items.iter_mut().find(|x| x.id == session_id) else { continue };
+            if let Some(t) = title.filter(|t| *t != it.title) {
+                it.title = t.to_string();
+                touched = true;
+            }
+            if let Some(u) = updated.filter(|u| *u > it.updated) {
+                it.updated = u;
+                touched = true;
+            }
+            if touched {
+                g.items.sort_by(by_recent);
+            }
+            break;
+        }
+        if touched {
+            self.changed(cx);
+        }
+    }
+
+    /// Mulai satu penilaian judul untuk sesi bila layak: judul saat ini berasal dari engine/Zandor (bukan bawaan dan
+    /// belum diganti pengguna), belum dinilai cukup, dan belum ada penilaian berjalan. Mengembalikan judul saat ini
+    /// dan engine API; `None` bila tidak layak. Pasangannya: [`Self::finish_retitle`].
+    pub fn begin_retitle(&mut self, session_id: &str) -> Option<(String, EngineApi)> {
+        let api = self.api.clone()?;
+        let cur = self.sessions.values().flat_map(|g| g.items.iter()).find(|x| x.id == session_id)?.title.clone();
+        let eligible = !is_default_session_title(&cur)
+            && self.auto_titles.get(session_id) == Some(&cur)
+            && !self.user_titled.contains(session_id)
+            && !self.title_settled.contains(session_id);
+        (eligible && self.retitling.insert(session_id.to_string())).then_some((cur, api))
+    }
+
+    /// Akhiri penilaian judul. `new_title` = judul baru yang sudah dipasang di engine (ikut ditandai cukup);
+    /// `settled` = berhenti menilai ulang (model menjawab TETAP, atau judul baru terpasang).
+    pub fn finish_retitle(&mut self, session_id: &str, new_title: Option<String>, settled: bool, cx: &mut Context<Self>) {
+        self.retitling.remove(session_id);
+        if settled {
+            self.title_settled.insert(session_id.to_string());
+        }
+        if let Some(t) = new_title {
+            self.auto_titles.insert(session_id.to_string(), t.clone());
+            self.apply_session_update(session_id, Some(&t), None, cx);
+        }
     }
 
     pub fn refresh_all(&mut self, cx: &mut Context<Self>) {
@@ -800,6 +865,8 @@ impl ProjectStore {
             return;
         }
         let (Some(dir), Some(api)) = (self.dir_for_session(key, session_id), self.api.clone()) else { return };
+        // nama dari pengguna: penamaan otomatis berhenti untuk sesi ini (juga event `session.updated` susulannya)
+        self.user_titled.insert(session_id.to_string());
         let (key, sid) = (key.to_string(), session_id.to_string());
         let work = cx.background_spawn(async move { api.rename_session(&dir, &sid, &t).map_err(|e| e.0) });
         cx.spawn(async move |this, cx| {
@@ -821,6 +888,20 @@ impl ProjectStore {
             .ok();
         })
         .detach();
+    }
+
+    /// Jumlah sesi Chat (tanpa project) yang akan terhapus oleh `delete_all_chats`.
+    pub fn chat_count(&self) -> usize {
+        self.sessions.get(CHAT_KEY).map_or(0, |g| g.items.len())
+    }
+
+    /// Hapus semua sesi Chat (bukan sesi project). Tiap sesi lewat `delete_session` (engine + folder kerja kosong).
+    pub fn delete_all_chats(&mut self, cx: &mut Context<Self>) -> usize {
+        let ids: Vec<String> = self.sessions.get(CHAT_KEY).map(|g| g.items.iter().map(|s| s.id.clone()).collect()).unwrap_or_default();
+        for id in &ids {
+            self.delete_session(CHAT_KEY, id, cx);
+        }
+        ids.len()
     }
 
     pub fn delete_session(&mut self, key: &str, session_id: &str, cx: &mut Context<Self>) {

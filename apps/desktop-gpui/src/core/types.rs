@@ -182,7 +182,9 @@ pub enum EngineEvent {
     PartRemoved { session_id: String, message_id: String, part_id: String },
     PartDelta { session_id: String, message_id: String, part_id: String, field: String, delta: String },
     SessionStatus { session_id: String, status: SessionRunStatus },
-    SessionRevert { session_id: String, revert: Option<String> },
+    /// `session.updated`: revert + metadata sesi. `title` datang dari engine (judul otomatis dibuat async setelah
+    /// pesan pertama), jadi sidebar harus ikut diperbarui tanpa memuat ulang daftar.
+    SessionUpdated { session_id: String, revert: Option<String>, title: Option<String>, updated: Option<f64> },
     SessionError { session_id: Option<String>, error: MessageError },
     PermissionAsked(PermissionRequest),
     PermissionReplied { session_id: String, request_id: String, reply: PermissionReply },
@@ -201,7 +203,7 @@ impl EngineEvent {
             | PartRemoved { session_id, .. }
             | PartDelta { session_id, .. }
             | SessionStatus { session_id, .. }
-            | SessionRevert { session_id, .. }
+            | SessionUpdated { session_id, .. }
             | PermissionReplied { session_id, .. }
             | QuestionClosed { session_id, .. }
             | TodoUpdated { session_id, .. } => session_id,
@@ -461,7 +463,9 @@ pub fn to_engine_event(raw: &Value) -> Option<EngineEvent> {
             let info = obj(p, "info")?;
             let session_id = ne(p, "sessionID").or_else(|| ne(info, "id"))?;
             let revert = obj(info, "revert").and_then(|r| s(r, "messageID"));
-            SessionRevert { session_id, revert }
+            let title = s(info, "title").filter(|t| !t.is_empty());
+            let updated = obj(info, "time").and_then(|t| t.get("updated")).and_then(Value::as_f64);
+            SessionUpdated { session_id, revert, title, updated }
         }
         "session.idle" => SessionStatus { session_id: ne(p, "sessionID")?, status: SessionRunStatus::Idle },
         "session.error" => SessionError {
@@ -498,6 +502,15 @@ mod tests {
         let st = to_engine_event(&json!({"type":"session.idle","properties":{"sessionID":"s"}}));
         assert_eq!(st, Some(EngineEvent::SessionStatus { session_id: "s".into(), status: SessionRunStatus::Idle }));
         assert_eq!(to_engine_event(&json!({"type":"x"})), None);
+    }
+
+    #[test]
+    fn session_updated_membawa_judul_dan_waktu() {
+        let e = to_engine_event(&json!({"type":"session.updated","properties":{"sessionID":"s","info":{"id":"s","title":"Sapaan pembuka","time":{"created":1.0,"updated":42.0},"revert":{"messageID":"m"}}}}));
+        assert_eq!(e, Some(EngineEvent::SessionUpdated { session_id: "s".into(), revert: Some("m".into()), title: Some("Sapaan pembuka".into()), updated: Some(42.0) }));
+        // judul kosong diperlakukan sebagai tidak ada (tidak menimpa judul yang sudah ada)
+        let e = to_engine_event(&json!({"type":"session.updated","properties":{"info":{"id":"s","title":""}}}));
+        assert_eq!(e, Some(EngineEvent::SessionUpdated { session_id: "s".into(), revert: None, title: None, updated: None }));
     }
 
     #[test]

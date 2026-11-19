@@ -230,7 +230,16 @@ impl Render for PdfView {
         };
         let total = info.pages.len();
         let zi = ZOOMS.iter().position(|z| (*z - self.scale).abs() < 1e-3);
-        let page_w = BASE_W * self.scale * t.scale;
+        // 100% = lebar pas: halaman tidak melebihi area gulir (panel sempit tidak memotong isi), maksimum BASE_W.
+        let avail = f32::from(self.scroll.bounds().size.width);
+        let base = if avail > 1. { BASE_W.min(((avail - 2. * f32::from(t.space(3)) - 12.) / t.scale).max(160.)) } else { BASE_W };
+        if avail <= 1. {
+            cx.spawn(async move |this, cx| {
+                this.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .detach();
+        }
+        let page_w = base * self.scale * t.scale;
         let dpi = window.scale_factor();
         let px_w = (page_w * dpi).round() as u32;
         let gap = f32::from(t.space(3));

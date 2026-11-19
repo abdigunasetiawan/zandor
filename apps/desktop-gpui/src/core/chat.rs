@@ -163,7 +163,7 @@ impl ChatState {
                 }
                 self.status = status.clone();
             }
-            EngineEvent::SessionRevert { session_id, revert } => {
+            EngineEvent::SessionUpdated { session_id, revert, .. } => {
                 if *session_id != sid || *revert == self.revert {
                     return false;
                 }

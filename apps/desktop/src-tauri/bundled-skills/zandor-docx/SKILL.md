@@ -28,7 +28,7 @@ membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
 ## Alur
 
 1. **Baca dulu**: `{{OFFICE_CHECK}} berkas.docx --text` untuk melihat struktur dan isi.
-2. **Ubah** dengan skrip Python sementara (simpan di folder temp, bukan di project), memakai `python-docx`:
+2. **Ubah** dengan skrip Python sementara (simpan di folder `.zandor-tmp/` di dalam folder kerja sesi (bukan folder temp sistem: di luar folder kerja akan memicu izin tambahan); hapus setelah selesai), memakai `python-docx`:
 
    ```python
    from docx import Document

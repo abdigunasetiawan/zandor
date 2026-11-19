@@ -18,7 +18,13 @@ const MIN_SIZE: f32 = 64.;
 pub struct Tab {
     pub id: String,
     pub url: String,
+    /// Tab milik agent (profil terpisah, navigasi dibatasi izin domain; lihat browser_agent.rs).
+    pub agent: bool,
 }
+
+/// Penunjuk global ke panel Browser (diisi saat panel dibuat) untuk kendali agent.
+pub struct BrowserHandle(pub gpui::WeakEntity<BrowserPanel>);
+impl gpui::Global for BrowserHandle {}
 
 /// Port normalizeBrowserUrl: tambah https:// bila tanpa skema; hanya http/https dengan host.
 pub fn normalize_browser_url(input: &str) -> Result<String, &'static str> {
@@ -55,6 +61,14 @@ pub fn tab_label(url: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).to_string()
 }
 
+static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+fn big_ok_and(settled: bool, big: bool) -> bool {
+    settled && big
+}
+
+/// Halaman awal tab baru.
+const HOME_URL: &str = "https://www.google.com/";
+
 fn next_id(tabs: &[Tab]) -> String {
     (1..).map(|n| format!("b{n}")).find(|id| !tabs.iter().any(|t| &t.id == id)).unwrap_or_default()
 }
@@ -77,16 +91,24 @@ pub struct BrowserPanel {
 
 impl BrowserPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        cx.set_global(BrowserHandle(cx.weak_entity()));
+        {
+            let st = crate::core::settings::SettingsStore::global(cx);
+            super::browser_agent::set_enabled(st.read(cx).bool("browserAgent"));
+            cx.observe(&st, |_, st, cx| super::browser_agent::set_enabled(st.read(cx).bool("browserAgent"))).detach();
+        }
         cx.observe_global::<super::layout::PanelShown>(|s, cx| {
             if !cx.global::<super::layout::PanelShown>().tools {
                 s.hide_all();
             }
         })
         .detach();
+        START.get_or_init(std::time::Instant::now);
         let ph = cx.global::<I18n>().t("br.address");
         let address = cx.new(|cx| {
             let mut ti = TextInput::new(cx, ph);
             ti.size = ControlSize::Sm;
+            ti.set_text(HOME_URL.to_string(), cx);
             ti
         });
         cx.subscribe(&address, |s, _, e: &InputSubmit, cx| s.go(e.0.to_string(), cx)).detach();
@@ -112,7 +134,7 @@ impl BrowserPanel {
             }
         })
         .detach();
-        Self { tabs: vec![Tab { id: "b1".into(), url: String::new() }], active: "b1".into(), address, views: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false }
+        Self { tabs: vec![Tab { id: "b1".into(), url: HOME_URL.into(), agent: false }], active: "b1".into(), address, views: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false }
     }
 
     /// Sembunyikan semua webview (panel lain dipilih / panel ditutup).
@@ -161,7 +183,7 @@ impl BrowserPanel {
             return;
         }
         let id = next_id(&self.tabs);
-        self.tabs.push(Tab { id: id.clone(), url: String::new() });
+        self.tabs.push(Tab { id: id.clone(), url: HOME_URL.into(), agent: false });
         self.select(id, cx);
     }
 
@@ -171,13 +193,91 @@ impl BrowserPanel {
         self.views.borrow_mut().remove(&id);
         if self.tabs.is_empty() {
             let fresh = if id == "b1" { "b2" } else { "b1" };
-            self.tabs.push(Tab { id: fresh.into(), url: String::new() });
+            self.tabs.push(Tab { id: fresh.into(), url: HOME_URL.into(), agent: false });
         }
         if self.active == id {
             let n = self.tabs[i.min(self.tabs.len() - 1)].id.clone();
             self.select(n, cx);
         }
         cx.notify();
+    }
+
+    // ---- kendali agent (browser_agent.rs) ----
+
+    pub fn agent_tab_id(&self) -> Option<String> {
+        self.tabs.iter().find(|t| t.agent).map(|t| t.id.clone())
+    }
+
+    /// (url, sedang memuat, webview sudah dibuat) untuk satu tab.
+    pub fn tab_state(&self, id: &str) -> (String, bool, bool) {
+        let url = self.tabs.iter().find(|t| t.id == id).map(|t| t.url.clone()).unwrap_or_default();
+        (url, self.loading.get(id).copied().unwrap_or(false), self.views.borrow().contains_key(id))
+    }
+
+    /// (id, url, milik agent, aktif)
+    pub fn tab_list(&self) -> Vec<(String, String, bool, bool)> {
+        self.tabs.iter().map(|t| (t.id.clone(), t.url.clone(), t.agent, t.id == self.active)).collect()
+    }
+
+    /// Buka `url` di tab Agent (dibuat bila belum ada) dan jadikan aktif. URL harus sudah lolos izin domain.
+    pub fn agent_navigate(&mut self, url: String, cx: &mut Context<Self>) -> Result<String, String> {
+        let id = match self.agent_tab_id() {
+            Some(id) => id,
+            None => {
+                if self.tabs.len() >= MAX_BROWSER_TABS {
+                    return Err("Tab browser sudah penuh; tutup satu tab lalu ulangi.".into());
+                }
+                let id = next_id(&self.tabs);
+                self.tabs.push(Tab { id: id.clone(), url: String::new(), agent: true });
+                id
+            }
+        };
+        self.select(id.clone(), cx);
+        self.error = None;
+        self.loading.insert(id.clone(), true);
+        if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
+            t.url = url.clone();
+        }
+        self.address.update(cx, |a, cx| a.set_text(url.clone(), cx));
+        if let Some(v) = self.views.borrow().get(&id) {
+            let _ = v.load_url(&url);
+        }
+        cx.notify();
+        Ok(id)
+    }
+
+    /// Jalankan JS di tab dan kirim hasilnya (JSON) ke `cb` (dipanggil di thread UI).
+    pub fn eval_cb(&self, id: &str, js: &str, cb: impl Fn(String) + Send + 'static) -> Result<(), String> {
+        let views = self.views.borrow();
+        let v = views.get(id).ok_or("tab belum punya webview (panel Browser harus tampil)")?;
+        v.evaluate_script_with_callback(js, cb).map_err(|e| e.to_string())
+    }
+
+    /// Panggil satu metode Chrome DevTools Protocol lewat WebView2; hasil (JSON) atau "ERR ..." dikirim ke `done`.
+    #[cfg(windows)]
+    pub fn cdp_call(&self, id: &str, method: &str, params: &str, done: impl FnOnce(String) + 'static) -> Result<(), String> {
+        use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+        use windows62::core::PCWSTR;
+        use wry::WebViewExtWindows;
+        let views = self.views.borrow();
+        let v = views.get(id).ok_or("tab belum punya webview (panel Browser harus tampil)")?;
+        let wide = |s: &str| -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() };
+        let (m, p) = (wide(method), wide(params));
+        unsafe {
+            let core = v.controller().CoreWebView2().map_err(|e| format!("CoreWebView2: {e}"))?;
+            let h = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |e, r| {
+                done(match e {
+                    Ok(()) => r,
+                    Err(e) => format!("ERR {e}"),
+                });
+                Ok(())
+            }));
+            core.CallDevToolsProtocolMethod(PCWSTR(m.as_ptr()), PCWSTR(p.as_ptr()), &h).map_err(|e| format!("CDP: {e}"))
+        }
+    }
+    #[cfg(not(windows))]
+    pub fn cdp_call(&self, _id: &str, _method: &str, _params: &str, _done: impl FnOnce(String) + 'static) -> Result<(), String> {
+        Err("CDP hanya tersedia di Windows (WebView2)".into())
     }
 
     fn script(&self, js: &str) {
@@ -188,9 +288,20 @@ impl BrowserPanel {
 }
 
 /// Buat webview tab sebagai anak jendela GPUI.
-fn create_view(window: &Window, id: &str, url: &str, tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>) -> Result<wry::WebView, String> {
+fn create_view(window: &Window, id: &str, url: &str, agent: bool, tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>) -> Result<wry::WebView, String> {
     let (id1, tx1) = (id.to_string(), tx.clone());
-    let b = wry::WebViewBuilder::new()
+    let b = if agent {
+        // Profil terpisah dari tab pengguna (tanpa login pengguna); WebContext hidup selama proses (jarang dibuat).
+        let dir = crate::core::services::app_data_dir().join("browser-agent").join("profile");
+        let ctx: &'static mut wry::WebContext = Box::leak(Box::new(wry::WebContext::new(Some(dir))));
+        wry::WebViewBuilder::new_with_web_context(ctx)
+            .with_initialization_script(super::browser_agent::SNAPSHOT_JS)
+            .with_navigation_handler(|u| super::browser_agent::nav_ok(&u))
+            .with_download_started_handler(|_, _| false)
+    } else {
+        wry::WebViewBuilder::new()
+    };
+    let b = b
         .with_url(url)
         .with_on_page_load_handler(move |ev, u| {
             let done = matches!(ev, wry::PageLoadEvent::Finished);
@@ -208,6 +319,7 @@ impl Render for BrowserPanel {
         let mut tabs = div().flex().items_center().gap(t.space(1)).px(t.space(2)).pt(t.space(2)).overflow_hidden();
         for tab in &self.tabs {
             let title = Some(tab_label(&tab.url)).filter(|s| !s.is_empty()).unwrap_or_else(|| i.t("br.newTab"));
+            let title = if tab.agent { format!("{} · {title}", i.t("br.agentTab")) } else { title };
             let active = tab.id == self.active;
             let (id1, id2) = (tab.id.clone(), tab.id.clone());
             tabs = tabs.child(
@@ -255,11 +367,32 @@ impl Render for BrowserPanel {
                     .disabled(cur_url.is_empty())
                     .on_click(move |_, _, cx| cx.open_url(&ext)),
             );
+        let agent_row = (super::browser_agent::session_active() || super::browser_agent::halted()).then(|| {
+            let halted = super::browser_agent::halted();
+            div()
+                .flex()
+                .items_center()
+                .gap(t.space(2))
+                .px(t.space(2))
+                .small(&t)
+                .text_color(if halted { t.colors.danger } else { t.colors.accent })
+                .child(div().flex_1().min_w_0().truncate().child(if halted { i.t("br.agentStopped") } else { i.t("br.agentActive") }))
+                .child(
+                    crate::ui::button("br-agent-stop")
+                        .label(if halted { i.t("br.agentResume") } else { i.t("br.agentStop") })
+                        .variant(if halted { ButtonVariant::Outline } else { ButtonVariant::Danger })
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            super::browser_agent::toggle_halt();
+                            cx.notify();
+                        })),
+                )
+        });
         let loading = self.loading.get(&self.active).copied().unwrap_or(false);
         let progress = div().h(gpui::px(2.)).w_full().when(loading, |d| d.bg(t.colors.accent));
 
         // Host webview: canvas mengukur area tiap frame lalu menempatkan/membuat webview tab aktif.
         let (views, active, url, tx) = (self.views.clone(), self.active.clone(), cur_url.clone(), self.tx.clone());
+    let active_agent = self.tabs.iter().find(|t| t.id == self.active).is_some_and(|t| t.agent);
         let err_slot: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let err2 = err_slot.clone();
         let host = canvas(
@@ -270,9 +403,16 @@ impl Render for BrowserPanel {
                     window.request_animation_frame();
                 }
                 let big = !overlay && f32::from(bounds.size.width) >= MIN_SIZE && f32::from(bounds.size.height) >= MIN_SIZE;
+                // Membuat WebView2 memompa pesan; saat startup tugas async lain (engine, dll.) bisa berjalan ulang di tengahnya
+                // dan panik ("already borrowed"). Tunda pembuatan webview pertama sampai startup tenang.
+                let settled = START.get_or_init(std::time::Instant::now).elapsed() >= std::time::Duration::from_secs(4);
+                if !settled {
+                    window.request_animation_frame();
+                }
+                let big = big_ok_and(settled, !overlay && f32::from(bounds.size.width) >= MIN_SIZE && f32::from(bounds.size.height) >= MIN_SIZE);
                 let mut map = views.borrow_mut();
                 if big && !url.is_empty() && !map.contains_key(&active) {
-                    match create_view(window, &active, &url, tx.clone()) {
+                    match create_view(window, &active, &url, active_agent, tx.clone()) {
                         Ok(v) => {
                             map.insert(active.clone(), v);
                         }
@@ -310,6 +450,7 @@ impl Render for BrowserPanel {
             .gap(t.space(1))
             .child(tabs)
             .child(bar)
+            .children(agent_row)
             .child(progress)
             .children(self.error.clone().map(|e| div().px(t.space(2)).small(&t).text_color(t.colors.danger).child(e)))
             .when(self.system_fallback, |d| d.child(div().px(t.space(2)).small(&t).text_color(t.colors.fg_muted).child(i.t("br.systemFallback"))))

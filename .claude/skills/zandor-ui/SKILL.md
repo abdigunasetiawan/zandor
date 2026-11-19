@@ -192,6 +192,8 @@ pada Langkah 1 dan pada daftar periksa akhir.
 | 17-11-2026 | Radius luar dan dalam tidak sejajar (wadah segmented lg, tombol di dalamnya sm) | Radius **konsentris**: radius elemen dalam = radius wadah − padding wadah (mis. wadah `radius-lg` + padding `space-1` → isi `radius-md`). Segmented/pilihan memakai token `--z-color-segment`/`segment-active` + `shadow-1`, ukuran sama dengan `.z-tabs__tab` | `.onb__segrow`/`.onb__segopt` di `styles.css` |
 | 17-11-2026 | Indikator progres bekerja (ripple: titik + garis riak tipis) di sidebar, tab, rencana, langkah tool, Jobs | **Indikator kerja agent = `Working variant="grid"`** (3×3 kotak berkilau diagonal; dipilih pemilik dari 10 alternatif di `docs/design/working-indicator-alternatives.html`); titik "butuh aksi" berdenyut lembut (warning 55%) | `.z-working--grid` di `atoms.css`, SessionDot, ToolStep, TodoList, JobsPanel |
 
+| 19-11-2026 | Pemilih Reasoning (Select variant) di composer: item terpilih berlatar padahal tidak dihover; ring fokus muncul | **Latar item Select hanya saat dihover atau fokus keyboard** (`:hover`/`:focus-visible`), bukan sekadar `data-highlighted` bawaan Base UI saat popup dibuka. **Tanpa ring/border fokus** pada pemicu Select di composer dan item popup Select | `.z-select__popup .z-item` di `atoms.css`, `.composer__model .z-select:focus-visible` di `styles.css` |
+
 Pelajaran teknis: `.z-scope` adalah `display: contents`, jadi selektor `:has(> .anak)` pada `.shell-panel__inner` **tidak
 pernah cocok** (itulah penyebab padding dan garis tidak penuh). Gaya panel dipasang pada `.shell-panel__inner` langsung,
 bukan lewat `:has(> ...)`.

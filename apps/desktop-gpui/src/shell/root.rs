@@ -14,13 +14,13 @@ pub struct Root {
     layout: Entity<ShellLayout>,
     toasts: Entity<Toasts>,
     settings_page: Entity<super::settings_page::SettingsPage>,
-    memory_page: Entity<super::memory_page::MemoryPage>,
-    automation_page: Entity<super::automation_page::AutomationPage>,
     design_page: Entity<super::design_system_page::DesignSystemPage>,
     onboarding_page: Entity<super::onboarding_page::OnboardingPage>,
     palette: Option<Entity<super::command_center::CommandCenter>>,
     gsearch: Option<Entity<super::global_search::GlobalSearch>>,
     imagegen: Option<Entity<super::image_dialog::ImageDialog>>,
+    /// Dialog konfirmasi Dev Tools → hapus semua sesi Chat.
+    confirm_chats: bool,
 }
 
 impl Root {
@@ -82,14 +82,15 @@ impl Root {
             }));
             p
         });
-        let memory_page = cx.new(|cx| super::memory_page::MemoryPage::new(app.clone(), cx));
         let design_page = cx.new(|cx| super::design_system_page::DesignSystemPage::new(app.clone(), cx));
-        let automation_page = cx.new(|cx| super::automation_page::AutomationPage::new(app.clone(), cx));
         let onboarding_page = cx.new(|cx| super::onboarding_page::OnboardingPage::new(app.clone(), cx));
         if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
             app.update(cx, |a, cx| a.push("/welcome", cx));
         }
         { let t = cx.global::<crate::theme::Theme>().clone(); crate::ui::mermaid::selftest(&t); }
+        // Kartu izin domain browser agent: render ulang saat ada permintaan/jawaban.
+        cx.set_global(super::browser_agent::PermAsk(None));
+        cx.observe_global::<super::browser_agent::PermAsk>(|_, cx| cx.notify()).detach();
         // Diagram Mermaid: webview tersembunyi dipompa berkala (detak cepat hanya saat ada pekerjaan).
         cx.spawn_in(window, async move |this, cx| loop {
             let fast = crate::ui::mermaid::busy();
@@ -101,7 +102,9 @@ impl Root {
         .detach();
         // Kontrol aplikasi oleh agent (ADR-077): ambil antrean tiap POLL_MS, jalankan, jawab.
         cx.spawn_in(window, async move |this, cx| loop {
-            cx.background_executor().timer(std::time::Duration::from_millis(super::agent_control::POLL_MS)).await;
+            // polling cepat hanya saat agent sedang mengendalikan browser (loop snapshot → aksi)
+            let poll = if super::browser_agent::session_active() { 100 } else { super::agent_control::POLL_MS };
+            cx.background_executor().timer(std::time::Duration::from_millis(poll)).await;
             let dir = super::agent_control::control_dir();
             let raw = cx.background_spawn(async move { crate::control::take(&dir) }).await;
             let reqs: Vec<_> = raw.iter().filter_map(super::agent_control::to_request).collect();
@@ -116,6 +119,21 @@ impl Root {
                     }
                     match out {
                         super::agent_control::Outcome::Done(res) => super::agent_control::finish(&req, res, cx),
+                        super::agent_control::Outcome::Browser(job) => {
+                            let req = req.clone();
+                            cx.spawn_in(w, async move |_, cx| {
+                                let res = super::browser_agent::run(job, cx).await;
+                                // jawaban harus selalu terkirim: coba lagi bila App sedang dipinjam (WebView2 memompa pesan)
+                                let res = std::cell::RefCell::new(Some(res));
+                                for _ in 0..60 {
+                                    if cx.update(|_, cx| super::agent_control::finish(&req, res.borrow_mut().take().unwrap_or(Ok(serde_json::Value::Null)), cx)).is_ok() {
+                                        break;
+                                    }
+                                    cx.background_executor().timer(std::time::Duration::from_millis(50)).await;
+                                }
+                            })
+                            .detach();
+                        }
                         super::agent_control::Outcome::Image { provider, model, prompt, size, root, rel } => {
                             // tidak ditunggu: generate gambar bisa lama dan tidak boleh menahan permintaan lain
                             let task = cx.background_spawn(async move { super::image_dialog::generate(&provider, &model, &prompt, &size, &root, &rel).map(|w| (w, root)) });
@@ -142,7 +160,7 @@ impl Root {
             }
         })
         .detach();
-        Self { app, titlebar, layout, toasts, palette: None, gsearch: None, imagegen: None, settings_page, memory_page, automation_page, design_page, onboarding_page }
+        Self { app, titlebar, layout, toasts, palette: None, gsearch: None, imagegen: None, confirm_chats: false, settings_page, design_page, onboarding_page }
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -221,6 +239,15 @@ impl Root {
             "app.goHome" => app.update(cx, |a, cx| a.push("/", cx)),
             "help.tour" => app.update(cx, |a, cx| a.push("/welcome", cx)),
             "dev.designSystem" => app.update(cx, |a, cx| a.push("/design-system", cx)),
+            "dev.deleteChats" => {
+                if crate::core::projects::ProjectStore::global(cx).read(cx).chat_count() == 0 {
+                    let title = cx.global::<I18n>().t("dev.deleteChats.none");
+                    Toasts::show(crate::ui::ToastInput::new(title), cx);
+                } else {
+                    self.confirm_chats = true;
+                    cx.notify();
+                }
+            }
             "nav.back" => app.update(cx, |a, cx| a.back(cx)),
             "nav.forward" => app.update(cx, |a, cx| a.forward(cx)),
             "view.toggleSidebar" => toggle(PanelId::Sidebar, cx),
@@ -254,6 +281,39 @@ impl Root {
     }
 }
 
+impl Root {
+    /// Konfirmasi hapus semua sesi Chat (aksi destruktif: selalu lewat dialog komponen, bukan dialog OS).
+    fn delete_chats_dialog(&self, t: &Theme, cx: &mut Context<Self>) -> gpui::AnyElement {
+        use crate::ui::{button, dialog, ButtonVariant};
+        let i = cx.global::<I18n>().clone();
+        let n = crate::core::projects::ProjectStore::global(cx).read(cx).chat_count();
+        dialog(i.t("dev.deleteChats.title"))
+            .description(i.tp("dev.deleteChats.body", &[("n", &n.to_string())]))
+            .on_dismiss(cx.listener(|r, _, _, cx| {
+                r.confirm_chats = false;
+                cx.notify();
+            }))
+            .footer(
+                div()
+                    .flex()
+                    .justify_end()
+                    .gap(t.space(2))
+                    .child(button("dch-cancel").label(i.t("ui.cancel")).variant(ButtonVariant::Ghost).on_click(cx.listener(|r, _, _, cx| {
+                        r.confirm_chats = false;
+                        cx.notify();
+                    })))
+                    .child(button("dch-ok").label(i.t("dev.deleteChats.confirm")).variant(ButtonVariant::Danger).on_click(cx.listener(|r, _, _, cx| {
+                        r.confirm_chats = false;
+                        crate::core::projects::ProjectStore::global(cx).update(cx, |s, cx| {
+                            s.delete_all_chats(cx);
+                        });
+                        cx.notify();
+                    }))),
+            )
+            .into_any_element()
+    }
+}
+
 impl Render for Root {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = cx.global::<Theme>().clone();
@@ -263,12 +323,8 @@ impl Render for Root {
         }
         let content: gpui::AnyElement = if route == "/" || route.is_empty() {
             self.layout.clone().into_any_element()
-        } else if route == "/settings" || route == "/appearance" || route.starts_with("/settings/") {
+        } else if route == "/settings" || route == "/appearance" || route == "/memory" || route == "/automation" || route.starts_with("/settings/") {
             self.settings_page.clone().into_any_element()
-        } else if route == "/memory" {
-            self.memory_page.clone().into_any_element()
-        } else if route == "/automation" {
-            self.automation_page.clone().into_any_element()
         } else if route == "/design-system" {
             self.design_page.clone().into_any_element()
         } else if route == "/welcome" {
@@ -292,6 +348,8 @@ impl Render for Root {
             .children(self.palette.clone())
             .children(self.gsearch.clone())
             .children(self.imagegen.clone())
+            .children(self.confirm_chats.then(|| self.delete_chats_dialog(&t, cx)))
+            .children(super::browser_agent::permission_dialog(&t, cx))
             .children(link_menu(&t, cx))
             .children(crate::ui::rich::rich_menu(&t, cx))
             .child(self.toasts.clone())

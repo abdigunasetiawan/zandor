@@ -214,7 +214,8 @@ impl FilesTree {
     fn open_file(&self, rel: &str, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else { return };
         let abs = std::path::Path::new(&root).join(rel).to_string_lossy().into_owned();
-        super::docs_panel::DocsState::global(cx).update(cx, |d, cx| d.open_file(abs, cx));
+        // membuka tab dokumen dan memunculkan Panel 3 bila terlipat (seperti Tauri: panels.reveal("docs"))
+        super::agent_control::open_documents(vec![abs], cx);
     }
 
     fn start_create(&mut self, parent: String, dir: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -305,7 +306,7 @@ impl FilesTree {
                 .items_center()
                 .gap(t.space(1))
                 .h(t.rem(rem::CONTROL_SM))
-                .pl(t.rem(0.75 * depth as f32 + 0.25))
+                .pl(t.rem(0.25))
                 .pr(t.space(1))
                 .rounded(t.rem(rem::RADIUS_SM))
                 .cursor_pointer()
@@ -318,6 +319,8 @@ impl FilesTree {
                         s.open_file(&p, cx);
                     }
                 }))
+                // garis panduan: satu segmen per tingkat, tampak hanya saat pohon di-hover (.ftree__tree:hover)
+                .children((0..depth).map(|_| div().flex_none().self_stretch().w(t.rem(0.75)).border_l_1().border_color(gpui::transparent_black()).group_hover("ftree-box", |s| s.border_color(t.colors.border))))
                 .child(if is_dir {
                     icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm).color(t.colors.fg_subtle).into_any_element()
                 } else {
@@ -423,7 +426,7 @@ impl Render for FilesTree {
             .child(icon_button("ftree-expand", "expand_all", i.t("files.expandAll")).size(ControlSize::Sm).disabled(!has).on_click(cx.listener(|s, _, _, cx| s.expand_all(cx))))
             .child(icon_button("ftree-refresh", "refresh", i.t("files.refresh")).size(ControlSize::Sm).disabled(!has).on_click(cx.listener(|s, _, _, cx| s.refresh(cx))));
 
-        let mut col = div().flex().flex_col().size_full().min_h_0().child(head);
+        let mut col = div().flex().flex_col().gap(t.space(1)).size_full().min_h_0().child(head);
         if !has {
             return col.child(Self::note(&t, i.t("files.noProject"), 0.75)).into_any_element();
         }
@@ -480,7 +483,8 @@ impl Render for FilesTree {
         } else {
             self.dir_rows(&t, &i, "", 0, &mut rows, cx);
         }
-        col = col.child(div().id("ftree-tree").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().px(t.space(1)).children(rows));
+        // kotak pohon: border lembut + sudut besar, mengisi sisa tinggi dan menggulir sendiri (.ftree__tree)
+        col = col.child(div().group("ftree-box").flex().flex_col().flex_1().min_h_0().mx(t.space(2)).mb(t.space(2)).border_1().border_color(t.colors.border_soft).rounded(t.rem(rem::RADIUS_LG)).child(div().id("ftree-tree").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.space(2)).children(rows)));
         if self.capped {
             col = col.child(Self::note(&t, i.tp("files.partial", &[("max", &MAX_EXPAND.to_string())]), 0.75));
         }

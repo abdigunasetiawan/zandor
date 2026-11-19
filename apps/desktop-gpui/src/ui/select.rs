@@ -89,10 +89,10 @@ impl RenderOnce for Select {
                     .h(t.rem(self.size.height_rem()))
                     .when(!self.pill, |d| d.min_w(t.rem(rem::SPACE[7] * 2.5)).px(t.space(3)).border_color(t.colors.border).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.surface))
                     .when(self.pill, |d| d.flex_none().gap(t.space(1)).px(t.space(2)).border_color(t.colors.border_soft).rounded_full())
-                    .when(self.flat_left, |d| d.rounded_tl_none().rounded_bl_none().rounded_tr_full().rounded_br_full())
+                    .when(self.flat_left, |d| d.rounded_tl_none().rounded_bl_none().rounded_tr_full().rounded_br_full().border_color(gpui::transparent_black()))
                     .border_1()
                     .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
-                    .when(is_open, |d| d.border_color(t.colors.focus))
+                    .when(is_open && !self.pill, |d| d.border_color(t.colors.focus))
                     .when(self.disabled, |d| d.opacity(0.5).cursor_not_allowed())
                     .when(!self.disabled, |d| {
                         d.cursor_pointer().hover(|s| s.bg(t.colors.hover)).on_click(move |_, _, cx| {

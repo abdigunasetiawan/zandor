@@ -3709,6 +3709,9 @@
   border-left: var(--z-border-width) solid var(--z-color-border);
   border-radius: 0 var(--z-radius-full) var(--z-radius-full) 0;
 }
+.composer__model .z-select:focus-visible {
+  outline: none;
+}
 .chat__model .z-model-logo,
 .mrow__pick .z-model-logo {
   flex: none;

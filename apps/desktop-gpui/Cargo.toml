@@ -22,6 +22,7 @@ native-tls = "0.2"
 zandor-engine-supervisor = { path = "../../crates/engine-supervisor" }
 keyring = "=4.2.0"
 wry = "0.57"
+base64 = "0.22"
 rquickjs = "0.9"
 smallvec = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
@@ -35,6 +36,9 @@ sha2 = "0.10"
 rust-embed = { version = "8", features = ["include-exclude"] }
 
 [target.'cfg(windows)'.dependencies]
+# CDP lewat WebView2 (ADR-079). webview2-com 0.39 memakai windows 0.62, sedangkan app memakai 0.61 → alias terpisah.
+webview2-com = "0.39"
+windows62 = { package = "windows", version = "0.62", features = ["Win32_Foundation"] }
 tauri-winrt-notification = "0.8"
 windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation", "Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_Media_Multimedia", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_Devices_FunctionDiscovery", "Win32_UI_Shell_PropertiesSystem", "Foundation", "Data_Pdf", "Storage", "Storage_Streams", "Media_Ocr", "Graphics_Imaging", "Foundation_Collections", "Globalization"] }

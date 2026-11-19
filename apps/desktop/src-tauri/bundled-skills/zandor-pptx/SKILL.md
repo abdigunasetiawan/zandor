@@ -28,7 +28,7 @@ membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
 ## Alur
 
 1. **Baca dulu**: `{{OFFICE_CHECK}} deck.pptx --text` (jumlah slide, catatan, teks).
-2. **Ubah** (skrip sementara di folder temp):
+2. **Ubah** (skrip sementara di folder `.zandor-tmp/` di dalam folder kerja sesi (bukan folder temp sistem: di luar folder kerja akan memicu izin tambahan); hapus setelah selesai):
 
    ```python
    from pptx import Presentation
@@ -47,5 +47,5 @@ membuat berkas; bila tugasnya hanya membaca, lewati langkah di bawah.
    relasinya (`prs.part.drop_rel(rId)`).
 3. **Verifikasi wajib**: `{{OFFICE_CHECK}} deck.pptx --expect "Ringkasan"` → `valid: true`.
    Bila LibreOffice ada dan model bisa melihat gambar, render ke PDF/PNG untuk memeriksa teks meluap:
-   `soffice --headless --convert-to pdf --outdir <temp> deck.pptx`.
+   `soffice --headless --convert-to pdf --outdir .zandor-tmp deck.pptx`.
 4. **Laporkan**: slide yang berubah, cadangan, dan bahwa tata letak visual belum diperiksa bila tidak dirender.

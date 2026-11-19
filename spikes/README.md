@@ -13,6 +13,7 @@ Kode sekali pakai untuk membuktikan risiko. **Bukan kode produk** — jangan dii
 | S8 layout 5 panel + zoom | `s8-layout/` | ADR-025 | Windows 100% lulus (15/15 ×3) · HiDPI, mac/Linux belum |
 | S5 renderer Panel 3 | `s5-renderers/` | ADR-026 | PDF/DOCX/XLSX lulus · PPTX menunggu keputusan MPL-2.0 |
 | S3 child webview browser | `s3-webview/` | ADR-020 | Windows lulus (termasuk login Google manual) · persistensi sesi belum konsisten · mac/Linux ditunda |
+| S9 browser-use agent (CDP, dua profil, snapshot) | `s9-browser-agent/` | ADR-079 | Windows lulus (15/15) · crate mandiri: `cargo build` di foldernya lalu jalankan `zandor-spike-s9.exe` |
 
 ## Prasyarat
 Rust (stable), Node ≥ 20, npm. Windows butuh WebView2 runtime.

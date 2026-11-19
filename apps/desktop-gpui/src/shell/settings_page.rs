@@ -48,6 +48,8 @@ pub struct SettingsPage {
     editor: Entity<super::editor_section::EditorSection>,
     remote: Entity<super::remote_section::RemoteSection>,
     docs_style: Entity<super::doc_style_section::DocStyleControls>,
+    memory: Entity<super::memory_page::MemoryPage>,
+    automation: Entity<super::automation_page::AutomationPage>,
     pub on_reset_layout: Option<std::rc::Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
@@ -60,7 +62,13 @@ impl SettingsPage {
         cx.subscribe(&search, |_, _, _: &InputChanged, cx| cx.notify()).detach();
         cx.observe(&app, |s, a, cx| {
             let route = a.read(cx).current().to_string();
-            let sec = if route == "/appearance" { Some("appearance") } else { route.strip_prefix("/settings/") };
+            // /memory dan /automation adalah alias bagian Pengaturan (seperti Tauri)
+            let sec = match route.as_str() {
+                "/appearance" => Some("appearance"),
+                "/memory" => Some("memory"),
+                "/automation" => Some("automation"),
+                _ => route.strip_prefix("/settings/"),
+            };
             if let Some(sec) = sec {
                 if let Some((id, ..)) = SECTIONS.iter().find(|(id, ..)| *id == sec) {
                     s.active = id;
@@ -81,7 +89,23 @@ impl SettingsPage {
         let docs_style = cx.new(|cx| super::doc_style_section::DocStyleControls::new(super::doc_style_section::GROUPS.to_vec(), cx));
         let models_sec = cx.new(super::models_section::ModelsSection::new);
         let notif = cx.new(super::notification_section::NotificationSection::new);
-        let mut me = Self { app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
+        let memory = cx.new({
+            let app = app.clone();
+            move |cx| {
+                let mut m = super::memory_page::MemoryPage::new(app, cx);
+                m.embedded = true;
+                m
+            }
+        });
+        let automation = cx.new({
+            let app = app.clone();
+            move |cx| {
+                let mut a = super::automation_page::AutomationPage::new(app, cx);
+                a.embedded = true;
+                a
+            }
+        });
+        let mut me = Self { memory, automation, app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
         me.load_models(cx);
         me
     }
@@ -354,26 +378,12 @@ impl Render for SettingsPage {
             content = content.child(group(&t, i.t("settings.engines"), vec![div().py(t.space(2)).child(self.remote.clone()).into_any_element()]));
         }
 
-        for (sec, route, key, body) in [
-            ("memory", "/memory", "settings.more.memory", "settings.more.memoryBody"),
-            ("automation", "/automation", "settings.more.automation", "settings.more.automationBody"),
+        for (sec, key, body, el) in [
+            ("memory", "settings.more.memory", "settings.more.memoryBody", self.memory.clone().into_any_element()),
+            ("automation", "settings.more.automation", "settings.more.automationBody", self.automation.clone().into_any_element()),
         ] {
-            if show(sec) && matches_q(&q, &[&i.t(key), &i.t(body)]) {
-                content = content.child(group(
-                    &t,
-                    i.t(key),
-                    vec![row(
-                        &t,
-                        i.t(key),
-                        Some(i.t(body)),
-                        button(SharedString::from(format!("open-{sec}")))
-                            .label(i.t(key))
-                            .size(ControlSize::Sm)
-                            .on_click(cx.listener(move |s, _, _, cx| s.app.update(cx, |a, cx| a.push(route, cx)))),
-                        None,
-                    )
-                    .into_any_element()],
-                ));
+            if show(sec) && matches_q(&q, &[&i.t(key), &i.t(body), &i.t(if sec == "memory" { "mem.title" } else { "auto.title" })]) {
+                content = content.child(group(&t, i.t(key), vec![div().py(t.space(2)).child(el).into_any_element()]));
             }
         }
 

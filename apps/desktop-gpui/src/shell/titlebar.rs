@@ -20,6 +20,7 @@ const MENUS: &[(&str, &[&str])] = &[
         ],
     ),
     ("menu.help", &["app.palette", "help.about"]),
+    ("menu.dev", &["dev.designSystem", "-", "dev.deleteChats"]),
 ];
 
 pub struct TitleBar {

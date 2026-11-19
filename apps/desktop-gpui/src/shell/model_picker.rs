@@ -600,7 +600,8 @@ impl ChatPanel {
     }
 
     /// Pemicu + popover pemilih model.
-    pub(super) fn model_picker(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// `joined`: ada kontrol yang menyambung di kanan (pemilih varian) → sudut kanan tombol siku.
+    pub(super) fn model_picker(&mut self, t: &Theme, i: &I18n, joined: bool, viewport_h: gpui::Pixels, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.models.is_empty() {
             return None;
         }
@@ -611,6 +612,7 @@ impl ChatPanel {
             .size(ControlSize::Sm)
             .variant(ButtonVariant::Ghost)
             .round(true)
+            .square_right(joined)
             .tooltip_text(i.tp("mp.open", &[("name", &cur_name)]))
             .child(model_logo(t, cx, current.as_ref().map(|m| m.provider_id.as_str()), current.as_ref().map(|m| m.model_id.as_str()), current.as_ref().map(|m| m.provider_name.as_str()).unwrap_or(""), false, "mp-trigger"))
             .child(div().max_w(t.rem(rem::SPACE[7] * 3.)).truncate().font_family(t.font_code.clone()).child(cur_name))
@@ -669,7 +671,9 @@ impl ChatPanel {
             });
             let pop = crate::ui::popup(t)
                 .w(t.rem(rem::SPACE[7] * 14.))
-                .h(t.rem(rem::SPACE[7] * 11.))
+                // tinggi tetap min(28rem, 50vh): tidak berubah antar tab, isi tab menggulir di dalamnya
+                .h(t.rem(28.))
+                .max_h(viewport_h * 0.5)
                 .p(t.space(2))
                 .gap(t.space(2))
                 .occlude()
@@ -696,7 +700,11 @@ impl ChatPanel {
                         }),
                     ),
                 );
-            root = root.child(crate::ui::overlay_deferred(gpui::anchored().anchor(gpui::Anchor::BottomRight).snap_to_window_with_margin(gpui::px(8.)).child(div().mb(t.space(1)).child(pop))).with_priority(65));
+            // `anchored()` tanpa posisi memakai posisi statis anaknya (di bawah pemicu, sisi kiri). Pembungkus tanpa lebar di
+            // pojok kanan atas pemicu menjadikan itu titik tambatnya: popover rata kanan, tepat di atas pemicu.
+            root = root.child(div().absolute().top_0().right_0().child(
+                crate::ui::overlay_deferred(gpui::anchored().anchor(gpui::Anchor::BottomRight).snap_to_window_with_margin(gpui::px(8.)).child(div().mb(t.space(1)).child(pop))).with_priority(65),
+            ));
         }
         Some(root.into_any_element())
     }

@@ -6,6 +6,7 @@ Buka lewat ikon di rel kanan atau tab di panel Tools.
 - **Git:** status cabang, perubahan staged/unstaged, klik berkas untuk diff, `+`/`−` untuk stage/unstage, tulis pesan lalu
   **Commit**, buat atau pindah cabang. Memakai identitas dari konfigurasi git Anda.
 - **Browser:** ketik alamat (http/https). Disembunyikan sementara saat dialog/menu terbuka. Konten situs tidak punya akses ke
+- **Agent mengendalikan browser (opsional, bawaan mati):** nyalakan Pengaturan → Umum → "Agent boleh mengendalikan browser Panel 4". Agent lalu bisa membuka halaman, membaca isinya, dan mengambil screenshot di tab **Agent** (profil terpisah, Anda tidak login di sana). Tiap domain meminta izin Anda saat pertama dibuka (Sesi ini / Selalu / Tolak); situs keuangan/pembayaran diblokir. Tombol **Hentikan agent** di Panel 4 menolak semua aksi berikutnya sampai Anda menekan **Izinkan lagi**. Isi halaman web tidak tepercaya dan bisa berisi instruksi berbahaya: izinkan hanya situs yang Anda percaya. Tahap ini baca-saja (belum klik/isi form).
   aplikasi.
 - **Info sesi:** model, token, konteks terpakai, biaya (bila provider melaporkan), jumlah tool call, waktu kerja.
 - **Log aktivitas:** tool call, izin, retry, galat, status engine; saring per sumber, bersihkan.

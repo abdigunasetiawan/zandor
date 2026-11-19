@@ -234,6 +234,13 @@ fn body(t: &Theme, i: &I18n, pid: &str, tool: &str, st: &ToolState, v: &ToolView
     col.into_any_element()
 }
 
+/// Ringkasan satu baris: baris baru/tab/spasi beruntun dipadatkan jadi satu spasi. `truncate()` hanya mencegah
+/// pembungkusan otomatis, bukan karakter baris baru di dalam teks (mis. `python -c "…` berbaris-baris), jadi tanpa ini
+/// baris langkah proses jadi lebih tinggi dari yang lain. Isi lengkapnya tetap ada di badan langkah saat dibuka.
+fn single_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// ToolCard.
 pub(super) fn tool_card(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &MessagePart, tool: &str, st: &ToolState, open: bool) -> AnyElement {
     let v = tv::describe_tool(tool, st);
@@ -249,7 +256,7 @@ pub(super) fn tool_card(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &Mes
     let me2 = me.clone();
     let target: AnyElement = match &v.path {
         Some(sp) => file_path(t, sp).into_any_element(),
-        None => div().truncate().child(v.target.clone()).into_any_element(),
+        None => div().truncate().child(single_line(&v.target)).into_any_element(),
     };
     let mut meta = div().flex().flex_none().items_center().gap(t.space(2)).font_family(t.font_code.clone());
     if let Some(r) = range {
@@ -288,7 +295,7 @@ pub(super) fn tool_card(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &Mes
         .items_center()
         .gap(t.space(2))
         .px(t.space(2))
-        .py(t.space(1))
+        .h(t.rem(rem::CONTROL_MD)) // tinggi sama untuk semua langkah proses (Thinking dan tool), apa pun isinya
         .rounded(t.rem(rem::RADIUS_MD))
         .cursor_pointer()
         .hover(|s| s.bg(t.colors.hover))
@@ -346,8 +353,9 @@ pub(super) fn tool_card(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &Mes
         .flex_col()
         .w_full()
         .rounded(t.rem(rem::RADIUS_MD))
+        // semua langkah proses (Thinking dan tool) selalu berbingkai, `border` yang sama
         .border_1()
-        .border_color(if open { t.colors.border_soft } else { gpui::transparent_black() })
+        .border_color(t.colors.border)
         .child(row)
         .when(open, |d| d.child(body(t, i, &p.id, tool, st, &v)))
         .into_any_element()
@@ -480,6 +488,7 @@ fn part_el(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &MessagePart, exp
                     .flex()
                     .flex_col()
                     .rounded(t.rem(rem::RADIUS_MD))
+                    // semua langkah proses (Thinking dan tool) selalu berbingkai, `border` yang sama
                     .border_1()
                     .border_color(t.colors.border)
                     .child(
@@ -489,7 +498,9 @@ fn part_el(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &MessagePart, exp
                             .items_center()
                             .gap(t.space(2))
                             .px(t.space(2))
-                            .py(t.space(1))
+                            .h(t.rem(rem::CONTROL_MD)) // sama dengan kepala langkah tool
+                            .rounded(t.rem(rem::RADIUS_MD))
+                            .hover(|s| s.bg(t.colors.hover))
                             .cursor_pointer()
                             .on_click(move |_, _, cx| {
                                 let k = k2.clone();
@@ -513,9 +524,29 @@ fn part_el(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, p: &MessagePart, exp
     }
 }
 
+/// Dokumen yang dihasilkan satu giliran Chat. Hasil pemindaian folder disimpan per giliran yang sudah selesai (tidak
+/// berubah lagi), supaya render tidak membaca disk tiap frame.
+pub(super) fn chat_turn_documents(process: &[&MessagePart], dir: &str, info: &crate::core::types::MessageInfo, turn_id: &str, done: bool) -> Vec<String> {
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<std::collections::HashMap<String, Vec<String>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if done {
+        if let Some(v) = cache.lock().unwrap().get(turn_id) {
+            return v.clone();
+        }
+    }
+    // pemindaian folder hanya setelah selesai; selama berjalan hanya yang ditulis lewat tool `write`
+    let (dir, until) = if done { (dir, info.completed.map(|c| c + 3000.)) } else { ("", None) };
+    let docs = tv::turn_documents(process, dir, info.created, until);
+    if done {
+        cache.lock().unwrap().insert(turn_id.to_string(), docs.clone());
+    }
+    docs
+}
+
 /// AssistantMessage (tanpa toolbar aksi; lihat message_toolbar).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatPanel>, turn: &crate::core::chat::Turn, expanded: &HashSet<String>, streaming: bool, has_project: bool, provider_name: &str, toolbar: Option<AnyElement>) -> AnyElement {
+pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatPanel>, turn: &crate::core::chat::Turn, expanded: &HashSet<String>, streaming: bool, has_project: bool, dir: &str, provider_name: &str, toolbar: Option<AnyElement>) -> AnyElement {
     let m = &turn.message;
     let turn_id = turn.source_ids.first().cloned().unwrap_or_else(|| m.info.id.clone());
     let info = &m.info;
@@ -539,7 +570,7 @@ pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatP
         }
     }
     if !has_project {
-        for (n, path) in tv::created_documents(&process).iter().enumerate() {
+        for (n, path) in chat_turn_documents(&process, dir, info, &turn_id, done).iter().enumerate() {
             ans = ans.child(crate::shell::widgets::file_card(t, i, &format!("{turn_id}-doc{n}"), None, "", "", Some(path)));
         }
     }
@@ -883,6 +914,13 @@ impl ChatPanel {
 #[cfg(test)]
 mod toolbar_tests {
     use super::*;
+    #[test]
+    fn ringkasan_satu_baris() {
+        // perintah multi-baris (baris baru, tab, CRLF) harus jadi satu baris
+        assert_eq!(single_line("python -c \"\nimport re,io\n\tp=1\r\n\""), "python -c \" import re,io p=1 \"");
+        assert_eq!(single_line("  a   b  "), "a b");
+        assert_eq!(single_line(""), "");
+    }
     #[test]
     fn tautan() {
         assert_eq!(message_link("chat", "ses 1", "msg/2"), "zandor://chat/chat/ses%201/msg%2F2");

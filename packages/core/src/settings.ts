@@ -79,6 +79,14 @@ export const SETTINGS_SCHEMA = {
       default: true,
       "x-zandor": { titleKey: "settings.agentControl", group: "general" },
     },
+    browserAgent: {
+      type: "boolean",
+      title: "Agent boleh mengendalikan browser Panel 4",
+      description:
+        "Izinkan agent memakai tool `zandor_browser`: membuka halaman, membaca isi halaman (snapshot), dan mengambil screenshot di tab Agent browser Panel 4 (profil terpisah, tanpa login Anda). Tiap domain butuh izin Anda saat pertama dibuka; situs keuangan/pembayaran diblokir. Mati secara bawaan; agent tidak bisa mengubah pengaturan ini sendiri.",
+      default: false,
+      "x-zandor": { titleKey: "settings.browserAgent", group: "general" },
+    },
     theme: {
       type: "string",
       title: "Tema",
@@ -304,6 +312,7 @@ export type Settings = {
   language: "id" | "en";
   onboarding: boolean;
   agentControl: boolean;
+  browserAgent: boolean;
   theme: "dark" | "light" | "system";
   uiScale: (typeof UI_SCALE_VALUES)[number];
   rememberLayout: boolean;

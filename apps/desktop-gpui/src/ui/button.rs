@@ -56,6 +56,7 @@ pub struct Button {
     /// Ikon tombol ikon: digambar saat render dengan warna teks varian (mis. putih di atas aksen solid).
     icon_name: Option<&'static str>,
     round: bool,
+    square_right: bool,
     soft_border: bool,
     /// Toggle aktif berwarna sukses (port `.composer__toggle[aria-pressed]`: teks hijau + tint 18%, hover 28%).
     success_on: bool,
@@ -75,6 +76,7 @@ pub fn button(id: impl Into<ElementId>) -> Button {
         tooltip: None,
         icon_name: None,
         round: false,
+        square_right: false,
         soft_border: false,
         success_on: false,
         children: Vec::new(),
@@ -93,6 +95,11 @@ pub fn icon_button(id: impl Into<ElementId>, icon_name: &'static str, label: imp
 
 impl Button {
     /// Bentuk bulat penuh (port `.composer__round`, pil).
+    /// Sudut kanan siku (kontrol yang menyambung ke kontrol lain di kanannya): hanya sudut luar yang membulat.
+    pub fn square_right(mut self, v: bool) -> Self {
+        self.square_right = v;
+        self
+    }
     pub fn round(mut self, v: bool) -> Self {
         self.round = v;
         self
@@ -184,6 +191,7 @@ impl RenderOnce for Button {
             .border_color(border)
             .when(self.round, |d| d.rounded_full())
             .when(!self.round, |d| d.rounded(t.rem(rem::RADIUS_MD)))
+            .when(self.square_right, |d| d.rounded_tr_none().rounded_br_none())
             .bg(bg)
             .text_color(fg)
             .text_size(t.rem(t.ty(crate::theme::BUTTON).size))

@@ -81,6 +81,8 @@ enum Confirm {
 }
 
 pub struct MemoryPage {
+    /// Tertanam di halaman Pengaturan: tanpa bingkai halaman, tombol kembali, dan judul (seperti `embedded` di Tauri).
+    pub embedded: bool,
     app: Entity<AppState>,
     tab: SharedString,
     settings: MemorySettings,
@@ -131,6 +133,7 @@ impl MemoryPage {
         let store = ProjectStore::global(cx);
         cx.observe(&store, |s, _, cx| s.refresh(cx)).detach();
         let mut me = Self {
+            embedded: false,
             app,
             tab: "settings".into(),
             settings: MemorySettings::default(),
@@ -745,31 +748,23 @@ impl Render for MemoryPage {
                         .child(button("mem-cf-yes").variant(ButtonVariant::Danger).label(label).on_click(cx.listener(|s, _, _, cx| s.do_confirm(cx)))),
                 )
         });
-        div()
-            .id("mem-page")
-            .flex()
-            .flex_col()
-            .size_full()
-            .overflow_y_scroll()
-            .bg(t.colors.frame)
-            .child(
-                div()
+        let embedded = self.embedded;
+        let col = div()
                     .flex()
                     .flex_col()
                     .gap(t.space(4))
                     .w_full()
-                    .max_w(t.rem(rem::SPACE[7] * 16.))
-                    .mx_auto()
-                    .px(t.space(4))
-                    .py(t.space(5))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(t.space(2))
-                            .child(icon_button("mem-back", "arrow_left", i.t("mem.back")).on_click(cx.listener(|s, _, _, cx| s.app.update(cx, |a, cx| a.push("/", cx)))))
-                            .child(div().typo(&t, H3).child(i.t("mem.title"))),
-                    )
+                    .when(!embedded, |d| d.max_w(t.rem(rem::SPACE[7] * 16.)).mx_auto().px(t.space(4)).py(t.space(5)))
+                    .when(!embedded, |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(t.space(2))
+                                .child(icon_button("mem-back", "arrow_left", i.t("mem.back")).on_click(cx.listener(|s, _, _, cx| s.app.update(cx, |a, cx| a.push("/", cx)))))
+                                .child(div().typo(&t, H3).child(i.t("mem.title"))),
+                        )
+                    })
                     .child(
                         tabs(
                             "mem-tabs",
@@ -796,9 +791,11 @@ impl Render for MemoryPage {
                             }
                         }),
                     )
-                    .child(div().p(t.space(4)).rounded(t.rem(rem::RADIUS_LG)).bg(t.colors.surface).child(body)),
-            )
-            .children(confirm)
+                    .child(div().p(t.space(4)).rounded(t.rem(rem::RADIUS_LG)).bg(t.colors.surface).child(body));
+        if embedded {
+            return div().w_full().child(col).children(confirm).into_any_element();
+        }
+        div().id("mem-page").flex().flex_col().size_full().overflow_y_scroll().bg(t.colors.frame).child(col).children(confirm).into_any_element()
     }
 }
 

@@ -285,6 +285,20 @@ fn row_base(t: &Theme, id: impl Into<SharedString>, active: bool) -> gpui::State
         .when(!active, |d| d.hover(|s| s.bg(c.hover).text_color(c.fg)))
 }
 
+/// Kotak persegi selebar tombol ikon kecil: ikon lepas (pin, chevron) berbagi satu kolom tengah
+/// dengan `IconButton` sm (+, ⋯) di sisi kanan sidebar.
+fn trailing_slot(t: &Theme, color: gpui::Hsla, content: AnyElement) -> AnyElement {
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(t.rem(rem::CONTROL_SM))
+        .text_color(color)
+        .child(content)
+        .into_any_element()
+}
+
 fn menu_trigger(cx: &Ctx, key: String, entries: Vec<MenuEntry>, label: String) -> AnyElement {
     let open = cx.open_menu.as_deref() == Some(key.as_str());
     let me = cx.me.clone();
@@ -591,15 +605,16 @@ impl Render for Sidebar {
                     .justify_between()
                     .mt(t.space(1))
                     .mx(-t.space(3))
-                    .px(t.space(3))
-                    .py(t.space(2))
+                    .pl(t.space(3))
+                    .pr(t.space(3) + t.space(2))
+                    .h(t.rem(rem::CONTROL_MD))
                     .border_t_1()
                     .border_b_1()
                     .border_color(c.border_soft)
                     .cursor_pointer()
                     .text_color(c.fg_muted)
                     .child(div().typo(&t, crate::theme::LABEL).child(i.t("sb.workspace")))
-                    .child(icon(if self.workspace_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
+                    .child(trailing_slot(&t, c.fg_muted, icon(if self.workspace_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm).into_any_element()))
                     .on_click(cx.listener(|s, _, _, cx| {
                         s.workspace_open = !s.workspace_open;
                         cx.notify();
@@ -756,7 +771,7 @@ impl Render for Sidebar {
                                 }))
                                 .child(session_dot(&t, &i, crate::core::attention::Indicator::Idle, &d.id))
                                 .child(div().flex_1().min_w_0().truncate().child(i.t(&d.title_key)))
-                                .child(div().flex_none().text_color(c.fg_subtle).child(icon("pin").size(IconSize::Sm))),
+                                .child(trailing_slot(&t, c.fg_subtle, icon("pin").size(IconSize::Sm).into_any_element())),
                         );
                     }
                 }
@@ -929,7 +944,7 @@ impl Render for Sidebar {
             .child(head)
             .children(search)
             .child(tab_bar)
-            .child(actions)
+            .children((self.tab.as_ref() != "files").then_some(actions))
             .child(list)
             .child(foot)
             .children(dlg)
