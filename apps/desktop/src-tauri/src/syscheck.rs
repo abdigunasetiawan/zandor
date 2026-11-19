@@ -173,10 +173,30 @@ pub fn check_all() -> Vec<Check> {
     out.push(script("npm", "npm"));
     out.push(script("bun", "bun"));
     out.push(script("uv", "uv"));
-    out.push(script("opencode", "opencode"));
+    out.push(opencode());
     out.push(libreoffice());
     out.push(simple("winget", "winget", &["--version"]));
     out
+}
+
+/// opencode: utamakan sidecar bawaan di folder aplikasi (dipasang installer, tidak ada di PATH), baru PATH.
+fn opencode() -> Check {
+    let bundled = crate::sidecar_path();
+    if bundled.is_file() {
+        if let Some(out) = run(&bundled.to_string_lossy(), &["--version"]) {
+            return Check {
+                id: "opencode".into(),
+                found: true,
+                version: parse_version(&out),
+                detail: Some("bawaan".into()),
+            };
+        }
+    }
+    let mut c = script("opencode", "opencode");
+    if c.found {
+        c.detail = Some("PATH".into());
+    }
+    c
 }
 
 #[cfg(test)]
