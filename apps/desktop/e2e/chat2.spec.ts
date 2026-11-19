@@ -89,9 +89,9 @@ test("aksi pesan pengguna hanya salin dan revert di luar bubble; waktu punya too
   await expect(time).toHaveAttribute("title", /2026/);
 });
 
-test("mode izin 'Setujui edit otomatis' menjawab izin edit tanpa kartu", async ({ page }) => {
+test("mode izin 'Auto edit' menjawab izin edit tanpa kartu", async ({ page }) => {
   const engine = await openSession(page);
-  await chooseOption(page, "Mode izin", "Setujui edit otomatis");
+  await chooseOption(page, "Mode izin", "Auto edit");
   await send(page, "ubah file, butuh izin");
   await expect.poll(() => engine.permissionReplies.length, { timeout: 10_000 }).toBe(1);
   expect(engine.permissionReplies[0]?.reply).toBe("once");

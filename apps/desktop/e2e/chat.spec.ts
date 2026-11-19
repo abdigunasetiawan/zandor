@@ -184,7 +184,7 @@ test("kartu izin: Izinkan sekali dikirim ke engine lalu kartu hilang dan jawaban
   const card = page.getByRole("alertdialog", { name: /Izin diperlukan: edit/ });
   await expect(card).toBeVisible({ timeout: 10_000 });
   await expect(card).toContainText(".env.local");
-  await expect(card).toContainText("berkas rahasia"); // alasan dari mode bawaan "Otomatis, kecuali aksi penting"
+  await expect(card).toContainText("berkas rahasia"); // alasan dari mode bawaan "Otomatis"
   await card.getByRole("button", { name: "Izinkan sekali" }).click();
   await expect(card).toHaveCount(0);
   expect(engine.permissionReplies[0]?.reply).toBe("once");
@@ -194,7 +194,7 @@ test("kartu izin: Izinkan sekali dikirim ke engine lalu kartu hilang dan jawaban
 test("mode bawaan menyetujui edit berkas biasa tanpa kartu izin", async ({ page }) => {
   const engine = await mockEngine(page);
   await openSession(page);
-  await expect(page.getByRole("combobox", { name: "Mode izin" })).toHaveText(/Otomatis, kecuali aksi penting/);
+  await expect(page.getByRole("combobox", { name: "Mode izin" })).toHaveText(/Otomatis/);
   await composer(page).fill("ubah file aman, butuh izin");
   await composer(page).press("Enter");
   await expect(page.getByRole("article", { name: "Asisten" })).toContainText("Sudah diubah.", { timeout: 10_000 });
