@@ -7509,6 +7509,7 @@ name = "zandor-gpui"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "embed-resource",
  "futures",
  "getrandom 0.3.4",
  "gpui",
