@@ -1,5 +1,7 @@
 # AGENTS.md — Zandor
 
+**Fokus pengembangan: Rust GPUI (`apps/desktop-gpui`), bukan Tauri/React lagi** (ADR-078).
+
 Baca **[`docs/agents.md`](docs/agents.md)** lebih dulu: aturan, urutan baca, dan cek wajib sebelum
 menyerahkan pekerjaan. Kondisi terkini ada di [`docs/context/current.md`](docs/context/current.md).
 

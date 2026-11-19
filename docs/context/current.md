@@ -1,6 +1,23 @@
 # Kondisi Saat Ini
 
-> Snapshot, selalu ditimpa. Terakhir diperbarui: 17-11-2026.
+> Snapshot, selalu ditimpa. Terakhir diperbarui: 19-11-2026.
+
+## Fokus: Rust GPUI (19-11-2026, ADR-078)
+
+Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpui`, worktree `Zandor-gpui`). Tauri/React dan
+`packages/*` dibekukan sebagai referensi paritas 1:1. Panduan: [`features/gpui.md`](../features/gpui.md). Bagian
+"Terbaru/Sebelumnya" di bawah mendeskripsikan perilaku versi React yang menjadi acuan port.
+
+- **Selesai (sesi ini):** paritas UI (sidebar, tab, popup model/permission, lingkaran konteks); performa (profil build,
+  view ter-cache, daftar virtual untuk chat, model picker, tab Uji); caret halus ala monkeytype; reduced motion (menu,
+  dialog, dock, cincin ping, shimmer); pengaturan chat (sendKey, pasteLongText, confirmDelete, showDemos); tiga sesi demo
+  dari sumber React; nama mode izin diringkas (Tanya dulu / Auto edit / Otomatis / Akses penuh) di GPUI dan React;
+  hover pilihan reasoning menyatu dengan pil model; ikon aplikasi di exe; reset demo mereset kartu pertanyaan.
+- **Uji:** `cargo test --offline` 216 lulus; e2e React `chat`+`chat2` 34/34.
+- **Belum terverifikasi:** scroll tab Uji; kirim Ctrl+Enter; konfirmasi hapus dimatikan; kelancaran resize/popup (belum
+  diukur); tombol hover/roda mouse tidak bisa dipicu skrip uji.
+- **Menunggu keputusan pemilik:** push/PR `zandor/rewrite-gpui` (belum di-push). Perubahan `syscheck.rs` (sidecar opencode
+  bawaan lebih dulu) sudah dikomit di branch `zandor/background-jobs-dan-lainnya` (a42a1ef).
 
 ## Terbaru (17-11-2026)
 

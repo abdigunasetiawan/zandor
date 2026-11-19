@@ -1,7 +1,7 @@
 # ADR-003 — GPUI dicoret
 
 - **Tanggal:** 13-11-2026
-- **Status:** Diterima
+- **Status:** Digantikan oleh ADR-078 (19-11-2026)
 
 ## Keputusan
 

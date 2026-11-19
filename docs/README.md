@@ -11,6 +11,7 @@
 | [`decisions.md`](decisions.md)             | Indeks ADR; isi lengkap di [`decisions/`](decisions/) |
 | [`context/current.md`](context/current.md) | Snapshot kondisi saat ini (selalu ditimpa)            |
 | [`features/`](features/)                   | Spek + status + cara test per fitur                   |
+| [`features/gpui.md`](features/gpui.md)     | Rust GPUI (aplikasi utama): build, struktur, status   |
 | [`manual/`](manual/)                       | Manual user + referensi skema pengaturan              |
 | [`changelog.md`](changelog.md)             | Dihasilkan dari commit (`bun scripts/changelog.ts`)   |
 
