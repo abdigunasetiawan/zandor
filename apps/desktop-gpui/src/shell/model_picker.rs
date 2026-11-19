@@ -73,6 +73,13 @@ pub(super) struct PickerState {
     pub group: String,
     /// Daftar virtual tab Models (dibuat saat pertama dirender; di-reset bila jumlah entri berubah).
     pub list: Option<gpui::ListState>,
+    pub ping_list: Option<gpui::ListState>,
+}
+
+/// Entri daftar tab Uji (elemen yang sudah dibangun; dikonsumsi sekali per render oleh list virtual).
+enum PingEntry {
+    Head(AnyElement),
+    Row(AnyElement),
 }
 
 #[derive(Clone)]
@@ -330,7 +337,7 @@ impl ChatPanel {
             .into_any_element()
     }
 
-    fn picker_ping_tab(&self, t: &Theme, i: &I18n, visible: &[ModelOption], cx: &mut Context<Self>) -> AnyElement {
+    fn picker_ping_tab(&mut self, t: &Theme, i: &I18n, visible: &[ModelOption], cx: &mut Context<Self>) -> AnyElement {
         let pings = PingStore::global(cx).read(cx).pings.clone();
         let mut rows: Vec<(ModelOption, Option<PingState>)> =
             visible.iter().map(|m| (m.clone(), pings.get(&crate::core::pings::ping_key(&m.provider_id, &m.model_id)).cloned())).collect();
@@ -401,22 +408,23 @@ impl ChatPanel {
             k => i.t(&format!("pv.ping.{k}")),
         };
         let group_by = self.picker.group.clone();
-        let mut list = div().flex().flex_col().gap(t.space(2));
+        // Datar (judul grup + baris) → gpui::list: hanya yang terlihat yang dibangun.
+        let mut items: Vec<PingEntry> = vec![];
         for (gid, rs) in group_rows(rows, &group_by) {
             let title = match group_by.as_str() {
                 "provider" => rs[0].0.provider_name.clone(),
                 "status" => status_label(&gid),
                 _ => String::new(),
             };
-            let mut sec = div().flex().flex_col().gap(t.space(1));
             if group_by != "none" {
                 let ids: Vec<(String, String)> = rs.iter().map(|(m, _)| (m.provider_id.clone(), m.model_id.clone())).collect();
                 let label = if group_by == "provider" { i.tp("mp.ping.provider", &[("name", &title)]) } else { i.tp("mp.ping.group.run", &[("name", &title)]) };
-                sec = sec.child(
-                    div()
+                items.push(PingEntry::Head(div()
+                        .w_full()
                         .flex()
                         .items_center()
                         .gap(t.space(2))
+                        .pt(t.space(2))
                         .when(group_by == "provider", |d| d.child(model_logo(t, cx, Some(&gid), None, &title, false, &format!("mpg-{gid}"))))
                         .child(div().flex_1().truncate().font_weight(FontWeight::MEDIUM).child(title.clone()))
                         .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("({})", rs.len())))
@@ -425,8 +433,7 @@ impl ChatPanel {
                                 .size(ControlSize::Sm)
                                 .disabled(rs.iter().any(|(_, s)| *s == Some(PingState::Pending)))
                                 .on_click(run(ids)),
-                        ),
-                );
+                        ).into_any_element()));
             }
             for (m, st) in &rs {
                 let k = status_key(st.as_ref());
@@ -452,12 +459,13 @@ impl ChatPanel {
                 let rid = format!("mping-{}", model_key(m));
                 let (pp, pm) = (m.provider_id.clone(), m.model_id.clone());
                 let sub = if group_by == "provider" { m.model_id.clone() } else { format!("{} · {}", m.provider_name, m.model_id) };
-                sec = sec.child(
-                    div()
+                items.push(PingEntry::Row(div()
+                        .w_full()
                         .flex()
                         .items_center()
                         .gap(t.space(2))
                         .px(t.space(1))
+                        .pb(t.space(1))
                         .child(model_logo(t, cx, Some(&m.provider_id), Some(&m.model_id), &m.provider_name, false, &rid))
                         .child(
                             div()
@@ -496,11 +504,33 @@ impl ChatPanel {
                                 .size(ControlSize::Sm)
                                 .disabled(k == "pending")
                                 .on_click(cx.listener(move |_, _, _, cx| PingStore::global(cx).update(cx, |p, cx| p.ping(&pp, &pm, cx)))),
-                        ),
-                );
+                        ).into_any_element()));
             }
-            list = list.child(sec);
         }
+        // Elemen sudah dibangun di atas; list virtual hanya memakainya saat terlihat (dibangun murah, dilukis lazy).
+        let n = items.len();
+        let state = match &self.picker.ping_list {
+            Some(l) if l.item_count() == n => {
+                l.remeasure();
+                l.clone()
+            }
+            Some(l) => {
+                l.reset(n);
+                l.clone()
+            }
+            None => {
+                let l = gpui::ListState::new(n, gpui::ListAlignment::Top, gpui::px(200.));
+                self.picker.ping_list = Some(l.clone());
+                l
+            }
+        };
+        let cell = std::rc::Rc::new(std::cell::RefCell::new(items.into_iter().map(Some).collect::<Vec<_>>()));
+        let list = gpui::list(state, move |ix, _, _| match cell.borrow_mut()[ix].take() {
+            Some(PingEntry::Head(e)) | Some(PingEntry::Row(e)) => e,
+            None => div().into_any_element(),
+        })
+        .flex_1()
+        .min_h_0();
         div()
             .flex()
             .flex_col()
@@ -509,7 +539,7 @@ impl ChatPanel {
             .child(bar)
             .child(div().small(t).text_color(t.colors.fg_muted).child(summary))
             .child(div().small(t).text_color(t.colors.fg_subtle).child(i.t("mp.ping.cost")))
-            .child(div().id("mping-scroll").flex_1().min_h_0().overflow_y_scroll().child(list))
+            .child(list)
             .into_any_element()
     }
 
