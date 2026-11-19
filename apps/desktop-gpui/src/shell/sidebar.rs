@@ -341,6 +341,9 @@ pub fn session_dot(t: &Theme, i: &I18n, st: crate::core::attention::Indicator, i
     let wrap = if st == Indicator::Limit { wrap.border_1().border_dashed().border_color(t.colors.danger).rounded_full() } else { wrap };
     if st == Indicator::Action {
         // sdot-ping: cincin peringatan yang mengembang dan memudar (1800 ms, berulang)
+        if crate::theme::reduced_motion() {
+            return wrap.child(dot).into_any_element();
+        }
         let ring = div().absolute().size(sz).rounded_full().border_1().border_color(color).with_animation(
             SharedString::from(format!("sdotp-{id}")),
             gpui::Animation::new(std::time::Duration::from_millis(1800)).repeat(),

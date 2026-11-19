@@ -445,7 +445,7 @@ fn radio_dot(t: &Theme, id: &str, on: bool) -> AnyElement {
         .rounded_full()
         .bg(c)
         .size(full)
-        .with_animation(SharedString::from(id.to_string()), Animation::new(std::time::Duration::from_millis(120)), move |d, k| d.size(full * k))
+        .with_animation(SharedString::from(id.to_string()), Animation::new(crate::theme::dur_ms(120)), move |d, k| d.size(full * k))
         .into_any_element()
 }
 

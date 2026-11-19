@@ -152,7 +152,7 @@ pub fn menu_popup(
                         // .z-popup[data-starting-style]: opacity 0 → 1 (durasi cepat)
                         .with_animation(
                             SharedString::from(format!("{id}-anim")),
-                            gpui::Animation::new(std::time::Duration::from_millis(crate::theme::DURATION_FAST_MS)).with_easing(gpui::ease_out_quint()),
+                            gpui::Animation::new(crate::theme::dur_ms(crate::theme::DURATION_FAST_MS)).with_easing(gpui::ease_out_quint()),
                             |el, d| el.opacity(d),
                         ),
                 ),

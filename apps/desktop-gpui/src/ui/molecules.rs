@@ -372,12 +372,12 @@ impl RenderOnce for Dialog {
                 .justify_center()
                 .child(backdrop.with_animation(
                     "z-backdrop-anim",
-                    gpui::Animation::new(std::time::Duration::from_millis(crate::theme::DURATION_BASE_MS)),
+                    gpui::Animation::new(crate::theme::dur_ms(crate::theme::DURATION_BASE_MS)),
                     |el, d| el.opacity(d),
                 ))
                 .child(panel.with_animation(
                     "z-dialog-anim",
-                    gpui::Animation::new(std::time::Duration::from_millis(crate::theme::DURATION_BASE_MS)).with_easing(gpui::ease_out_quint()),
+                    gpui::Animation::new(crate::theme::dur_ms(crate::theme::DURATION_BASE_MS)).with_easing(gpui::ease_out_quint()),
                     |el, d| el.opacity(d),
                 )),
         )

@@ -327,6 +327,11 @@ mod tests {
 
 /// Port `prefers-reduced-motion`: di Windows = "Tampilkan animasi di Windows" dimatikan
 /// (SPI_GETCLIENTAREAANIMATION). Dibaca sekali per proses.
+/// Durasi transisi sekali-jalan: nyaris 0 bila gerak dikurangi.
+pub fn dur_ms(ms: u64) -> std::time::Duration {
+    std::time::Duration::from_millis(if reduced_motion() { 1 } else { ms })
+}
+
 pub fn reduced_motion() -> bool {
     static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *V.get_or_init(|| {

@@ -453,6 +453,9 @@ fn process_block(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, process: &[&Me
 /// .work__shimmer: teks dengan kilau bergerak (gradien teks CSS) — dianimasikan sebagai pulsa warna fg_subtle↔fg.
 fn shimmer(t: &Theme, id: &str, text: String) -> AnyElement {
     use gpui::{Animation, AnimationExt};
+    if crate::theme::reduced_motion() {
+        return div().text_color(t.colors.fg_subtle).child(text).into_any_element();
+    }
     let (a, b) = (t.colors.fg_subtle, t.colors.fg);
     div()
         .child(text)
