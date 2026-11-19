@@ -760,7 +760,7 @@ impl Render for ChatPanel {
                 let mut items = vec![(SharedString::from(""), SharedString::from(i.t("chat.variant.default")))];
                 items.extend(vars.iter().map(|v| (SharedString::from(v.clone()), SharedString::from(v.clone()))));
                 let chat = self.chat.clone();
-                crate::ui::select("chat-variant", items, c.variant.clone().unwrap_or_default())
+                crate::ui::select("chat-variant", items, c.variant.clone().unwrap_or_default()).flat_left(true)
                     .on_change(move |v, _, cx| chat.update(cx, |c, cx| c.set_variant((!v.is_empty()).then(|| v.to_string()), cx)))
             })
         };

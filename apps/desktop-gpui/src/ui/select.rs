@@ -23,11 +23,13 @@ pub struct Select {
     descs: Option<Rc<dyn Fn(&str) -> Option<SharedString>>>,
     /// Popup dibuka ke atas (pemicu di dekat tepi bawah, mis. composer).
     up: bool,
+    /// Menyatu dengan elemen di kirinya: sudut kiri atas/bawah lurus (hover tidak membulat di sisi sambungan).
+    flat_left: bool,
 }
 
 /// `items`: (nilai, label).
 pub fn select(id: impl Into<ElementId>, items: Vec<(SharedString, SharedString)>, value: impl Into<SharedString>) -> Select {
-    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None, pill: false, lead: None, descs: None, up: false }
+    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None, pill: false, lead: None, descs: None, up: false, flat_left: false }
 }
 
 impl Select {
@@ -49,6 +51,10 @@ impl Select {
     }
     pub fn descriptions(mut self, f: impl Fn(&str) -> Option<SharedString> + 'static) -> Self {
         self.descs = Some(Rc::new(f));
+        self
+    }
+    pub fn flat_left(mut self, v: bool) -> Self {
+        self.flat_left = v;
         self
     }
     pub fn up(mut self, v: bool) -> Self {
@@ -83,6 +89,7 @@ impl RenderOnce for Select {
                     .h(t.rem(self.size.height_rem()))
                     .when(!self.pill, |d| d.min_w(t.rem(rem::SPACE[7] * 2.5)).px(t.space(3)).border_color(t.colors.border).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.surface))
                     .when(self.pill, |d| d.flex_none().gap(t.space(1)).px(t.space(2)).border_color(t.colors.border_soft).rounded_full())
+                    .when(self.flat_left, |d| d.rounded_tl_none().rounded_bl_none().rounded_tr_full().rounded_br_full())
                     .border_1()
                     .text_size(t.rem(t.ty(crate::theme::BUTTON).size))
                     .when(is_open, |d| d.border_color(t.colors.focus))
