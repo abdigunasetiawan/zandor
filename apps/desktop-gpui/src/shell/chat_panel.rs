@@ -909,6 +909,7 @@ impl Render for ChatPanel {
                 .when(pending, |d| {
                     d.child(crate::ui::button("demo-reset").size(ControlSize::Sm).label(i.t("demo.reset")).on_click(cx.listener(|s, _, _, cx| {
                         s.demo_state = None;
+                        s.dock = Default::default();
                         cx.notify();
                     })))
                 })
