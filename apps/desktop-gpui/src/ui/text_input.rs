@@ -31,6 +31,8 @@ actions!(
         Copy,
         Quit,
         Submit,
+        CtrlSubmit,
+        PastePlain,
         Newline,
         Tab,
         Escape,
@@ -59,6 +61,11 @@ pub struct TextInput {
     pub multiline: bool,
     /// Bila multiline: Enter juga menyisipkan baris baru (editor), bukan mengirim.
     pub enter_newline: bool,
+    /// Pengaturan sendKey = "ctrl-enter": Ctrl/Cmd+Enter mengirim, Enter menyisipkan baris baru.
+    pub ctrl_enter_sends: bool,
+    /// Pengaturan pasteLongText = "attach": teks panjang yang ditempel dipancarkan sebagai `InputLongPaste`
+    /// (dijadikan lampiran oleh pemilik) alih-alih disisipkan. Ctrl+Shift+V = tempel apa adanya.
+    pub long_paste_attach: bool,
     last_lines: Vec<(usize, ShapedLine)>,
     /// Bila true, ↑ ↓ Enter Tab Esc dipancarkan sebagai `InputNav` (mis. popup saran terbuka).
     pub intercept: bool,
@@ -203,9 +210,20 @@ impl TextInput {
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
-            self.replace_text_in_range(None, &text.replace("\n", " "), window, cx);
+        self.paste_text(false, window, cx);
+    }
+    fn paste_plain(&mut self, _: &PastePlain, window: &mut Window, cx: &mut Context<Self>) {
+        self.paste_text(true, window, cx);
+    }
+    fn paste_text(&mut self, plain: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) else { return };
+        if !plain && self.long_paste_attach && is_long_paste(&text) {
+            cx.emit(InputLongPaste(text.into()));
+            return;
         }
+        // multiline mempertahankan baris baru (dinormalisasi); satu baris: baris baru jadi spasi
+        let t = if self.multiline { text.replace("\r\n", "\n").replace('\r', "\n") } else { text.replace("\r\n", " ").replace(['\n', '\r'], " ") };
+        self.replace_text_in_range(None, &t, window, cx);
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
@@ -956,13 +974,23 @@ impl Render for TextInput {
             .on_action(cx.listener(|this, _: &Submit, w, cx| {
                 if this.intercept {
                     cx.emit(InputNav::Enter);
-                } else if this.multiline && this.enter_newline {
+                } else if this.multiline && (this.enter_newline || this.ctrl_enter_sends) {
                     this.replace_text_in_range(None, "\n", w, cx);
                 } else {
                     cx.emit(InputSubmit(this.content.clone()))
                 }
             }))
             .on_action(cx.listener(Self::newline))
+            .on_action(cx.listener(Self::paste_plain))
+            .on_action(cx.listener(|this, _: &CtrlSubmit, w, cx| {
+                if this.intercept {
+                    cx.emit(InputNav::Enter);
+                } else if this.multiline && this.enter_newline && !this.ctrl_enter_sends {
+                    this.replace_text_in_range(None, "\n", w, cx);
+                } else {
+                    cx.emit(InputSubmit(this.content.clone()))
+                }
+            }))
             .on_action(cx.listener(|this, _: &Tab, _, cx| if this.intercept { cx.emit(InputNav::Tab) } else { cx.propagate() }))
             .on_action(cx.listener(|this, _: &Escape, _, cx| if this.intercept { cx.emit(InputNav::Escape) } else { cx.propagate() }))
             .on_action(cx.listener(Self::up))
@@ -981,6 +1009,15 @@ impl gpui::EventEmitter<InputChanged> for TextInput {}
 
 /// Dipancarkan saat Enter ditekan.
 pub struct InputSubmit(pub SharedString);
+/// Teks panjang ditempel saat `long_paste_attach` aktif.
+pub struct InputLongPaste(pub SharedString);
+impl gpui::EventEmitter<InputLongPaste> for TextInput {}
+
+/// Ambang teks panjang (port pasted-text.ts): > 2000 karakter atau > 30 baris.
+pub fn is_long_paste(text: &str) -> bool {
+    let lines = if text.is_empty() { 0 } else { text.split("\r\n").flat_map(|l| l.split(['\n', '\r'])).count() };
+    text.chars().count() > 2000 || lines > 30
+}
 impl gpui::EventEmitter<InputSubmit> for TextInput {}
 /// Fokus keluar dari kolom (nilai saat ini).
 pub struct InputBlur(pub SharedString);
@@ -1005,6 +1042,8 @@ impl TextInput {
             masked: false,
             multiline: false,
             enter_newline: false,
+            ctrl_enter_sends: false,
+            long_paste_attach: false,
             last_lines: vec![],
             intercept: false,
             bare: false,
@@ -1072,6 +1111,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("end", End, ctx),
         KeyBinding::new("enter", Submit, ctx),
         KeyBinding::new("shift-enter", Newline, ctx),
+        KeyBinding::new(k("cmd-enter", "ctrl-enter"), CtrlSubmit, ctx),
+        KeyBinding::new(k("cmd-shift-v", "ctrl-shift-v"), PastePlain, ctx),
         KeyBinding::new("tab", Tab, ctx),
         KeyBinding::new("escape", Escape, ctx),
         KeyBinding::new("up", Up, ctx),
@@ -1082,5 +1123,16 @@ pub fn bind_keys(cx: &mut App) {
 impl Focusable for TextInput {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+}
+
+#[cfg(test)]
+mod paste_tests {
+    #[test]
+    fn ambang_teks_panjang() {
+        assert!(!super::is_long_paste("pendek"));
+        assert!(super::is_long_paste(&"a".repeat(2001)));
+        assert!(!super::is_long_paste(&"a\n".repeat(29)));
+        assert!(super::is_long_paste(&"a\r\n".repeat(31)));
     }
 }

@@ -25,6 +25,9 @@ impl ChatPanel {
         let chat = self.chat.read(cx);
         let fallback = chat.model.clone();
         let title_of = |key: &str, id: &str| -> String {
+            if key == crate::core::demo::DEMO_KEY {
+                return crate::core::demo::demo_by_id(id).map(|d| i.t(&d.title_key)).unwrap_or_else(|| i.t("sb.untitled"));
+            }
             sessions.get(key).and_then(|g| g.items.iter().find(|x| x.id == id)).and_then(|s| session_title(s).map(str::to_string)).unwrap_or_else(|| i.t("sb.untitled"))
         };
         let model_of = |id: &str| -> (Option<String>, Option<String>) {

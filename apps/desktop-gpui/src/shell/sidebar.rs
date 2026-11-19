@@ -56,6 +56,7 @@ impl Sidebar {
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&crate::core::appearance::AppearanceStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
+        cx.observe(&crate::core::settings::SettingsStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe_global::<crate::theme::Theme>(|_, cx| cx.notify()).detach();
         cx.observe_global::<crate::i18n::I18n>(|_, cx| cx.notify()).detach();
         // titik status sesi membaca ChatStore + Attention (panel di-cache: perlu notify eksplisit)
@@ -376,8 +377,13 @@ fn session_row(cx: &Ctx, key: &str, s: &SessionInfo) -> AnyElement {
         .icon("copy"),
         MenuEntry::Separator,
         entry(cx.i.t("sb.deleteSession"), mk(|sb, k, id, ti, _, cx| {
-            sb.dialog = Some(SbDialog::DeleteSession(k, id, ti));
-            cx.notify();
+            // pengaturan confirmDelete: tanpa konfirmasi → langsung hapus
+            if crate::core::settings::SettingsStore::global(cx).read(cx).bool("confirmDelete") {
+                sb.dialog = Some(SbDialog::DeleteSession(k, id, ti));
+                cx.notify();
+            } else {
+                sb.store.update(cx, |s, cx| s.delete_session(&k, &id, cx));
+            }
         }))
         .icon("trash")
         .danger(),
@@ -731,6 +737,26 @@ impl Render for Sidebar {
                         .on_click(cx.listener(|s, _, _, cx| s.new_session(CHAT_KEY.into(), cx)))
                         .into_any_element()],
                 ));
+                // Sesi demo bawaan (pengaturan showDemos): disematkan, permanen, hanya-baca (port DemoRows).
+                if crate::core::settings::SettingsStore::global(cx).read(cx).bool("showDemos") {
+                    for d in crate::core::demo::demos() {
+                        let active = ctx.sel.0.as_deref() == Some(crate::core::demo::DEMO_KEY) && ctx.sel.1.as_deref() == Some(d.id.as_str());
+                        let id = d.id.clone();
+                        list = list.child(
+                            row_base(&t, format!("demo-{}", d.id), active)
+                                .text_color(c.fg)
+                                .tooltip(crate::ui::tooltip::text_tooltip(i.t(&d.subtitle_key).into()))
+                                .on_click(cx.listener(move |s, _, _, cx| {
+                                    let id = id.clone();
+                                    s.store.update(cx, |st, cx| st.select(Some(crate::core::demo::DEMO_KEY.into()), Some(id), cx));
+                                    s.app.update(cx, |a, cx| a.push("/", cx));
+                                }))
+                                .child(session_dot(&t, &i, crate::core::attention::Indicator::Idle, &d.id))
+                                .child(div().flex_1().min_w_0().truncate().child(i.t(&d.title_key)))
+                                .child(div().flex_none().text_color(c.fg_subtle).child(icon("pin").size(IconSize::Sm))),
+                        );
+                    }
+                }
                 list = list.children(sessions_list(&ctx, CHAT_KEY, sessions.get(CHAT_KEY), engine_ready));
             }
         }

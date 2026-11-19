@@ -47,6 +47,8 @@ pub struct ChatPanel {
     last_count: usize,
     msg_list: gpui::ListState,
     msg_list_sid: Option<String>,
+    /// Salinan hidup sesi demo terbuka (izin/pertanyaan dijawab lokal; di-reset lewat tombol).
+    demo_state: Option<ChatState>,
     pending_new: bool,
     /// Sesi yang dibuat oleh pesan pertama dari halaman bawaan (tidak lagi menampilkan sambutan) — port sentFromDraft.
     sent_from_draft: HashSet<String>,
@@ -106,6 +108,38 @@ impl ChatPanel {
         cx.observe(&engine, |_, _, cx| cx.notify()).detach();
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &InputSubmit, cx| this.submit(e.0.to_string(), cx)).detach();
+        // pasteLongText = "attach": teks panjang → lampiran teks (port pastedAttachment)
+        cx.subscribe(&input, |this, _, e: &crate::ui::InputLongPaste, cx| {
+            let mut n = 1;
+            while this.assist.files.iter().any(|f| f.filename.as_deref() == Some(format!("teks-ditempel-{n}.txt").as_str())) {
+                n += 1;
+            }
+            this.assist.files.push(crate::core::attachments::FileAttachment {
+                mime: "text/plain".into(),
+                url: format!("data:text/plain;charset=utf-8;base64,{}", crate::core::gradient::b64_encode(e.0.as_bytes())),
+                filename: Some(format!("teks-ditempel-{n}.txt")),
+            });
+            let msg = cx.global::<I18n>().t("chat.pastedNotice");
+            crate::ui::Toasts::show(crate::ui::ToastInput::new(msg), cx);
+            cx.notify();
+        })
+        .detach();
+        // sendKey / pasteLongText diterapkan ke input composer saat pengaturan berubah
+        let apply = |input: &Entity<TextInput>, cx: &mut Context<Self>| {
+            let st = crate::core::settings::SettingsStore::global(cx).read(cx);
+            let (ctrl, attach) = (st.str("sendKey") == "ctrl-enter", st.str("pasteLongText") == "attach");
+            input.update(cx, |i, _| {
+                i.ctrl_enter_sends = ctrl;
+                i.long_paste_attach = attach;
+            });
+        };
+        apply(&input, cx);
+        cx.observe(&crate::core::settings::SettingsStore::global(cx), move |this, _, cx| {
+            let input = this.input.clone();
+            apply(&input, cx);
+            cx.notify();
+        })
+        .detach();
         let mp_ph = cx.global::<I18n>().t("mp.search");
         let mp_search = cx.new(|cx| {
             let mut ti = TextInput::new(cx, mp_ph);
@@ -137,6 +171,7 @@ impl ChatPanel {
                 l
             },
             msg_list_sid: None,
+            demo_state: None,
             pending_new: false,
             sent_from_draft: HashSet::new(),
             sugg_ctx: None,
@@ -245,6 +280,12 @@ impl ChatPanel {
     }
 
     fn current(&self, cx: &App) -> Option<(String, String, String, String)> {
+        let sel = &self.store.read(cx).selection;
+        if sel.key.as_deref() == Some(crate::core::demo::DEMO_KEY) {
+            let id = sel.session_id.clone()?;
+            let d = crate::core::demo::demo_by_id(&id)?;
+            return Some((crate::core::demo::DEMO_KEY.into(), id, String::new(), cx.global::<I18n>().t(&d.title_key)));
+        }
         let (key, s, p) = self.store.read(cx).selected()?;
         let dir = if !s.directory.is_empty() { s.directory.clone() } else { p.map(|p| p.path).unwrap_or_default() };
         let title = session_title(&s).map(str::to_string).unwrap_or_default();
@@ -470,14 +511,14 @@ impl ChatPanel {
         let me = cx.entity().downgrade();
         let el = match m.info.role {
             Role::User => {
-                let tb = self.message_toolbar(&t, i, turn, &c.sid, &c.key, false, cx);
+                let tb = if c.key == crate::core::demo::DEMO_KEY { div().into_any_element() } else { self.message_toolbar(&t, i, turn, &c.sid, &c.key, false, cx) };
                 user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), tb).unwrap_or_else(|| div().into_any_element())
             }
             Role::Assistant => {
                 let pid = m.info.provider_id.clone();
                 let provider_name = self.models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
                 let is_last = c.last_assistant == Some(k) && !c.busy;
-                let tb = (m.info.completed.is_some() && !streaming).then(|| self.message_toolbar(&t, i, turn, &c.sid, &c.key, is_last, cx));
+                let tb = (m.info.completed.is_some() && !streaming && c.key != crate::core::demo::DEMO_KEY).then(|| self.message_toolbar(&t, i, turn, &c.sid, &c.key, is_last, cx));
                 chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, c.has_project, &provider_name, tb)
             }
         };
@@ -583,7 +624,14 @@ impl Render for ChatPanel {
         let tabs_bar = self.tabs_bar(&t, i, cx);
         let cur = self.current(cx);
         let engine_ready = self.engine.read(cx).state.info.is_some();
-        let state: Option<ChatState> = cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id).cloned());
+        let is_demo = cur.as_ref().is_some_and(|c| c.0 == crate::core::demo::DEMO_KEY);
+        if is_demo {
+            let id = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
+            if self.demo_state.as_ref().map(|s| s.session_id.as_str()) != crate::core::demo::demo_by_id(&id).map(|d| d.state.session_id.as_str()) {
+                self.demo_state = crate::core::demo::demo_by_id(&id).map(|d| d.state.clone());
+            }
+        }
+        let state: Option<ChatState> = if is_demo { self.demo_state.clone() } else { cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id).cloned()) };
 
         let busy = state.as_ref().is_some_and(|s| s.busy());
         // "Bekerja selama …" diperbarui tiap detik hanya saat sesi berjalan (useNow).
@@ -843,6 +891,28 @@ impl Render for ChatPanel {
             (Some(st), Some(c)) => self.render_dock(st, &c.1.clone(), qdock, cx),
             _ => qdock,
         };
+        // Demo: tanpa composer; dock izin/pertanyaan/rencana berdiri sendiri di bawah transkrip.
+        let (qdock, demo_dock) = if is_demo { (None, qdock) } else { (qdock, None) };
+        let demo_banner = is_demo.then(|| {
+            let def = cur.as_ref().and_then(|c| crate::core::demo::demo_by_id(&c.1));
+            let pending = def.is_some_and(|d| d.state.permissions.len() + d.state.questions.len() > 0);
+            div()
+                .flex()
+                .items_center()
+                .gap(t.space(2))
+                .px(t.space(3))
+                .py(t.space(2))
+                .border_b_1()
+                .border_color(t.colors.border)
+                .child(crate::ui::badge(i.t("demo.badge")).tone(crate::ui::BadgeTone::Outline))
+                .child(div().flex_1().min_w_0().small(&t).text_color(t.colors.fg_muted).child(i.t("demo.banner")))
+                .when(pending, |d| {
+                    d.child(crate::ui::button("demo-reset").size(ControlSize::Sm).label(i.t("demo.reset")).on_click(cx.listener(|s, _, _, cx| {
+                        s.demo_state = None;
+                        cx.notify();
+                    })))
+                })
+        });
         let composer = div().w_full().when(!welcome_layout, |d| d.px(t.space(3)).pb(t.space(3))).flex().flex_col().gap(t.space(2)).children(qdock).children(sug_el).children(chips).child(
             div()
                 .flex()
@@ -962,8 +1032,10 @@ impl Render for ChatPanel {
             .flex_col()
             .size_full()
             .child(tabs_bar)
+            .children(demo_banner)
             .child(body)
-            .child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer))
+            .when(is_demo, |d| d.children(demo_dock.map(|dk| div().w_full().max_w(t.rem(cw * ratio)).mx_auto().px(t.space(3)).pb(t.space(3)).child(dk))))
+            .when(!is_demo, |d| d.child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer)))
             .children(self.att_preview.clone().map(|(title, view)| {
                 crate::ui::dialog(title)
                     .width_rem(rem::SPACE[7] * 14.)

@@ -22,7 +22,7 @@ pub use button::{button, icon_button, Button, ButtonVariant, ControlSize};
 pub use icon::{icon, Icon, IconSize};
 pub use spinner::spinner;
 pub use feedback::{avatar, badge, kbd, skeleton, working, BadgeTone, WorkingVariant};
-pub use text_input::{InputBlur, InputChanged, InputNav, InputSubmit, TextInput};
+pub use text_input::{is_long_paste, InputBlur, InputChanged, InputLongPaste, InputNav, InputSubmit, TextInput};
 pub use choice::{checkbox, switch, Slider, SliderChanged};
 pub use molecules::{dialog, field, menu_item, popup, separator, tabs, TabItem};
 pub use toast::{ToastAction, ToastInput, ToastTone, Toasts};
