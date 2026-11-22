@@ -6,7 +6,136 @@ use crate::theme::Colors;
 use serde_json::{json, Map, Value};
 use std::io::Read;
 
+use gpui::Hsla;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+
 pub const BUILTIN_EDITOR_THEMES: [&str; 4] = ["vs", "vs-dark", "hc-black", "hc-light"];
+
+/// Tema editor bawaan aplikasi (tal7aouy "Theme Darker", MIT) — default saat pengguna belum memilih.
+pub const DEFAULT_EDITOR_THEME: &str = "theme-darker";
+const BUNDLED_JSON: &str = include_str!("../../assets/themes/theme-darker.json");
+
+pub fn bundled_theme() -> &'static EditorTheme {
+    static T: OnceLock<EditorTheme> = OnceLock::new();
+    T.get_or_init(|| convert_vscode_theme(BUNDLED_JSON, Some("Theme Darker"), None, "bawaan", &|_| None).0.expect("tema bawaan valid"))
+}
+
+/// Gaya satu token hasil penyelesaian scope.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TokenStyle {
+    pub color: Option<Hsla>,
+    pub italic: bool,
+    pub bold: bool,
+    pub underline: bool,
+}
+
+struct Rule {
+    /// Selektor turunan: `a b` → ["a", "b"] (bagian terakhir harus cocok dengan scope terdalam).
+    sel: Vec<String>,
+    color: Option<Hsla>,
+    font: Option<(bool, bool, bool)>,
+}
+
+/// Penyelesai scope gaya TextMate/VS Code: awalan segmen, aturan terdalam + paling spesifik menang, seri → aturan belakangan.
+pub struct Resolver {
+    rules: Vec<Rule>,
+    cache: Mutex<HashMap<String, Option<TokenStyle>>>,
+}
+
+static ACTIVE: RwLock<Option<Arc<Resolver>>> = RwLock::new(None);
+
+fn seg_match(sel: &str, scope: &str) -> bool {
+    scope == sel || (scope.starts_with(sel) && scope.as_bytes().get(sel.len()) == Some(&b'.'))
+}
+
+impl Resolver {
+    pub fn from_theme(t: &EditorTheme) -> Self {
+        let mut rules = vec![];
+        for tc in &t.token_colors {
+            let Some(st) = tc.get("settings") else { continue };
+            let color = st.get("foreground").and_then(Value::as_str).and_then(parse_color);
+            let font = st.get("fontStyle").and_then(Value::as_str).map(|f| (f.contains("italic"), f.contains("bold"), f.contains("underline")));
+            if color.is_none() && font.is_none() {
+                continue;
+            }
+            let Some(scopes) = tc.get("scope").and_then(Value::as_array) else { continue };
+            for s in scopes.iter().filter_map(Value::as_str).flat_map(|s| s.split(',')) {
+                let s = s.trim();
+                // pengecualian ("a - b"), grup, dan alternasi tidak didukung → lewati aturan itu
+                if s.is_empty() || s.contains(" - ") || s.contains(['(', '|']) {
+                    continue;
+                }
+                let sel: Vec<String> = s.split_whitespace().map(String::from).collect();
+                if !sel.is_empty() {
+                    rules.push(Rule { sel, color, font });
+                }
+            }
+        }
+        Self { rules, cache: Mutex::new(HashMap::new()) }
+    }
+
+    /// `stack` = scope dari terluar ke terdalam (mis. ["source.rust", "keyword.control.rust"]).
+    pub fn style(&self, stack: &[String]) -> Option<TokenStyle> {
+        let key = stack.join(" ");
+        if let Some(v) = self.cache.lock().ok().and_then(|c| c.get(&key).copied()) {
+            return v;
+        }
+        let mut best_c: Option<((usize, usize, usize), Hsla)> = None;
+        let mut best_f: Option<((usize, usize, usize), (bool, bool, bool))> = None;
+        for r in &self.rules {
+            let Some(last) = r.sel.last() else { continue };
+            let Some(k) = (0..stack.len()).rev().find(|&k| seg_match(last, &stack[k])) else { continue };
+            let mut cur = k;
+            let mut ok = true;
+            for p in r.sel[..r.sel.len() - 1].iter().rev() {
+                match (0..cur).rev().find(|&j| seg_match(p, &stack[j])) {
+                    Some(j) => cur = j,
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if !ok {
+                continue;
+            }
+            let score = (k, last.split('.').count(), r.sel.len());
+            if let Some(c) = r.color {
+                if best_c.as_ref().is_none_or(|(s, _)| score >= *s) {
+                    best_c = Some((score, c));
+                }
+            }
+            if let Some(f) = r.font {
+                if best_f.as_ref().is_none_or(|(s, _)| score >= *s) {
+                    best_f = Some((score, f));
+                }
+            }
+        }
+        let out = if best_c.is_none() && best_f.is_none() {
+            None
+        } else {
+            let (italic, bold, underline) = best_f.map(|b| b.1).unwrap_or_default();
+            Some(TokenStyle { color: best_c.map(|b| b.1), italic, bold, underline })
+        };
+        if let Ok(mut c) = self.cache.lock() {
+            c.insert(key, out);
+        }
+        out
+    }
+}
+
+/// Aktifkan penyelesai untuk tema terpilih (None untuk "auto"/palet Monaco → highlighter memakai palet `code_*`).
+pub fn activate(selected: &str, installed: &[EditorTheme]) {
+    let th = installed.iter().find(|t| t.id == selected).or_else(|| (selected == DEFAULT_EDITOR_THEME).then(bundled_theme));
+    if let Ok(mut w) = ACTIVE.write() {
+        *w = th.map(|t| Arc::new(Resolver::from_theme(t)));
+    }
+}
+
+pub fn active() -> Option<Arc<Resolver>> {
+    ACTIVE.read().ok().and_then(|r| r.clone())
+}
 pub const MAX_THEME_BYTES: u64 = 400_000;
 const MAX_VSIX_BYTES: u64 = 20_000_000;
 const MAX_COLORS: usize = 1000;
@@ -326,6 +455,9 @@ pub fn code_colors_from_theme(t: &EditorTheme) -> Vec<(&'static str, String)> {
     if let Some(bg) = col("editor.background") {
         out.push(("bg", bg));
     }
+    if let Some(ln) = col("editorLineNumber.foreground") {
+        out.push(("ln", ln));
+    }
     let fg = col("editor.foreground").or_else(|| t.token_colors.iter().find(|r| r.get("scope").is_none()).and_then(|r| r.pointer("/settings/foreground")).and_then(Value::as_str).map(String::from));
     if let Some(fg) = fg {
         out.push(("fg", fg));
@@ -339,7 +471,12 @@ pub fn code_colors_for(selected: &str, installed: &[EditorTheme]) -> Vec<(&'stat
     if let Some(p) = builtin(selected) {
         return CODE_COLOR_KEYS.iter().zip(p).map(|(k, v)| (*k, v.to_string())).collect();
     }
-    installed.iter().find(|t| t.id == selected).map(code_colors_from_theme).unwrap_or_default()
+    installed
+        .iter()
+        .find(|t| t.id == selected)
+        .or_else(|| (selected == DEFAULT_EDITOR_THEME).then(bundled_theme))
+        .map(code_colors_from_theme)
+        .unwrap_or_default()
 }
 
 /// Terapkan warna kode ke palet (termasuk latar/teks blok kode).
@@ -353,6 +490,10 @@ pub fn apply_code_colors(c: &mut Colors, list: &[(&'static str, String)]) {
             }
             "fg" => {
                 c.code_fg = Some(col);
+                continue;
+            }
+            "ln" => {
+                c.code_ln = Some(col);
                 continue;
             }
             _ => {}

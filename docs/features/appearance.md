@@ -29,4 +29,9 @@
 - Open VSX: klien Rust diuji ke jaringan nyata (`cargo test --lib openvsx -- --ignored`); di build web tab itu menjelaskan bahwa fitur hanya ada di desktop.
 - Logo project hanya teks/emoji (maks 4 karakter), bukan gambar.
 - Kontras tema kustom hanya diperingatkan (teks/latar), tidak dipaksakan.
-- Tema editor mengubah penampil kode saja; hasil warna tema VS Code bisa sedikit berbeda dari aslinya.
+- Tema editor mengubah penampil kode saja (panel dokumen: latar, teks, nomor baris; blok kode chat).
+- **Tema editor bawaan = "Theme Darker"** (tal7aouy, MIT; `assets/themes/theme-darker.json`, lisensi di samping berkasnya), dipakai
+  saat pengguna belum memilih. Warna token diselesaikan dengan scope gaya TextMate (awalan segmen, selektor turunan,
+  aturan paling spesifik/belakangan menang) terhadap `tokenColors`, seperti VS Code (`core/editor_theme.rs::Resolver`).
+  Perbedaan jujur: highlighter (`ui/highlight.rs`) lexer per baris, bukan grammar TextMate penuh, jadi scope yang dihasilkan
+  hanya perkiraan (mis. parameter fungsi/properti objek tidak dibedakan) dan warna bisa berbeda di kasus tepi.

@@ -198,7 +198,8 @@ describe("plugin (hook)", () => {
   ) => {
     const out = { system: [] as string[] };
     await (h["experimental.chat.system.transform"] as (i: unknown, o: unknown) => Promise<void>)({ sessionID }, out);
-    return out.system.join("\n");
+    // Aturan skill (zandor-skill-policy) selalu disuntik; tes memori memeriksa sisanya.
+    return out.system.filter((x) => !x.startsWith("<zandor-skill-policy>")).join("\n");
   };
 
   test("tanpa memoryDir hanya guard (tidak ada hook memori/tool)", async () => {

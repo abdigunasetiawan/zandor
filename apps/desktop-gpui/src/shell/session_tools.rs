@@ -116,8 +116,10 @@ impl Render for InfoPanel {
         let s = &sel.chat;
         let model = self.models.iter().find(|m| cur_model.as_ref().is_some_and(|c| c.provider_id == m.provider_id && c.model_id == m.model_id));
         let last = s.messages.iter().rev().find(|m| m.info.role == Role::Assistant && m.info.model_id.is_some());
-        let used = self.models.iter().find(|m| last.is_some_and(|l| l.info.provider_id.as_deref() == Some(m.provider_id.as_str()) && l.info.model_id.as_deref() == Some(m.model_id.as_str()))).or(model);
-        let u = session_usage(&s.messages, used.and_then(|m| m.context_limit).map(|v| v as f64), None);
+        let used = model.or_else(|| self.models.iter().find(|m| last.is_some_and(|l| l.info.provider_id.as_deref() == Some(m.provider_id.as_str()) && l.info.model_id.as_deref() == Some(m.model_id.as_str()))));
+        let max = crate::core::settings::SettingsStore::global(cx).read(cx).num("contextMax").max(0.) as u64;
+        let limit = crate::core::context_policy::effective_limit(used.and_then(|m| m.context_limit), max).map(|v| v as f64);
+        let u = session_usage(&s.messages, limit, None);
         let sending = false;
 
         let mut rows: Vec<(String, AnyElement)> = vec![];
@@ -227,9 +229,7 @@ impl Render for InfoPanel {
 
         div()
             .id("infop")
-            .size_full()
-            .overflow_y_scroll()
-            .child(div().flex().flex_col().gap(t.space(3)).p(t.space(3)).child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(sel.title.clone().unwrap_or_else(|| i.t("sb.untitled")))).child(grid).child(memory))
+            .child(div().flex().flex_col().gap(t.space(3)).child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(sel.title.clone().unwrap_or_else(|| i.t("sb.untitled")))).child(grid).child(memory))
             .into_any_element()
     }
 }
@@ -385,6 +385,8 @@ impl Render for SessionActivity {
             .gap(t.space(2))
             .px(t.space(3))
             .py(t.space(2))
+            .border_b_1()
+            .border_color(t.colors.border_soft)
             .child(select("sact-filter", FILTERS.iter().map(|f| (SharedString::from(*f), SharedString::from(i.t(&format!("sact.f.{f}"))))).collect(), self.filter.clone()).on_change(move |v, _, cx| {
                 me.update(cx, |s, cx| {
                     s.filter = v;

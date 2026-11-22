@@ -21,6 +21,10 @@ use std::collections::HashSet;
 mod composer_assist;
 #[path = "queue_dock.rs"]
 mod queue_dock;
+#[path = "project_suggest.rs"]
+mod project_suggest;
+#[path = "next_steps_card.rs"]
+mod next_steps_card;
 #[path = "chat_parts.rs"]
 pub(crate) mod chat_parts;
 #[path = "prompt_dock.rs"]
@@ -34,6 +38,25 @@ mod chat_tabs;
 #[path = "chat_welcome.rs"]
 mod chat_welcome;
 use chat_welcome::greeting;
+
+#[derive(Clone, Copy, PartialEq)]
+enum VoicePhase {
+    Loading,
+    Listening,
+}
+
+/// Sesi dikte yang sedang berjalan: jangkar teks composer + hasil final/sementara.
+struct VoiceRun {
+    session: crate::voice_session::VoiceSession,
+    phase: VoicePhase,
+    prefix: String,
+    suffix: String,
+    finals: Vec<String>,
+    tentative: String,
+    /// Teks terakhir yang ditulis sesi ke composer; bila berbeda, pengguna sudah mengedit → jangkar diperbarui.
+    last: String,
+    level: f32,
+}
 
 pub struct ChatPanel {
     app: Entity<AppState>,
@@ -50,6 +73,11 @@ pub struct ChatPanel {
     /// Salinan hidup sesi demo terbuka (izin/pertanyaan dijawab lokal; di-reset lewat tombol).
     demo_state: Option<ChatState>,
     pending_new: bool,
+    /// Sesi terakhir yang composernya sudah difokuskan.
+    focused_sid: Option<String>,
+    /// Lebar komposer terukur (px) untuk mode ringkas tombol.
+    composer_w: f32,
+    composer_compact: bool,
     /// Sesi yang dibuat oleh pesan pertama dari halaman bawaan (tidak lagi menampilkan sambutan) — port sentFromDraft.
     sent_from_draft: HashSet<String>,
     /// Konteks saran prompt per folder project (dibaca di latar: berkas akar + status git).
@@ -70,6 +98,8 @@ pub struct ChatPanel {
     /// Sesi yang sibuk pada render sebelumnya (mendeteksi peralihan sibuk → selesai).
     busy_sid: Option<String>,
     msg_menu: Option<(String, u8)>,
+    /// Konfirmasi revert: (sesi, pesan).
+    revert_confirm: Option<(String, String)>,
     pins_open: bool,
     picker: model_picker::PickerState,
     info_open: bool,
@@ -78,14 +108,24 @@ pub struct ChatPanel {
     mp_search: Entity<TextInput>,
     voice_devices: Vec<crate::voice::AudioInput>,
     voice_device: String,
+    voice_run: Option<VoiceRun>,
     queue: queue_dock::QueueState,
     dock: prompt_dock::DockState,
     tabs_ui: chat_tabs::TabsState,
+    suggest: project_suggest::SuggestState,
 }
 
 impl ChatPanel {
     pub fn new(app: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         cx.set_global(MessageFocus(None));
+        cx.set_global(super::agent_control::SuggestProjectRequest(None));
+        cx.observe_global::<super::agent_control::SuggestProjectRequest>(|this, cx| {
+            if let Some(r) = cx.global::<super::agent_control::SuggestProjectRequest>().0.clone() {
+                cx.set_global(super::agent_control::SuggestProjectRequest(None));
+                this.suggest_from_agent(r, cx);
+            }
+        })
+        .detach();
         cx.observe_global::<MessageFocus>(|_, cx| cx.notify()).detach();
         let store = ProjectStore::global(cx);
         let chat = ChatStore::global(cx);
@@ -94,6 +134,7 @@ impl ChatPanel {
         let input = cx.new(|cx| {
             let mut ti = TextInput::new(cx, ph);
             ti.multiline = true; // Enter kirim, Shift+Enter baris baru
+            ti.wrap = true;
             ti.bare = true;
             ti.smooth_caret = true;
             ti
@@ -126,16 +167,43 @@ impl ChatPanel {
             cx.notify();
         })
         .detach();
+        // Berkas/gambar yang disalin (Ctrl+C di File Explorer, tangkapan layar) → lampiran, bukan teks path
+        input.update(cx, |i, _| i.files_paste = true);
+        cx.subscribe(&input, |this, _, e: &crate::ui::InputPasteFiles, cx| {
+            this.attach_dropped(&e.paths, cx);
+            for (mime, bytes) in &e.images {
+                let ext = mime.strip_prefix("image/").unwrap_or("png");
+                let mut n = 1;
+                while this.assist.files.iter().any(|f| f.filename.as_deref() == Some(format!("gambar-{n}.{ext}").as_str())) {
+                    n += 1;
+                }
+                this.assist.files.push(crate::core::attachments::FileAttachment {
+                    mime: mime.clone(),
+                    url: format!("data:{mime};base64,{}", crate::core::gradient::b64_encode(bytes)),
+                    filename: Some(format!("gambar-{n}.{ext}")),
+                });
+            }
+            cx.notify();
+        })
+        .detach();
         // sendKey / pasteLongText diterapkan ke input composer saat pengaturan berubah
         let apply = |input: &Entity<TextInput>, cx: &mut Context<Self>| {
             let st = crate::core::settings::SettingsStore::global(cx).read(cx);
             let (ctrl, attach) = (st.str("sendKey") == "ctrl-enter", st.str("pasteLongText") == "attach");
+            // Placeholder menyebut tombol kirim yang berlaku; ikut berubah bersama sendKey dan bahasa.
+            let ph = cx.global::<I18n>().t(if ctrl { "chat.placeholder.ctrl" } else { "chat.placeholder" });
             input.update(cx, |i, _| {
                 i.ctrl_enter_sends = ctrl;
                 i.long_paste_attach = attach;
+                i.set_placeholder(ph);
             });
         };
         apply(&input, cx);
+        cx.observe_global::<I18n>(move |this, cx| {
+            let input = this.input.clone();
+            apply(&input, cx);
+        })
+        .detach();
         cx.observe(&crate::core::settings::SettingsStore::global(cx), move |this, _, cx| {
             let input = this.input.clone();
             apply(&input, cx);
@@ -146,9 +214,17 @@ impl ChatPanel {
         let mp_search = cx.new(|cx| {
             let mut ti = TextInput::new(cx, mp_ph);
             ti.bare = true;
+            // Escape disalurkan ke panel (menutup popover model), bukan diteruskan lewat pohon aksi.
+            ti.intercept = true;
             ti
         });
         cx.subscribe(&mp_search, |_, _, _: &crate::ui::InputChanged, cx| cx.notify()).detach();
+        cx.subscribe(&mp_search, |this, _, e: &crate::ui::InputNav, cx| {
+            if matches!(e, crate::ui::InputNav::Escape) {
+                this.close_picker(cx);
+            }
+        })
+        .detach();
         cx.observe(&crate::core::pings::PingStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &crate::ui::InputNav, cx| this.on_nav(*e, cx)).detach();
         cx.subscribe(&input, |this, _, _: &crate::ui::InputChanged, cx| {
@@ -176,6 +252,9 @@ impl ChatPanel {
             msg_list_sid: None,
             demo_state: None,
             pending_new: false,
+            focused_sid: None,
+            composer_w: 0.,
+            composer_compact: false,
             sent_from_draft: HashSet::new(),
             sugg_ctx: None,
             sugg_loading: None,
@@ -189,6 +268,7 @@ impl ChatPanel {
             voice_menu: false,
             ticking: false,
             msg_menu: None,
+            revert_confirm: None,
             pins_open: false,
             picker: model_picker::PickerState { tab: "models".into(), sort: "status".into(), group: "provider".into(), ..Default::default() },
             mp_search,
@@ -196,9 +276,11 @@ impl ChatPanel {
             att_preview: None,
             voice_devices: vec![],
             voice_device: crate::core::chat_store::read_pref(crate::voice::DEVICE_KEY).unwrap_or_default(),
+            voice_run: None,
             queue: Default::default(),
             dock: Default::default(),
             tabs_ui: Default::default(),
+            suggest: Default::default(),
         };
         me.sync(cx);
         me
@@ -316,6 +398,8 @@ impl ChatPanel {
                     }
                 }
                 s.models_loaded = !list.is_empty();
+                let limits = list.iter().filter_map(|m| Some((format!("{}/{}", m.provider_id, m.model_id), m.context_limit?))).collect();
+                s.chat.update(cx, |c, _| c.set_context_limits(limits));
                 s.models = list;
                 cx.notify();
             })
@@ -340,6 +424,132 @@ impl ChatPanel {
         self.voice_device = id;
         self.voice_menu = false;
         cx.notify();
+    }
+
+    /// Tombol mic: mulai dikte, atau minta berhenti (hasil terakhir tetap datang sebelum sesi berakhir).
+    fn toggle_voice(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        use crate::core::chat_store::read_pref;
+        use crate::voice_stt::{model_ready, parse_corrections, VoiceConfig, VoiceEvent};
+        if let Some(r) = &self.voice_run {
+            r.session.stop();
+            return;
+        }
+        let (language, model) = {
+            let st = crate::core::settings::SettingsStore::global(cx).read(cx);
+            (st.str("voiceLanguage"), st.str("voiceModel"))
+        };
+        if !model_ready(&model) {
+            let title = cx.global::<I18n>().tp("voice.modelMissing", &[("model", &model)]);
+            let desc = Some(SharedString::from(cx.global::<I18n>().t("voice.modelMissingHint")));
+            crate::ui::Toasts::show(crate::ui::ToastInput { title: title.into(), description: desc, tone: crate::ui::ToastTone::Warning, timeout_ms: None, action: None }, cx);
+            return;
+        }
+        let cfg = VoiceConfig {
+            device: self.voice_device.clone(),
+            language,
+            model,
+            vocabulary: read_pref(crate::voice::VOCAB_KEY).unwrap_or_default(),
+            corrections: parse_corrections(&read_pref(crate::voice::CORRECTIONS_KEY).unwrap_or_default()),
+        };
+        gpui::Focusable::focus_handle(self.input.read(cx), cx).focus(window, cx);
+        let (text, caret) = {
+            let i = self.input.read(cx);
+            (i.text().to_string(), i.caret())
+        };
+        let caret = (0..=caret.min(text.len())).rev().find(|&c| text.is_char_boundary(c)).unwrap_or(0);
+        let (tx, mut rx) = futures::channel::mpsc::unbounded::<VoiceEvent>();
+        let session = crate::voice_session::VoiceSession::start(cfg, tx);
+        self.voice_run = Some(VoiceRun {
+            session,
+            phase: VoicePhase::Loading,
+            prefix: text[..caret].to_string(),
+            suffix: text[caret..].to_string(),
+            finals: vec![],
+            tentative: String::new(),
+            last: text,
+            level: 0.0,
+        });
+        cx.spawn(async move |this, cx| {
+            use futures::StreamExt;
+            while let Some(ev) = rx.next().await {
+                let stopped = matches!(ev, VoiceEvent::Stopped);
+                if this.update(cx, |s, cx| s.on_voice(ev, cx)).is_err() || stopped {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn on_voice(&mut self, ev: crate::voice_stt::VoiceEvent, cx: &mut Context<Self>) {
+        use crate::voice_stt::VoiceEvent as E;
+        match ev {
+            E::Loading => {}
+            E::Listening => {
+                if let Some(r) = &mut self.voice_run {
+                    r.phase = VoicePhase::Listening;
+                }
+            }
+            E::Level(l) => {
+                if let Some(r) = &mut self.voice_run {
+                    r.level = l;
+                }
+            }
+            E::Partial(t) => {
+                if let Some(r) = &mut self.voice_run {
+                    r.tentative = t;
+                }
+                self.voice_apply(cx);
+            }
+            E::Final(t) => {
+                if let Some(r) = &mut self.voice_run {
+                    r.tentative.clear();
+                    if !t.trim().is_empty() {
+                        r.finals.push(t);
+                    }
+                }
+                self.voice_apply(cx);
+            }
+            E::Refined(t) => {
+                // Ganti semua ujaran final dengan hasil utuh, tetapi hanya bila pengguna tidak mengedit selama dikte
+                // (selain itu ujaran lama sudah menjadi bagian teks pengguna dan akan terduplikasi).
+                let cur = self.input.read(cx).text().to_string();
+                if let Some(r) = &mut self.voice_run {
+                    if cur == r.last {
+                        r.tentative.clear();
+                        r.finals = vec![t];
+                    }
+                }
+                self.voice_apply(cx);
+            }
+            E::Error(e) => {
+                let msg = cx.global::<I18n>().tp("voice.error", &[("error", &e)]);
+                crate::ui::Toasts::show(crate::ui::ToastInput { title: msg.into(), description: None, tone: crate::ui::ToastTone::Danger, timeout_ms: None, action: None }, cx);
+            }
+            E::Stopped => self.voice_run = None,
+        }
+        cx.notify();
+    }
+
+    /// Tulis hasil dikte ke composer di jangkar kursor. Bila pengguna mengedit saat dikte (teks beda dari yang
+    /// terakhir ditulis), teks sekarang menjadi jangkar baru supaya ketikannya tidak tertimpa. Keterbatasan: teks
+    /// sementara yang sedang tampil ikut menjadi bagian jangkar itu.
+    fn voice_apply(&mut self, cx: &mut Context<Self>) {
+        let (cur, caret) = {
+            let i = self.input.read(cx);
+            (i.text().to_string(), i.caret())
+        };
+        let Some(r) = &mut self.voice_run else { return };
+        if cur != r.last {
+            let c = (0..=caret.min(cur.len())).rev().find(|&c| cur.is_char_boundary(c)).unwrap_or(0);
+            r.prefix = cur[..c].to_string();
+            r.suffix = cur[c..].to_string();
+            r.finals.clear();
+        }
+        let (text, caret) = crate::voice_session::compose_text(&r.prefix, &r.finals, &r.tentative, &r.suffix);
+        r.last = text.clone();
+        self.input.update(cx, |i, cx| i.set_text_at(text, caret, cx));
     }
 
     fn submit(&mut self, text: String, cx: &mut Context<Self>) {
@@ -369,6 +579,9 @@ impl ChatPanel {
                 }
                 return;
             }
+        }
+        if self.maybe_suggest_project(&text, cx) {
+            return;
         }
         self.input.update(cx, |i, cx| i.set_text("", cx));
         let files = std::mem::take(&mut self.assist.files);
@@ -479,7 +692,7 @@ impl ChatPanel {
         let i_owned = cx.global::<I18n>().clone();
         let i = &i_owned;
         let cw = chat_width(&t, cx);
-        let gap = t.rem(t.chat.gap.unwrap_or(0.75));
+        let gap = t.rem(t.chat.gap.unwrap_or(1.25));
         let wrap = |el: AnyElement| {
             div()
                 .w_full()
@@ -514,6 +727,7 @@ impl ChatPanel {
         let m = &turn.message;
         let streaming = c.active_ix == Some(k);
         let me = cx.entity().downgrade();
+        let mut extra: Option<AnyElement> = None;
         let el = match m.info.role {
             Role::User => {
                 let tb = if c.key == crate::core::demo::DEMO_KEY { div().into_any_element() } else { self.message_toolbar(&t, i, turn, &c.sid, &c.key, false, cx) };
@@ -524,11 +738,32 @@ impl ChatPanel {
                 let provider_name = self.models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
                 let is_last = c.last_assistant == Some(k) && !c.busy;
                 let tb = (m.info.completed.is_some() && !streaming && c.key != crate::core::demo::DEMO_KEY).then(|| self.message_toolbar(&t, i, turn, &c.sid, &c.key, is_last, cx));
-                chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, c.has_project, &c.dir, &provider_name, tb)
+                let interrupted = !streaming && c.loaded && crate::core::resume::is_interrupted(&m.info, c.busy);
+                let resume_note = k.checked_sub(1).and_then(|p| crate::core::resume::resume_note(&c.turns[p].message)).map(String::from);
+                let ctx = chat_parts::TurnCtx { interrupted, can_resume: interrupted && is_last && c.key != crate::core::demo::DEMO_KEY, resume_note, sid: c.sid.clone() };
+                // kartu kesimpulan menetap di bawah jawaban terakhir tiap pertukaran; tombol aktif hanya di jawaban terakhir
+                if c.loaded && c.key != crate::core::demo::DEMO_KEY && c.turns.get(k + 1).is_none_or(|n| n.message.info.role == Role::User) {
+                    let owner = c.turns[..k].iter().rev().find(|x| x.message.info.role == Role::User).map(|x| x.message.info.id.clone());
+                    let found = owner.and_then(|uid| self.chat.read(cx).next_steps.get(&c.sid).and_then(|v| v.iter().find(|n| n.for_msg == uid)).cloned());
+                    if let Some(ns) = found {
+                        let active = is_last && ns.chosen.is_none();
+                        extra = Some(self.render_next_steps(&t, i, &c.sid, &ns, active, cx));
+                    }
+                }
+                chat_parts::assistant_msg(&t, i, cx, &me, turn, &self.expanded, streaming, c.has_project, &c.dir, &provider_name, tb, &ctx)
             }
         };
         let hl = self.focused_msg.as_deref() == Some(m.info.id.as_str());
-        wrap(div().w_full().mb(gap).rounded(t.rem(crate::theme::rem::RADIUS_LG)).when(hl, |d| d.border_1().border_color(t.colors.focus)).child(el).into_any_element())
+        // Pesan pengguna membawa footer setinggi CONTROL_SM di bawah bubble. Jarak ke pesan AI atas/bawah disamakan:
+        // S = max(gap, tinggi footer); bawah = footer + (S − footer), atas = gap + (S − gap).
+        let g = t.chat.gap.unwrap_or(1.25);
+        let (mt, mb) = if m.info.role == Role::User {
+            let s = g.max(crate::theme::rem::CONTROL_SM);
+            (if k > 0 { s - g } else { 0. }, s - crate::theme::rem::CONTROL_SM)
+        } else {
+            (0., g)
+        };
+        wrap(div().w_full().flex().flex_col().mt(t.rem(mt)).mb(t.rem(mb)).rounded(t.rem(crate::theme::rem::RADIUS_LG)).when(hl, |d| d.border_1().border_color(t.colors.focus)).child(el).children(extra).into_any_element())
     }
 }
 
@@ -592,17 +827,18 @@ fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, toolbar: AnyElement) -
             .flex()
             .flex_col()
             .items_end()
-            .gap(t.space(2))
             .self_end()
             .max_w(gpui::relative(0.85))
-            .child(bubble)
+            .child(div().min_w_0().max_w_full().child(bubble))
+            // footer di bawah bubble: tinggi tetap (CONTROL_SM) selalu dicadangkan agar layout tidak melompat saat hover
             .child(
                 div()
                     .flex()
+                    .flex_none()
                     .items_center()
                     .justify_end()
+                    .h(t.rem(rem::CONTROL_SM))
                     .gap(t.space(2))
-                    .min_h(t.rem(rem::CONTROL_SM))
                     .invisible()
                     .group_hover("umsg", |s| s.visible())
                     .child(
@@ -628,6 +864,16 @@ impl Render for ChatPanel {
         let me = cx.entity().downgrade();
         let tabs_bar = self.tabs_bar(&t, i, cx);
         let cur = self.current(cx);
+        // fokus otomatis ke composer saat sesi aktif berganti (mis. sesi baru)
+        let cur_id = cur.as_ref().map(|c| c.1.clone());
+        if cur_id != self.focused_sid {
+            if cur_id.is_some() {
+                let fh = gpui::Focusable::focus_handle(self.input.read(cx), cx);
+                fh.focus(window, cx);
+                super::browser::release_webview_focus();
+            }
+            self.focused_sid = cur_id;
+        }
         let engine_ready = self.engine.read(cx).state.info.is_some();
         let is_demo = cur.as_ref().is_some_and(|c| c.0 == crate::core::demo::DEMO_KEY);
         if is_demo {
@@ -660,36 +906,21 @@ impl Render for ChatPanel {
         }
         let voice_btn = {
             let ok = crate::voice::supported();
-            icon_button("chat-voice", "mic", if ok { i.t("voice.start") } else { i.t("voice.unsupported") })
+            let (glyph, tip, variant, loading) = match self.voice_run.as_ref().map(|r| r.phase) {
+                None => ("mic", if ok { i.t("voice.start") } else { i.t("voice.unsupported") }, ButtonVariant::Ghost, false),
+                Some(VoicePhase::Loading) => ("mic", i.t("voice.loading"), ButtonVariant::Ghost, true),
+                Some(VoicePhase::Listening) => ("stop", i.t("voice.stop"), ButtonVariant::Danger, false),
+            };
+            icon_button("chat-voice", glyph, tip)
                 .size(ControlSize::Sm)
-                .variant(ButtonVariant::Ghost)
-                .disabled(!ok || !engine_ready)
-                .on_click(cx.listener(|s, _, w, cx| {
-                    let fh = gpui::Focusable::focus_handle(s.input.read(cx), cx);
-                    fh.focus(w, cx);
-                    if let Err(e) = crate::voice::toggle_dictation() {
-                        let msg = cx.global::<I18n>().tp("voice.error", &[("error", &e)]);
-                        crate::ui::Toasts::show(crate::ui::ToastInput { title: msg.into(), description: None, tone: crate::ui::ToastTone::Danger, timeout_ms: None, action: None }, cx);
-                        return;
-                    }
-                    let devs = crate::voice::audio_inputs();
-                    if let Some(name) = crate::voice::chosen_not_default(&s.voice_device, &devs) {
-                        let i = cx.global::<I18n>();
-                        let title = i.tp("voice.notDefault", &[("device", &name)]);
-                        let label = i.t("voice.openSound");
-                        crate::ui::Toasts::show(
-                            crate::ui::ToastInput {
-                                title: title.into(),
-                                description: None,
-                                tone: crate::ui::ToastTone::Warning,
-                                timeout_ms: None,
-                                action: Some(crate::ui::ToastAction { label: label.into(), on_click: std::rc::Rc::new(|_, cx| cx.open_url("ms-settings:sound")) }),
-                            },
-                            cx,
-                        );
-                    }
-                }))
+                .variant(variant)
+                .disabled(!ok || !engine_ready || loading)
+                .on_click(cx.listener(|s, _, w, cx| s.toggle_voice(w, cx)))
         };
+        // Titik level mikrofon (hanya saat merekam): memudar saat hening, menyala saat ada suara.
+        let voice_level = self.voice_run.as_ref().filter(|r| r.phase == VoicePhase::Listening).map(|r| {
+            div().flex_none().w(t.rem(0.5)).h(t.rem(0.5)).rounded_full().bg(t.colors.success).opacity(0.25 + 0.75 * r.level)
+        });
         let voice_dev = {
             let me = cx.entity().downgrade();
             let cur = self.voice_device.clone();
@@ -719,7 +950,7 @@ impl Render for ChatPanel {
                     icon_button("chat-voice-dev", "chevron_down", i.t("voice.device"))
                         .size(ControlSize::Sm)
                         .variant(ButtonVariant::Ghost)
-                        .disabled(!ok)
+                        .disabled(!ok || self.voice_run.is_some())
                         .on_click(cx.listener(|s, _, _, cx| {
                             s.voice_menu = !s.voice_menu;
                             if s.voice_menu {
@@ -776,7 +1007,7 @@ impl Render for ChatPanel {
                 s.submit(text, cx);
             }))
         });
-        let model_sel = self.model_picker(&t, i, variant_sel.is_some(), window.viewport_size().height, cx);
+        let model_sel = self.model_picker(&t, i, variant_sel.is_some(), self.composer_compact, window.viewport_size().height, cx);
         let info_sid = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
         let info_el = self.composer_info(&t, i, &info_sid, cx);
         let cw = chat_width(&t, cx);
@@ -788,26 +1019,61 @@ impl Render for ChatPanel {
         }
         let sug_el = sug.as_ref().map(|s| self.render_suggest(s, cx));
         let chips = (!self.assist.files.is_empty()).then(|| {
-            let mut row = div().flex().flex_wrap().gap(t.space(1));
+            // Kartu lampiran: 3 kolom, maksimal 2 baris terlihat; selebihnya digulir.
+            let thumb_side = rem::SPACE[6];
+            let card_h = thumb_side + rem::SPACE[2];
+            let gap = rem::SPACE[1];
+            let mut row = div().id("chips-grid").grid().grid_cols(3).flex_1().min_w_0().gap(t.rem(gap)).max_h(t.rem(card_h * 2. + gap)).overflow_y_scroll();
             for (n, f) in self.assist.files.iter().enumerate() {
                 let name = f.filename.clone().unwrap_or_else(|| f.url.clone());
+                let ext = if f.mime == crate::core::attachments::DIRECTORY_MIME { i.t("chat.attachFolderKind") } else { name.rsplit_once('.').map(|(_, e)| e.to_uppercase()).unwrap_or_default() };
                 row = row.child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(t.space(1))
-                        .pl(t.space(2))
+                        .gap(t.space(2))
+                        .min_w_0()
+                        .h(t.rem(card_h))
+                        .px(t.space(1))
                         .rounded(t.rem(rem::RADIUS_MD))
                         .border_1()
                         .border_color(t.colors.border_soft)
                         .bg(t.colors.surface)
                         .small(&t)
                         .child({
-                            let f = f.clone();
+                            let fc = f.clone();
                             let label = i.tp("chat.previewFile", &[("name", &name)]);
-                            icon_button(SharedString::from(format!("chip-pv-{n}")), "paperclip", label).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |s, _, _, cx| s.open_preview(&f, cx)))
+                            let side = t.rem(thumb_side);
+                            let is_dir = f.mime == crate::core::attachments::DIRECTORY_MIME;
+                            let thumb: gpui::AnyElement = if f.mime.starts_with("image/") {
+                                let img = if f.url.starts_with("data:") {
+                                    crate::core::gradient::image_of(&f.url).map(|im| gpui::img(im))
+                                } else {
+                                    crate::core::attachments::path_from_file_url(&f.url).map(|p| gpui::img(std::path::PathBuf::from(p)))
+                                };
+                                match img {
+                                    Some(im) => im.size_full().rounded(t.rem(rem::RADIUS_SM)).object_fit(gpui::ObjectFit::Cover).into_any_element(),
+                                    None => super::file_icons::file_type_icon(&t, &name, false, false, rem::ICON_LG),
+                                }
+                            } else {
+                                super::file_icons::file_type_icon(&t, &name, is_dir, false, rem::ICON_LG)
+                            };
+                            div()
+                                .id(SharedString::from(format!("chip-pv-{n}")))
+                                .flex()
+                                .flex_none()
+                                .items_center()
+                                .justify_center()
+                                .size(side)
+                                .rounded(t.rem(rem::RADIUS_SM))
+                                .overflow_hidden()
+                                .bg(t.colors.hover)
+                                .cursor_pointer()
+                                .tooltip(crate::ui::tooltip::text_tooltip(label.into()))
+                                .on_click(cx.listener(move |s, _, _, cx| s.open_preview(&fc, cx)))
+                                .child(thumb)
                         })
-                        .child(div().max_w(t.rem(14.)).truncate().child(name.clone()))
+                        .child(div().flex().flex_col().flex_1().min_w_0().child(div().truncate().child(name.clone())).child(div().truncate().text_color(t.colors.fg_subtle).child(ext)))
                         .child(
                             icon_button(SharedString::from(format!("chip-x-{n}")), "close", i.tp("chat.removeAttachment", &[("name", &name)]))
                                 .size(ControlSize::Sm)
@@ -822,8 +1088,8 @@ impl Render for ChatPanel {
                 );
             }
             let total = self.assist.files.len().to_string();
-            row.child(
-                icon_button("chip-clear", "close", i.tp("chat.removeAllAttachments", &[("n", &total)]))
+            div().flex().items_start().gap(t.space(1)).child(row).child(
+                icon_button("chip-clear", "trash",i.tp("chat.removeAllAttachments", &[("n", &total)]))
                     .size(ControlSize::Sm)
                     .variant(ButtonVariant::Ghost)
                     .on_click(cx.listener(|s, _, _, cx| {
@@ -879,7 +1145,7 @@ impl Render for ChatPanel {
                 .iter()
                 .map(|m| (SharedString::from(*m), SharedString::from(i.t(&format!("chat.mode.{m}")))))
                 .collect();
-            crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone()).pill(true).lead_icon("shield").up(true).descriptions({
+            crate::ui::select("chat-mode", items, self.chat.read(cx).permission_mode.clone()).pill(true).lead_icon("shield").icon_only(self.composer_compact).up(true).descriptions({
                 let d: std::collections::HashMap<String, String> = crate::core::composer::PERMISSION_MODES.iter().map(|m| (m.to_string(), i.t(&format!("chat.modeDesc.{m}")))).collect();
                 move |v| d.get(v).map(|s| SharedString::from(s.clone()))
             })
@@ -919,8 +1185,10 @@ impl Render for ChatPanel {
                     })))
                 })
         });
-        let composer = div().w_full().when(!welcome_layout, |d| d.px(t.space(3)).pb(t.space(3))).flex().flex_col().gap(t.space(2)).children(qdock).children(sug_el).children(chips).child(
+        let psuggest = self.render_project_suggest(&t, i, cx);
+        let composer = div().w_full().when(!welcome_layout, |d| d.px(t.space(3)).pb(t.space(3))).flex().flex_col().gap(t.space(2)).children(psuggest).children(qdock).children(sug_el).children(chips).child(
             div()
+                .relative()
                 .flex()
                 .flex_col()
                 .gap(t.space(2))
@@ -930,8 +1198,39 @@ impl Render for ChatPanel {
                 .rounded(t.rem(rem::RADIUS_LG * 1.5))
                 .bg(t.colors.composer)
                 .shadow(t.shadow_1())
+                .drag_over::<gpui::ExternalPaths>({
+                    let hover = t.colors.hover;
+                    move |s, _, _, _| s.bg(hover)
+                })
+                .on_drop(cx.listener(|s, d: &gpui::ExternalPaths, _, cx| s.attach_dropped(d.paths(), cx)))
+                .child({
+                    let me = me.clone();
+                    gpui::canvas(
+                        move |b, _, cx| {
+                            let w: f32 = b.size.width.into();
+                            // Notify saat prepaint tidak memicu render ulang → mode ringkas telat berganti dan tombol
+                            // meloncat. Ditunda lewat defer (pola yang sama dengan layout.rs).
+                            let stale = me.read_with(cx, |s, _| (s.composer_w - w).abs() > 1.).unwrap_or(false);
+                            if stale {
+                                let me = me.clone();
+                                cx.defer(move |cx| {
+                                    me.update(cx, |s, cx| {
+                                        s.composer_w = w;
+                                        // histeresis: masuk ringkas < 560, keluar > 580
+                                        s.composer_compact = w > 0. && if s.composer_compact { w < 580. } else { w < 560. };
+                                        cx.notify();
+                                    })
+                                    .ok();
+                                });
+                            }
+                        },
+                        |_, _, _, _| {},
+                    )
+                    .absolute()
+                    .size_full()
+                })
                 .child(self.input.clone())
-                .child(div().flex().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(mem_toggles).child(div().flex_1()).children(info_el).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().children(model_sel).children(variant_sel.map(|v| div().border_l_1().border_color(t.colors.border_soft).child(v)))).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().child(voice_btn).child(div().h(t.rem(rem::CONTROL_SM)).border_l_1().border_color(t.colors.border_soft).child(voice_dev))).children(add_btn).child(send_btn)),
+                .child(div().flex().flex_wrap().items_center().gap(t.space(2)).child(attach_btn).child(mode_sel).child(mem_toggles).child(div().flex_1().min_w_0()).children(info_el).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().children(model_sel).children(variant_sel.map(|v| div().border_l_1().border_color(t.colors.border_soft).child(v)))).children(voice_level).child(div().flex().flex_none().items_center().border_1().border_color(t.colors.border_soft).rounded_full().child(voice_btn).child(div().h(t.rem(rem::CONTROL_SM)).border_l_1().border_color(t.colors.border_soft).child(voice_dev))).children(add_btn).child(send_btn)),
         );
 
         let welcome = match (&state, &cur) {
@@ -939,6 +1238,44 @@ impl Render for ChatPanel {
             (Some(st), Some(c)) => st.loaded && st.messages.is_empty() && st.error.is_none() && !self.sent_from_draft.contains(&c.1),
             _ => false,
         };
+        // Popup pratinjau lampiran (dipakai di halaman sesi baru maupun sesi berjalan)
+        let pv_h = window.viewport_size().height * 0.62;
+        let revert_dialog = self.revert_confirm.clone().map(|(rsid, rmid)| {
+            crate::ui::dialog(i.t("chat.revert.confirmTitle"))
+                .description(i.t("chat.revert.confirmBody"))
+                .on_dismiss(cx.listener(|s, _, _, cx| {
+                    s.revert_confirm = None;
+                    cx.notify();
+                }))
+                .footer(crate::ui::button("rev-cf-no").label(i.t("ui.cancel")).on_click(cx.listener(|s, _, _, cx| {
+                    s.revert_confirm = None;
+                    cx.notify();
+                })))
+                .footer(crate::ui::button("rev-cf-yes").variant(ButtonVariant::Danger).label(i.t("chat.revert.confirmYes")).on_click(cx.listener(move |s, _, _, cx| {
+                    s.revert_confirm = None;
+                    if s.chat.read(cx).sessions.get(&rsid).is_some_and(|x| x.busy()) {
+                        return chat_parts::fail(cx, "hentikan sesi sebelum revert");
+                    }
+                    s.chat.update(cx, |c, cx| c.revert_to(&rsid, &rmid, cx));
+                    cx.notify();
+                })))
+        });
+        let att_dialog = self.att_preview.clone().map(|(title, view)| {
+            crate::ui::dialog(title)
+                .width_rem(rem::SPACE[7] * 20.)
+                .on_dismiss(cx.listener(|s, _, _, cx| {
+                    s.att_preview = None;
+                    cx.notify();
+                }))
+                .child(match view {
+                    Some(v) => div().id("att-pv").w_full().h(pv_h).overflow_scroll().rounded(t.rem(rem::RADIUS_MD)).child(v).into_any_element(),
+                    None => div().small(&t).text_color(t.colors.danger).child(i.t("chat.attachmentPreviewError")).into_any_element(),
+                })
+                .footer(div().flex().justify_end().child(crate::ui::button("att-pv-close").size(ControlSize::Sm).label(i.t("ui.close")).on_click(cx.listener(|s, _, _, cx| {
+                    s.att_preview = None;
+                    cx.notify();
+                }))))
+        });
         if welcome {
             // ---- halaman sesi baru (port DraftChat/Greeting/SessionScope + saran) ----
             let scope = self.session_scope(&t, i, cx);
@@ -965,6 +1302,8 @@ impl Render for ChatPanel {
                         .child(div().w_full().max_w(t.rem(cw * ratio)).child(composer))
                         .children(chips),
                 )
+                .children(att_dialog)
+                .children(revert_dialog)
                 .into_any_element();
         }
         let Some(st) = state else { return div().into_any_element() };
@@ -992,7 +1331,8 @@ impl Render for ChatPanel {
             }
         }
         let active_ix = if busy && last_assistant.is_some() && last_assistant == Some(turns.len().saturating_sub(1)) { last_assistant } else { None };
-        let count: usize = turns.iter().map(|x| x.message.parts.len() + 1).sum();
+        let ns_count = self.chat.read(cx).next_steps.get(&sid).map_or(0, |v| v.len());
+        let count: usize = turns.iter().map(|x| x.message.parts.len() + 1).sum::<usize>() + ns_count;
         let has_pinned = self.pinned_bar(&t, i, &sid, &turns, cx).is_some();
         let off = usize::from(has_pinned);
         let n = off + turns.len() + 1;
@@ -1058,22 +1398,8 @@ impl Render for ChatPanel {
             .child(body)
             .when(is_demo, |d| d.children(demo_dock.map(|dk| div().w_full().max_w(t.rem(cw * ratio)).mx_auto().px(t.space(3)).pb(t.space(3)).child(dk))))
             .when(!is_demo, |d| d.child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer)))
-            .children(self.att_preview.clone().map(|(title, view)| {
-                crate::ui::dialog(title)
-                    .width_rem(rem::SPACE[7] * 14.)
-                    .on_dismiss(cx.listener(|s, _, _, cx| {
-                        s.att_preview = None;
-                        cx.notify();
-                    }))
-                    .child(match view {
-                        Some(v) => div().id("att-pv").max_h(t.rem(36.)).overflow_scroll().child(v).into_any_element(),
-                        None => div().small(&t).text_color(t.colors.danger).child(i.t("chat.attachmentPreviewError")).into_any_element(),
-                    })
-                    .footer(div().flex().justify_end().child(crate::ui::button("att-pv-close").size(ControlSize::Sm).label(i.t("ui.close")).on_click(cx.listener(|s, _, _, cx| {
-                        s.att_preview = None;
-                        cx.notify();
-                    }))))
-            }))
+            .children(att_dialog)
+            .children(revert_dialog)
             .into_any_element()
     }
 }

@@ -383,6 +383,12 @@ impl EngineApi {
     pub fn list_questions(&self, dir: &str) -> Result<Vec<QuestionRequest>> {
         Ok(arr(self.get("/question", Some(dir), &[])?).iter().filter_map(to_question).collect())
     }
+    /// Status jalan sesi menurut engine (`GET /session/status`: hanya sesi yang sedang jalan yang tercantum).
+    /// Ini sumber kebenaran: pesan asisten tanpa `completed` bisa saja yatim karena engine sempat dimatikan.
+    pub fn session_status(&self, dir: &str, id: &str) -> Result<SessionRunStatus> {
+        let v = self.get("/session/status", Some(dir), &[])?;
+        Ok(v.get(id).and_then(Value::as_object).map(parse_run_status).unwrap_or(SessionRunStatus::Idle))
+    }
     pub fn list_todos(&self, dir: &str, id: &str) -> Result<Vec<Todo>> {
         Ok(to_todos(Some(&self.get(&format!("/session/{id}/todo"), Some(dir), &[])?)))
     }
@@ -401,8 +407,23 @@ impl EngineApi {
         variant: Option<&str>,
         files: &[FileAttachment],
     ) -> Result<()> {
+        self.send_prompt_with(dir, id, text, model, variant, files, &[])
+    }
+    /// Seperti `send_prompt`, plus teks sintetis tambahan (tidak tampil sebagai teks pengguna; mis. catatan lanjutan).
+    #[allow(clippy::too_many_arguments)]
+    pub fn send_prompt_with(
+        &self,
+        dir: &str,
+        id: &str,
+        text: &str,
+        model: Option<&ModelRef>,
+        variant: Option<&str>,
+        files: &[FileAttachment],
+        synthetic: &[String],
+    ) -> Result<()> {
         let mut parts = vec![json!({ "type": "text", "text": text })];
         parts.extend(attachment_parts(files));
+        parts.extend(synthetic.iter().map(|s| json!({ "type": "text", "synthetic": true, "text": s })));
         let mut body = json!({ "parts": parts });
         if let Some(m) = model {
             body["model"] = json!({ "providerID": m.provider_id, "modelID": m.model_id });

@@ -11,6 +11,8 @@ use std::time::Duration;
 pub enum ToastTone {
     #[default]
     Neutral,
+    /// Informasi netral dari sistem (mis. konteks dipadatkan otomatis); tampil sama dengan `Neutral` (monokrom).
+    Info,
     Success,
     Danger,
     Warning,
@@ -103,7 +105,7 @@ impl Render for Toasts {
             let id = item.id;
             let inp = &item.input;
             let (glyph, tone_fg) = match inp.tone {
-                ToastTone::Neutral => ("info", c.fg_muted),
+                ToastTone::Neutral | ToastTone::Info => ("info", c.fg_muted),
                 ToastTone::Success => ("badge_check", c.success),
                 ToastTone::Danger => ("octagon_x", c.danger),
                 ToastTone::Warning => ("triangle_alert", c.warning),

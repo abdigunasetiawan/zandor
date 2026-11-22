@@ -36,7 +36,10 @@ pub struct Sidebar {
     show_search: bool,
     tab: SharedString,
     collapsed: HashSet<String>,
-    workspace_open: bool,
+    /// Item yang disematkan: `p:<idProject>` atau `s:<idSesi>`. Disimpan di pref `sidebarPinned`.
+    pinned: HashSet<String>,
+    /// Urutan kustom hasil seret-lepas per kelompok (`projects`, id project, `CHAT_KEY`). Pref `sidebarOrder`.
+    order: std::collections::HashMap<String, Vec<String>>,
     open_menu: Option<String>,
     dialog: Option<SbDialog>,
     pstyle: Option<Entity<super::project_style_dialog::ProjectStyleDialog>>,
@@ -74,8 +77,9 @@ impl Sidebar {
             rename,
             show_search: false,
             tab: "sessions".into(),
-            collapsed: HashSet::new(),
-            workspace_open: true,
+            collapsed: crate::core::chat_store::read_pref("sidebarCollapsed").and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok()).unwrap_or_default().into_iter().collect(),
+            pinned: crate::core::chat_store::read_pref("sidebarPinned").and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok()).unwrap_or_default().into_iter().collect(),
+            order: crate::core::chat_store::read_pref("sidebarOrder").and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default(),
             open_menu: None,
             dialog: None,
             pstyle: None,
@@ -102,6 +106,38 @@ impl Sidebar {
             }
         })
         .detach();
+    }
+
+    fn save_collapsed(&self) {
+        let v: Vec<&String> = self.collapsed.iter().collect();
+        crate::core::chat_store::write_pref("sidebarCollapsed", &serde_json::to_string(&v).unwrap_or_default());
+    }
+
+    /// Sematkan/lepas sematan satu item (`p:<id>` atau `s:<id>`) dan simpan ke pref.
+    fn toggle_pin(&mut self, key: String, cx: &mut Context<Self>) {
+        if !self.pinned.remove(&key) {
+            self.pinned.insert(key);
+        }
+        let mut v: Vec<&String> = self.pinned.iter().collect();
+        v.sort();
+        crate::core::chat_store::write_pref("sidebarPinned", &serde_json::to_string(&v).unwrap_or_default());
+        cx.notify();
+    }
+
+    /// Seret-lepas: pindahkan `dragged` ke posisi `target` dalam kelompok `group` (daftar penuh, bukan hasil cari).
+    fn reorder(&mut self, group: &str, dragged: &str, target: &str, cx: &mut Context<Self>) {
+        let st = self.store.read(cx);
+        let (prefix, mut items): (&str, Vec<String>) = if group == "projects" {
+            ("p", st.projects.iter().map(|p| p.id.clone()).collect())
+        } else {
+            ("s", st.sessions.get(group).map(|g| g.items.iter().map(|s| s.id.clone()).collect()).unwrap_or_default())
+        };
+        let order = self.order.get(group).cloned().unwrap_or_default();
+        arrange(&mut items, |x| x.clone(), &order, |x| self.pinned.contains(&format!("{prefix}:{x}")));
+        move_to(&mut items, dragged, target);
+        self.order.insert(group.to_string(), items);
+        crate::core::chat_store::write_pref("sidebarOrder", &serde_json::to_string(&self.order).unwrap_or_default());
+        cx.notify();
     }
 
     fn new_session(&mut self, key: String, cx: &mut Context<Self>) {
@@ -174,17 +210,109 @@ struct Ctx<'a> {
     sel: (Option<String>, Option<String>),
     query: String,
     ind: std::collections::HashMap<String, crate::core::attention::Indicator>,
+    pinned: HashSet<String>,
+    order: std::collections::HashMap<String, Vec<String>>,
+}
+
+/// Urutan tampil: yang disematkan di atas, lalu menurut urutan kustom (`order`). Item yang belum ada di `order`
+/// (mis. sesi baru) tampil lebih dulu dengan urutan relatif aslinya. Sort stabil.
+fn arrange<T>(items: &mut [T], id: impl Fn(&T) -> String, order: &[String], is_pinned: impl Fn(&T) -> bool) {
+    items.sort_by_key(|x| {
+        let i = id(x);
+        (!is_pinned(x), order.iter().position(|o| *o == i).map_or(0, |p| p + 1))
+    });
+}
+
+/// Pindahkan `dragged` ke posisi `target` (turun → setelah target, naik → sebelum target).
+fn move_to(ids: &mut Vec<String>, dragged: &str, target: &str) {
+    let (Some(from), Some(to)) = (ids.iter().position(|x| x == dragged), ids.iter().position(|x| x == target)) else { return };
+    if from != to {
+        let x = ids.remove(from);
+        ids.insert(to, x);
+    }
+}
+
+/// Nilai yang diseret di sidebar: kelompok (`projects`, id project, atau `CHAT_KEY`) + id item. Juga jadi pratinjau seret.
+#[derive(Clone)]
+struct DragSb {
+    group: String,
+    id: String,
+    label: SharedString,
+}
+
+impl Render for DragSb {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = cx.global::<Theme>().clone();
+        div()
+            .max_w(t.rem(20.))
+            .truncate()
+            .px(t.space(2))
+            .py(t.space(1))
+            .rounded(t.rem(rem::RADIUS_MD))
+            .bg(t.colors.raised)
+            .border_1()
+            .border_color(t.colors.border)
+            .shadow(t.shadow_2())
+            .child(self.label.clone())
+    }
+}
+
+/// Penanda lokasi jatuh: garis fokus di atas baris, hanya untuk seretan dari kelompok yang sama.
+fn drop_marker(group: String) -> impl Fn(gpui::StyleRefinement, &DragSb, &mut Window, &mut App) -> gpui::StyleRefinement + 'static {
+    move |s, d, _, cx| if d.group == group { s.border_t_2().border_color(cx.global::<Theme>().colors.focus) } else { s }
+}
+
+#[cfg(test)]
+mod pin_tests {
+    use super::{arrange, move_to};
+
+    fn ids(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn pinned_naik_dan_urutan_relatif_tetap() {
+        let mut v = vec!["a", "b", "c", "d", "e"];
+        arrange(&mut v, |x| x.to_string(), &[], |x| *x == "d" || *x == "b");
+        assert_eq!(v, ["b", "d", "a", "c", "e"]);
+    }
+
+    #[test]
+    fn urutan_kustom_dan_item_baru_di_atas() {
+        let mut v = vec!["n", "a", "b", "c"];
+        arrange(&mut v, |x| x.to_string(), &ids(&["c", "a", "b"]), |_| false);
+        assert_eq!(v, ["n", "c", "a", "b"]);
+    }
+
+    #[test]
+    fn pin_menang_atas_urutan_kustom() {
+        let mut v = vec!["a", "b", "c"];
+        arrange(&mut v, |x| x.to_string(), &ids(&["c", "b", "a"]), |x| *x == "a");
+        assert_eq!(v, ["a", "c", "b"]);
+    }
+
+    #[test]
+    fn pindah_turun_dan_naik() {
+        let mut v = ids(&["a", "b", "c", "d"]);
+        move_to(&mut v, "a", "c");
+        assert_eq!(v, ids(&["b", "c", "a", "d"]));
+        move_to(&mut v, "d", "b");
+        assert_eq!(v, ids(&["d", "b", "c", "a"]));
+        move_to(&mut v, "x", "b");
+        assert_eq!(v, ids(&["d", "b", "c", "a"]));
+    }
 }
 
 /// Lapisan latar baris project: gambar (posisi/zoom) > gradien, lalu overlay. Port rowStyle + CSS overlay (Sidebar.tsx).
 /// Gradien dirasterisasi penuh (semua titik, sudut, radial) sesuai ukuran baris — lihat `gradient_layer`.
-fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str) -> Vec<gpui::AnyElement> {
-    style_layers(&|k| ap.project_style(id, k))
+fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str, radius: gpui::Pixels) -> Vec<gpui::AnyElement> {
+    style_layers(&|k| ap.project_style(id, k), radius)
 }
 
 /// Lapisan latar gaya project (gambar/gradien + overlay) dari pembaca nilai gaya — dipakai baris sidebar dan
-/// pratinjau dialog Kustomisasi project.
-pub(crate) fn style_layers(get: &dyn Fn(&str) -> Option<String>) -> Vec<gpui::AnyElement> {
+/// pratinjau dialog Kustomisasi project. `radius` = radius sudut wadah: `overflow_hidden` GPUI hanya memotong
+/// persegi, jadi tiap lapisan harus membulatkan sudutnya sendiri.
+pub(crate) fn style_layers(get: &dyn Fn(&str) -> Option<String>, radius: gpui::Pixels) -> Vec<gpui::AnyElement> {
     use crate::core::appearance::parse_color;
     use gpui::{linear_color_stop, linear_gradient, relative};
     let mut out = vec![];
@@ -200,6 +328,7 @@ pub(crate) fn style_layers(get: &dyn Fn(&str) -> Option<String>) -> Vec<gpui::An
                 .left(relative(-(z - 1.) / 2.))
                 .top(relative(-(z - 1.) * y))
                 .object_fit(gpui::ObjectFit::Cover)
+                .rounded(radius)
                 .into_any_element(),
         );
     } else if let Some(spec) = get("gradient").and_then(|g| crate::core::gradient::parse_gradient(&g)) {
@@ -210,14 +339,14 @@ pub(crate) fn style_layers(get: &dyn Fn(&str) -> Option<String>) -> Vec<gpui::An
             .map(|(p, c)| (p, [c.r, c.g, c.b, c.a]))
             .collect();
         if stops.len() == spec.stops.len() && !stops.is_empty() {
-            out.push(gradient_layer(stops, spec.radial, spec.angle));
+            out.push(gradient_layer(stops, spec.radial, spec.angle, radius));
         }
     }
     if let Some(kind) = get("overlay") {
         let mut c = get("overlayColor").and_then(|v| parse_color(&v)).unwrap_or(gpui::black());
         c.a = num("overlayOpacity", 50.) / 100.;
         let clear = gpui::Hsla { a: 0., ..c };
-        let layer = div().absolute().inset_0();
+        let layer = div().absolute().inset_0().rounded(radius);
         let layer = match kind.as_str() {
             "full" => layer.bg(c),
             "gradient" => layer.bg(linear_gradient(90., linear_color_stop(c, 0.), linear_color_stop(clear, 1.))),
@@ -235,7 +364,7 @@ thread_local! {
 }
 
 /// Lapisan gradien: dirender ke bitmap seukuran elemen (dibulatkan ke 4 px) lalu digambar sebagai gambar.
-fn gradient_layer(stops: Vec<(f32, [f32; 4])>, radial: bool, angle: f32) -> gpui::AnyElement {
+fn gradient_layer(stops: Vec<(f32, [f32; 4])>, radial: bool, angle: f32, radius: gpui::Pixels) -> gpui::AnyElement {
     gpui::canvas(
         move |b, window, _| {
             let sf = window.scale_factor();
@@ -257,9 +386,9 @@ fn gradient_layer(stops: Vec<(f32, [f32; 4])>, radial: bool, angle: f32) -> gpui
             });
             Some(img)
         },
-        |b, img, window, _| {
+        move |b, img, window, _| {
             if let Some(img) = img {
-                let _ = window.paint_image(b, b, gpui::Corners::default(), img, 0, false);
+                let _ = window.paint_image(b, b, gpui::Corners::all(radius), img, 0, false);
             }
         },
     )
@@ -299,12 +428,26 @@ fn trailing_slot(t: &Theme, color: gpui::Hsla, content: AnyElement) -> AnyElemen
         .into_any_element()
 }
 
-fn menu_trigger(cx: &Ctx, key: String, entries: Vec<MenuEntry>, label: String) -> AnyElement {
+/// Tombol ⋯ baris. Bila `pinned`, ikon pin menempati kotak yang sama (kolom kanan) dan digantikan ⋯ saat hover/menu terbuka,
+/// sehingga tidak ada ruang kosong dan ikon kanan tetap satu kolom.
+fn menu_trigger(cx: &Ctx, key: String, entries: Vec<MenuEntry>, pinned: bool, label: String) -> AnyElement {
     let open = cx.open_menu.as_deref() == Some(key.as_str());
     let me = cx.me.clone();
     let me2 = cx.me.clone();
     let k2 = key.clone();
-    div()
+    // Pin = saudara (bukan anak) tombol: `invisible` pada tombol ikut menyembunyikan anak-anaknya.
+    let pin_overlay = (pinned && !open).then(|| {
+        div()
+            .absolute()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_color(cx.t.colors.fg_subtle)
+            .group_hover("row", |s| s.invisible())
+            .child(icon("pin").size(IconSize::Sm))
+    });
+    let trigger = div()
         .relative()
         .flex_none()
         .when(!open, |d| d.invisible().group_hover("row", |s| s.visible()))
@@ -330,8 +473,8 @@ fn menu_trigger(cx: &Ctx, key: String, entries: Vec<MenuEntry>, label: String) -
                 })
                 .ok();
             }))
-        })
-        .into_any_element()
+        });
+    div().relative().flex_none().children(pin_overlay).child(trigger).into_any_element()
 }
 
 /// Titik status sesi (port SessionDot): idle redup, bekerja = indikator grid, butuh aksi = titik peringatan berdenyut,
@@ -385,7 +528,9 @@ fn session_row(cx: &Ctx, key: &str, s: &SessionInfo) -> AnyElement {
             me.update(cx, |sb, cx| f(sb, k.clone(), id.clone(), ti.clone(), w, cx)).ok();
         }
     };
+    let is_pinned = cx.pinned.contains(&format!("s:{}", s.id));
     let entries = vec![
+        entry(cx.i.t(if is_pinned { "sb.unpin" } else { "sb.pin" }), mk(|sb, _, id, _, _, cx| sb.toggle_pin(format!("s:{id}"), cx))).icon("pin"),
         entry(cx.i.t("sb.rename"), mk(|sb, k, id, ti, w, cx| sb.open_rename(SbDialog::RenameSession(k, id), ti, w, cx))).icon("edit"),
         entry(cx.i.t("sb.copyId"), {
             let id = s.id.clone();
@@ -407,8 +552,18 @@ fn session_row(cx: &Ctx, key: &str, s: &SessionInfo) -> AnyElement {
     ];
     let me = cx.me.clone();
     let (k, id) = (key.to_string(), s.id.clone());
+    let drag = DragSb { group: key.to_string(), id: s.id.clone(), label: title.clone().into() };
+    let (dg, did) = (key.to_string(), s.id.clone());
+    let dme = cx.me.clone();
     row_base(t, format!("s-{key}-{}", s.id), active)
         .text_color(t.colors.fg)
+        .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
+        .drag_over::<DragSb>(drop_marker(key.to_string()))
+        .on_drop(move |d: &DragSb, _, cx| {
+            if d.group == dg {
+                dme.update(cx, |sb, cx| sb.reorder(&dg, &d.id, &did, cx)).ok();
+            }
+        })
         .on_click(move |_, _, cx| {
             let (k, id) = (k.clone(), id.clone());
             me.update(cx, |sb, cx| {
@@ -419,7 +574,7 @@ fn session_row(cx: &Ctx, key: &str, s: &SessionInfo) -> AnyElement {
         })
         .child(session_dot(t, cx.i, cx.ind.get(&s.id).copied().unwrap_or(crate::core::attention::Indicator::Idle), &s.id))
         .child(div().flex_1().min_w_0().truncate().child(title.clone()))
-        .child(menu_trigger(cx, format!("s:{key}:{}", s.id), entries, cx.i.tp("sb.menuFor", &[("name", &title)])))
+        .child(menu_trigger(cx, format!("s:{key}:{}", s.id), entries, is_pinned, cx.i.tp("sb.menuFor", &[("name", &title)])))
         .into_any_element()
 }
 
@@ -439,11 +594,12 @@ fn sessions_list(cx: &Ctx, key: &str, st: Option<&SessionsState>, engine_ready: 
         _ => {}
     }
     let q = cx.query.to_lowercase();
-    let items: Vec<&SessionInfo> = st
+    let mut items: Vec<&SessionInfo> = st
         .items
         .iter()
         .filter(|s| q.is_empty() || session_title(s).unwrap_or("").to_lowercase().contains(&q))
         .collect();
+    arrange(&mut items, |s| s.id.clone(), cx.order.get(key).map(Vec::as_slice).unwrap_or(&[]), |s| cx.pinned.contains(&format!("s:{}", s.id)));
     if items.is_empty() {
         return vec![note(t, cx.i.t(if q.is_empty() { "sb.noSessions" } else { "sb.noMatch" }))];
     }
@@ -456,7 +612,9 @@ fn section_head(t: &Theme, (label, n): (String, usize), extra: Vec<AnyElement>) 
         .items_center()
         .gap(t.space(1))
         .h(t.rem(rem::CONTROL_MD))
-        .px(t.space(2))
+        // judul sejajar dengan "Workspace" (tepi kiri list = px 3, jadi tanpa padding kiri tambahan)
+        .pl(t.space(0))
+        .pr(t.space(2))
         .mt(t.space(2))
         .text_color(t.colors.fg_muted)
         .child(
@@ -490,7 +648,9 @@ impl Render for Sidebar {
             .flat_map(|g| g.items.iter())
             .map(|s| (s.id.clone(), super::notification_driver::Attention::indicator_of(&s.id, cx)))
             .collect();
-        let ctx = Ctx { t: &t, i: &i, me: me.clone(), open_menu: self.open_menu.clone(), sel, query, ind };
+        let ctx = Ctx { t: &t, i: &i, me: me.clone(), open_menu: self.open_menu.clone(), sel, query, ind, pinned: self.pinned.clone(), order: self.order.clone() };
+        let mut projects = projects;
+        arrange(&mut projects, |p| p.id.clone(), self.order.get("projects").map(Vec::as_slice).unwrap_or(&[]), |p| self.pinned.contains(&format!("p:{}", p.id)));
 
         // ---- kepala ----
         let head = div()
@@ -593,36 +753,19 @@ impl Render for Sidebar {
             );
 
         // ---- daftar ----
-        let mut list = div().id("sb-list").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().px(t.space(3)).pb(t.space(3));
+        let mut list = div().id("sb-list").flex().flex_col().flex_1().min_h_0().overflow_y_scroll();
+        if self.tab.as_ref() != "files" {
+            list = list.px(t.space(3)).pb(t.space(3));
+        }
         if self.tab.as_ref() == "files" {
             list = list.child(self.files.clone());
         } else {
-            list = list.child(
-                div()
-                    .id("sb-ws")
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .mt(t.space(1))
-                    .mx(-t.space(3))
-                    .pl(t.space(3))
-                    .pr(t.space(3) + t.space(2))
-                    .h(t.rem(rem::CONTROL_MD))
-                    .border_t_1()
-                    .border_b_1()
-                    .border_color(c.border_soft)
-                    .cursor_pointer()
-                    .text_color(c.fg_muted)
-                    .child(div().typo(&t, crate::theme::LABEL).child(i.t("sb.workspace")))
-                    .child(trailing_slot(&t, c.fg_muted, icon(if self.workspace_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm).into_any_element()))
-                    .on_click(cx.listener(|s, _, _, cx| {
-                        s.workspace_open = !s.workspace_open;
-                        cx.notify();
-                    })),
-            );
-            if self.workspace_open {
+            // Isi dibungkus satu wadah flex_none agar baris tidak menyusut (flex-shrink) saat konten
+            // melebihi tinggi daftar — penyebab posisi elemen bergeser saat expand/collapse proyek.
+            let mut inner = div().flex().flex_col().flex_none().w_full();
+            {
                 let all_collapsed = !projects.is_empty() && projects.iter().all(|p| self.collapsed.contains(&p.id));
-                list = list.child(section_head(
+                inner = inner.child(section_head(
                     &t,
                     (i.t("sb.section.projects"), projects.len()),
                     vec![
@@ -649,13 +792,14 @@ impl Render for Sidebar {
                         .on_click(cx.listener(move |s, _, _, cx| {
                             let ids: Vec<String> = s.store.read(cx).projects.iter().map(|p| p.id.clone()).collect();
                             if all_collapsed { s.collapsed.clear() } else { s.collapsed.extend(ids) }
+                            s.save_collapsed();
                             cx.notify();
                         }))
                         .into_any_element(),
                     ],
                 ));
                 if projects.is_empty() {
-                    list = list.child(note(&t, i.t("sb.noProjects")));
+                    inner = inner.child(note(&t, i.t("sb.noProjects")));
                 }
                 for p in &projects {
                     let open = !self.collapsed.contains(&p.id);
@@ -668,8 +812,10 @@ impl Render for Sidebar {
                             me.update(cx, |sb, cx| f(sb, id.clone(), name.clone(), w, cx)).ok();
                         }
                     };
+                    let p_pinned = self.pinned.contains(&format!("p:{}", p.id));
                     let entries = vec![
                         entry(i.t("sb.newSession"), mkp(|sb, id, _, _, cx| sb.new_session(id, cx))).icon("plus"),
+                        entry(i.t(if p_pinned { "sb.unpin" } else { "sb.pin" }), mkp(|sb, id, _, _, cx| sb.toggle_pin(format!("p:{id}"), cx))).icon("pin"),
                         entry(i.t("sb.rename"), mkp(|sb, id, n, w, cx| sb.open_rename(SbDialog::RenameProject(id), n, w, cx))).icon("edit"),
                         entry(i.t("sb.customize"), mkp(|sb, id, n, _, cx| {
                             let d = cx.new(|cx| super::project_style_dialog::ProjectStyleDialog::new(id, n, cx));
@@ -696,9 +842,18 @@ impl Render for Sidebar {
                         let ap = crate::core::appearance::AppearanceStore::global(cx).read(cx);
                         let col = |k: &str| ap.project_style(&p.id, k).and_then(|v| crate::core::appearance::parse_color(&v));
                         let logo_img = ap.project_style(&p.id, "logoImage").and_then(|u| crate::core::gradient::image_of(&u));
-                        (ap.project_style(&p.id, "logo"), logo_img, col("border"), col("background"), col("fg"), project_layers(&ap, &p.id))
+                        (ap.project_style(&p.id, "logo"), logo_img, col("border"), col("background"), col("fg"), project_layers(&ap, &p.id, t.rem(rem::RADIUS_MD)))
                     };
+                    let drag = DragSb { group: "projects".into(), id: p.id.clone(), label: p.name.clone().into() };
+                    let (dme, did) = (me.clone(), p.id.clone());
                     let row = row_base(&t, format!("p-{}", p.id), active && ctx.sel.1.is_none())
+                        .on_drag(drag, |d, _, _, cx| cx.new(|_| d.clone()))
+                        .drag_over::<DragSb>(drop_marker("projects".into()))
+                        .on_drop(move |d: &DragSb, _, cx| {
+                            if d.group == "projects" {
+                                dme.update(cx, |sb, cx| sb.reorder("projects", &d.id, &did, cx)).ok();
+                            }
+                        })
                         .when(!layers.is_empty(), |d| d.relative().overflow_hidden().children(layers))
                         .when_some(pbg, |d, c| d.bg(c))
                         .when_some(pborder, |d, c| d.border_1().border_color(c))
@@ -707,6 +862,7 @@ impl Render for Sidebar {
                             if !s.collapsed.remove(&pid) {
                                 s.collapsed.insert(pid.clone());
                             }
+                            s.save_collapsed();
                             cx.notify();
                         }))
                         .child(match (logo_img, logo) {
@@ -740,13 +896,13 @@ impl Render for Sidebar {
                                     .on_click(cx.listener(move |s, _, _, cx| s.new_session(pid2.clone(), cx))),
                             ),
                         )
-                        .child(menu_trigger(&ctx, format!("p:{}", p.id), entries, i.tp("sb.menuFor", &[("name", &p.name)])));
-                    list = list.child(row);
+                        .child(menu_trigger(&ctx, format!("p:{}", p.id), entries, p_pinned, i.tp("sb.menuFor", &[("name", &p.name)])));
+                    inner = inner.child(row);
                     if open {
-                        list = list.children(sessions_list(&ctx, &p.id, sessions.get(&p.id), engine_ready));
+                        inner = inner.children(sessions_list(&ctx, &p.id, sessions.get(&p.id), engine_ready));
                     }
                 }
-                list = list.child(section_head(
+                inner = inner.child(section_head(
                     &t,
                     (i.t("sb.section.chats"), sessions.get(CHAT_KEY).map(|g| g.items.len()).unwrap_or(0)),
                     vec![icon_button("sb-chat-new", "plus", i.t("sb.newChat"))
@@ -760,7 +916,7 @@ impl Render for Sidebar {
                     for d in crate::core::demo::demos() {
                         let active = ctx.sel.0.as_deref() == Some(crate::core::demo::DEMO_KEY) && ctx.sel.1.as_deref() == Some(d.id.as_str());
                         let id = d.id.clone();
-                        list = list.child(
+                        inner = inner.child(
                             row_base(&t, format!("demo-{}", d.id), active)
                                 .text_color(c.fg)
                                 .tooltip(crate::ui::tooltip::text_tooltip(i.t(&d.subtitle_key).into()))
@@ -775,8 +931,9 @@ impl Render for Sidebar {
                         );
                     }
                 }
-                list = list.children(sessions_list(&ctx, CHAT_KEY, sessions.get(CHAT_KEY), engine_ready));
+                inner = inner.children(sessions_list(&ctx, CHAT_KEY, sessions.get(CHAT_KEY), engine_ready));
             }
+            list = list.child(inner);
         }
 
         // ---- kaki ----

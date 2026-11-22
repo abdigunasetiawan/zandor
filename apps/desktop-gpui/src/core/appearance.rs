@@ -458,7 +458,7 @@ impl AppearanceStore {
             .and_then(Value::as_object)
             .map(|o| o.iter().filter_map(|(k, v)| v.as_object().map(|m| (k.clone(), m.clone()))).collect())
             .unwrap_or_default();
-        let editor_theme = raw.get("editorTheme").and_then(Value::as_str).unwrap_or("auto").to_string();
+        let editor_theme = raw.get("editorTheme").and_then(Value::as_str).unwrap_or(crate::core::editor_theme::DEFAULT_EDITOR_THEME).to_string();
         let editor_themes = raw
             .get("editorThemes")
             .and_then(Value::as_array)
@@ -731,13 +731,14 @@ impl AppearanceStore {
         self.docs.clear();
         self.shortcuts.clear();
         self.projects.clear();
-        self.editor_theme = "auto".into();
+        self.editor_theme = crate::core::editor_theme::DEFAULT_EDITOR_THEME.into();
         self.editor_themes.clear();
         self.save(cx);
     }
 
     /// Terapkan warna sintaks dari tema editor terpilih.
     pub fn apply_editor(&self, c: &mut crate::theme::Colors) {
+        crate::core::editor_theme::activate(&self.editor_theme, &self.editor_themes);
         let list = crate::core::editor_theme::code_colors_for(&self.editor_theme, &self.editor_themes);
         crate::core::editor_theme::apply_code_colors(c, &list);
     }
@@ -761,7 +762,7 @@ impl AppearanceStore {
     pub fn remove_editor_theme(&mut self, id: &str, cx: &mut Context<Self>) {
         self.editor_themes.retain(|t| t.id != id);
         if self.editor_theme == id {
-            self.editor_theme = "auto".into();
+            self.editor_theme = crate::core::editor_theme::DEFAULT_EDITOR_THEME.into();
         }
         self.save(cx);
     }

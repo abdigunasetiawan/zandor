@@ -3,7 +3,7 @@
 //! di Explorer), dan penampil per jenis: Markdown, kode bernomor, gambar/SVG, CSV/TSV (tabel), JSON (diformat), HTML
 //! (sumber + buka di peramban), DOCX/XLSX/PPTX/ipynb (pembaca best-effort), PDF/media/biner (info + buka di aplikasi
 //! lain — GPUI tidak punya mesin PDF/media).
-use crate::core::doc_kinds::{classify, decode_text, default_render, file_name, has_raw_mode, is_text_kind, parse_notebook, DocKind, NbOutput, MAX_TEXT_BYTES};
+use crate::core::doc_kinds::{classify, decode_text, default_render, file_name, always_raw, has_raw_mode, is_text_kind, parse_notebook, DocKind, NbOutput, MAX_TEXT_BYTES};
 use crate::core::patch::{drop_hunk, format_hunks, parse_patch, reverse_apply, revert_hunk, Hunk};
 use crate::core::office::{parse_docx, parse_pptx, parse_xlsx, DocxBlock};
 use crate::i18n::I18n;
@@ -79,8 +79,13 @@ pub struct DocsPanel {
     preview: bool,
     /// Editor per berkas yang sedang diedit (port docs.beginEdit).
     editors: HashMap<String, Entity<crate::ui::TextInput>>,
+    /// Berkas yang baru dicoba diubah saat belum mode edit (indikator baca-saja) + fokus area tampilan.
+    hint: Option<String>,
+    view_focus: gpui::FocusHandle,
     /// Penampil PDF per berkas (perender bawaan Windows).
     pdfs: HashMap<String, Entity<super::pdf_view::PdfView>>,
+    /// Mode pratinjau lampiran: nama berkas → path berkas sementara berisi byte-nya (untuk gambar/PDF/media).
+    temp: HashMap<String, String>,
     /// Pemutar media untuk tab aktif saja (webview dibuang saat berpindah tab).
     media: HashMap<String, Entity<super::media_view::MediaView>>,
     /// Waktu ubah berkas saat dimuat (deteksi konflik saat menyimpan).
@@ -217,7 +222,7 @@ impl DocsPanel {
             cx.notify();
         })
         .detach();
-        Self { state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), pdfs: HashMap::new(), media: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
+        Self { temp: HashMap::new(), state, cache: HashMap::new(), raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: false, editors: HashMap::new(), hint: None, view_focus: cx.focus_handle(), pdfs: HashMap::new(), media: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
     }
 
     /// Penampil mandiri untuk byte lampiran (port AttachmentPreview.tsx → PreviewBody).
@@ -228,9 +233,24 @@ impl DocsPanel {
             let d = decode_text(&bytes, MAX_TEXT_BYTES);
             (d.text, d.truncated)
         });
+        // Gambar/PDF/media dibaca dari path oleh penampilnya; `name` hanya nama berkas, bukan path nyata.
+        // Tulis byte ke berkas sementara agar penampil punya path yang valid.
+        let mut temp = HashMap::new();
+        if matches!(kind, DocKind::Image | DocKind::Svg | DocKind::Pdf | DocKind::Audio | DocKind::Video) {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            name.hash(&mut h);
+            bytes.len().hash(&mut h);
+            let ext = std::path::Path::new(&name).extension().and_then(|e| e.to_str()).filter(|e| e.chars().all(|c| c.is_ascii_alphanumeric())).unwrap_or("bin");
+            let dir = std::env::temp_dir().join("zandor-preview");
+            let file = dir.join(format!("{:016x}.{ext}", h.finish()));
+            if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(&file, &bytes).is_ok() {
+                temp.insert(name.clone(), file.to_string_lossy().into_owned());
+            }
+        }
         let mut cache = HashMap::new();
         cache.insert(name, Loaded { kind, bytes: Ok(std::sync::Arc::new(bytes)), text });
-        Self { state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), pdfs: HashMap::new(), media: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
+        Self { temp, state, cache, raw: HashSet::new(), nowrap: HashSet::new(), sheet: HashMap::new(), diff_at: HashMap::new(), confirm_all: false, preview: true, editors: HashMap::new(), hint: None, view_focus: cx.focus_handle(), pdfs: HashMap::new(), media: HashMap::new(), mtimes: HashMap::new(), ask: None, tab_menu: None, zoom: HashMap::new(), actual: HashSet::new(), find: None, find_at: 0, body_scroll: gpui::ScrollHandle::new(), open_with: None, doc_style: None, customize: false, look: DocLook::default() }
     }
 
     fn load(path: &str) -> Loaded {
@@ -288,21 +308,40 @@ impl DocsPanel {
             return;
         }
         let text = self.cache[path].text.clone().map(|x| x.0).unwrap_or_default();
+        let lang_path = path.to_string();
         let ed = cx.new(|cx| {
             let mut ti = crate::ui::TextInput::new(cx, "");
             ti.multiline = true;
             ti.enter_newline = true;
+            ti.bare = true;
+            ti.lang = Some(crate::ui::highlight::lang_of_path(&lang_path));
             ti.set_text(text, cx);
             ti
         });
         cx.observe(&ed, |_, _, cx| cx.notify()).detach();
         self.editors.insert(path.to_string(), ed);
+        self.hint = None;
         let p = path.to_string();
         self.state.update(cx, |d, cx| {
             d.diffs.remove(&p);
             cx.notify();
         });
         cx.notify();
+    }
+
+    /// Tampilkan indikator "baca saja" beberapa detik (pengguna mencoba mengubah di luar mode edit).
+    fn show_hint(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.hint = Some(path.to_string());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_secs(5)).await;
+            this.update(cx, |s, cx| {
+                s.hint = None;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn end_edit(&mut self, path: &str, cx: &mut Context<Self>) {
@@ -533,7 +572,7 @@ fn code_view_find(t: &Theme, look: &DocLook, text: &str, wrap: bool, q: &str, cu
             div()
                 .flex()
                 .gap(t.space(3))
-                .when(look.line_numbers, |d| d.child(div().flex_none().text_color(t.colors.fg_subtle).child(format!("{:>w$}", n + 1, w = w))))
+                .when(look.line_numbers, |d| d.child(div().flex_none().text_color(t.colors.code_ln.unwrap_or(t.colors.fg_subtle)).child(format!("{:>w$}", n + 1, w = w))))
                 .child(if wrap { div().flex_1().min_w_0().child(content) } else { div().whitespace_nowrap().child(content) })
         }));
     div().flex().items_start().w_full().child(body).children(minimap).into_any_element()
@@ -580,11 +619,18 @@ pub fn parse_delimited(text: &str, sep: char) -> Vec<Vec<String>> {
 
 fn table(t: &Theme, rows: &[Vec<String>], header: bool) -> AnyElement {
     let cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
+    // Lebar kolom mengikuti isi (sampel 60 baris pertama), dibatasi agar tabel tetap rapi.
+    let widths: Vec<f32> = (0..cols)
+        .map(|ci| {
+            let chars = rows.iter().take(60).filter_map(|r| r.get(ci)).map(|c| c.chars().count()).max().unwrap_or(0) as f32;
+            (chars * 0.5 + 1.5).clamp(5., 22.)
+        })
+        .collect();
     let mut grid = div().flex().flex_col().border_1().border_color(t.colors.border).rounded(t.rem(rem::RADIUS_MD)).small(t);
     for (ri, r) in rows.iter().take(MAX_TABLE_ROWS).enumerate() {
         let mut line = div().flex().when(ri > 0, |d| d.border_t_1().border_color(t.colors.border)).when(header && ri == 0, |d| d.bg(t.colors.segment).font_weight(FontWeight::SEMIBOLD));
         for ci in 0..cols {
-            line = line.child(div().w(t.rem(9.)).flex_none().px(t.space(2)).py(t.space(1)).when(ci > 0, |d| d.border_l_1().border_color(t.colors.border)).truncate().child(r.get(ci).cloned().unwrap_or_default()));
+            line = line.child(div().w(t.rem(widths[ci])).flex_none().px(t.space(2)).py(t.space(1)).when(ci > 0, |d| d.border_l_1().border_color(t.colors.border)).truncate().child(r.get(ci).cloned().unwrap_or_default()));
         }
         grid = grid.child(line);
     }
@@ -592,64 +638,174 @@ fn table(t: &Theme, rows: &[Vec<String>], header: bool) -> AnyElement {
 }
 
 fn data_img(url: &str, t: &Theme) -> Option<AnyElement> {
-    crate::core::gradient::image_of(url).map(|img| gpui::img(img).max_w_full().max_h(t.rem(30.)).into_any_element())
+    crate::core::gradient::image_of(url).map(|img| gpui::img(img).max_w_full().max_h(t.rem(16.)).into_any_element())
+}
+
+/// 1 pt dokumen = 1/12 rem (halaman Letter 612 pt ≈ 51 rem).
+const PT: f32 = 1. / 12.;
+
+fn hex_color(h: &str) -> gpui::Hsla {
+    gpui::rgb(u32::from_str_radix(h, 16).unwrap_or(0)).into()
+}
+
+/// Kertas dokumen: latar putih + teks hitam apa adanya (warna dokumen tidak mengikuti tema gelap).
+fn docx_paper(t: &Theme, r: &crate::core::office::DocxResult) -> AnyElement {
+    let pg = r.page.clone().unwrap_or(crate::core::office::DocxPage { width: 612., height: 792., left: 72., right: 72., top: 72., bottom: 72. });
+    div()
+        .w_full()
+        .max_w(t.rem(pg.width * PT))
+        .mx_auto()
+        .flex()
+        .flex_col()
+        .rounded(t.rem(rem::RADIUS_SM))
+        .bg(gpui::white())
+        .text_color(gpui::black())
+        .pl(t.rem(pg.left * PT))
+        .pr(t.rem(pg.right * PT))
+        .pt(t.rem(pg.top * PT))
+        .pb(t.rem(pg.bottom * PT))
+        .children(docx_view(t, &r.blocks))
+        .into_any_element()
 }
 
 fn docx_view(t: &Theme, blocks: &[DocxBlock]) -> Vec<AnyElement> {
-    blocks
-        .iter()
-        .map(|b| match b {
-            DocxBlock::P { style, list, runs } => {
-                let mut p = div().flex().flex_wrap().items_baseline();
-                p = match style.as_deref() {
-                    Some("title") => p.typo(t, crate::theme::H1),
-                    Some("h1") => p.typo(t, crate::theme::H2),
-                    Some("h2") => p.typo(t, crate::theme::H3),
-                    Some(_) => p.typo(t, crate::theme::H4),
-                    None => p,
+    let mut out: Vec<AnyElement> = Vec::with_capacity(blocks.len());
+    let mut counters: Vec<u32> = vec![];
+    for b in blocks {
+        match b {
+            DocxBlock::P { style, list, runs, fmt } => {
+                let first = runs.iter().find(|r| !r.text.trim().is_empty());
+                let size = first.and_then(|r| r.size);
+                let sz_pt = size.unwrap_or(11.);
+                let has_image = runs.iter().any(|r| r.image.is_some());
+                // teks digabung jadi satu StyledText (pembungkusan kata benar) dengan gaya per rentang
+                let mut segs: Vec<AnyElement> = vec![];
+                let mut text = String::new();
+                let mut hl: Vec<(std::ops::Range<usize>, gpui::HighlightStyle)> = vec![];
+                if let Some(f) = fmt.first.filter(|f| *f > 0.) {
+                    text.push_str(&"\u{2003}".repeat((f / sz_pt).round().max(1.) as usize));
+                }
+                let flush = |text: &mut String, hl: &mut Vec<(std::ops::Range<usize>, gpui::HighlightStyle)>, segs: &mut Vec<AnyElement>| {
+                    if !text.is_empty() {
+                        segs.push(gpui::StyledText::new(std::mem::take(text)).with_highlights(std::mem::take(hl)).into_any_element());
+                    }
                 };
-                if let Some((lvl, _)) = list {
-                    p = p.pl(t.space(4) * (*lvl as f32 + 1.)).child(div().mr(t.space(1)).child("•"));
-                }
                 for r in runs {
-                    if let Some(img) = r.image.as_deref().and_then(|u| data_img(u, t)) {
-                        p = p.child(img);
+                    let s = r.text.replace('\t', "    ");
+                    if !s.is_empty() {
+                        let start = text.len();
+                        text.push_str(&s);
+                        let link = r.href.is_some();
+                        hl.push((
+                            start..text.len(),
+                            gpui::HighlightStyle {
+                                font_weight: r.bold.then_some(FontWeight::BOLD),
+                                font_style: r.italic.then_some(gpui::FontStyle::Italic),
+                                color: r.color.as_deref().map(hex_color).or_else(|| link.then(|| hex_color("0563C1"))),
+                                background_color: r.highlight.as_deref().map(hex_color),
+                                underline: (r.underline || link).then(|| gpui::UnderlineStyle { thickness: gpui::px(1.), color: None, wavy: false }),
+                                strikethrough: r.strike.then(|| gpui::StrikethroughStyle { thickness: gpui::px(1.), color: None }),
+                                ..Default::default()
+                            },
+                        ));
                     }
-                    if !r.text.is_empty() {
-                        let mut s = div().child(r.text.clone());
-                        if r.bold {
-                            s = s.font_weight(FontWeight::BOLD);
-                        }
-                        if r.italic {
-                            s = s.italic();
-                        }
-                        if r.underline || r.href.is_some() {
-                            s = s.underline();
-                        }
-                        if r.strike {
-                            s = s.line_through();
-                        }
-                        if r.href.is_some() {
-                            s = s.text_color(t.colors.accent);
-                        }
-                        p = p.child(s);
+                    if let Some(img) = r.image.as_deref().and_then(|u| crate::core::gradient::image_of(u)) {
+                        flush(&mut text, &mut hl, &mut segs);
+                        let el = gpui::img(img);
+                        segs.push(match r.image_size {
+                            Some((w, h)) => el.w(t.rem(w * PT)).h(t.rem(h * PT)).max_w_full().flex_none().into_any_element(),
+                            None => el.max_w_full().max_h(t.rem(16.)).into_any_element(),
+                        });
                     }
                 }
-                p.min_h(t.rem(1.)).into_any_element()
+                flush(&mut text, &mut hl, &mut segs);
+
+                let mut p = div().w_full().min_w_0();
+                p = match (size, style.as_deref()) {
+                    (None, Some("title")) => p.typo(t, crate::theme::H1),
+                    (None, Some("h1")) => p.typo(t, crate::theme::H2),
+                    (None, Some("h2")) => p.typo(t, crate::theme::H3),
+                    (None, Some(_)) => p.typo(t, crate::theme::H4),
+                    _ => p.text_size(t.rem(sz_pt * PT)),
+                };
+                if let Some(f) = first.and_then(|r| r.font.clone()) {
+                    p = p.font_family(f);
+                }
+                p = p.line_height(gpui::relative(fmt.line.unwrap_or(1.) * 1.2));
+                p = match fmt.align.as_deref() {
+                    Some("center") => p.text_center(),
+                    Some("right") => p.text_right(),
+                    _ => p,
+                };
+                if let Some(v) = fmt.before {
+                    p = p.mt(t.rem(v * PT));
+                }
+                if let Some(v) = fmt.after {
+                    p = p.mb(t.rem(v * PT));
+                }
+                if let Some(c) = fmt.fill.as_deref() {
+                    p = p.bg(hex_color(c));
+                }
+                if segs.is_empty() {
+                    p = p.min_h(t.rem(sz_pt * PT * 1.2));
+                } else if has_image {
+                    p = p.flex().flex_wrap().items_end().when(fmt.align.as_deref() == Some("center"), |d| d.justify_center()).when(fmt.align.as_deref() == Some("right"), |d| d.justify_end()).children(segs);
+                } else {
+                    p = p.children(segs);
+                }
+                match list {
+                    Some((lvl, ordered)) => {
+                        let l = *lvl as usize;
+                        let marker = if *ordered {
+                            counters.truncate(l + 1);
+                            counters.resize(l + 1, 0);
+                            counters[l] += 1;
+                            format!("{}.", counters[l])
+                        } else {
+                            counters.clear();
+                            ["\u{2022}", "\u{25E6}", "\u{25AA}"][l.min(2)].to_string()
+                        };
+                        let left = fmt.left.unwrap_or(18. * (*lvl as f32 + 1.));
+                        out.push(
+                            div()
+                                .w_full()
+                                .flex()
+                                .pl(t.rem(left * PT))
+                                .text_size(t.rem(sz_pt * PT))
+                                .child(div().flex_none().w(t.rem(18. * PT)).child(marker))
+                                .child(div().flex_1().min_w_0().child(p))
+                                .into_any_element(),
+                        );
+                    }
+                    None => {
+                        counters.clear();
+                        out.push(p.when_some(fmt.left, |d, v| d.pl(t.rem(v * PT))).when_some(fmt.right, |d, v| d.pr(t.rem(v * PT))).into_any_element());
+                    }
+                }
             }
-            DocxBlock::Table { rows } => {
-                let mut g = div().flex().flex_col().border_1().border_color(t.colors.border);
+            DocxBlock::Table { rows, widths, grid } => {
+                counters.clear();
+                let total: f32 = widths.iter().sum();
+                let bc = hex_color("8C8C8C");
+                let mut g = div().w_full().flex().flex_col().when(*grid, |d| d.border_t_1().border_l_1().border_color(bc));
                 for r in rows {
-                    let mut line = div().flex().border_b_1().border_color(t.colors.border);
+                    let mut line = div().flex().w_full();
+                    let mut col = 0usize;
                     for c in r {
-                        line = line.child(div().flex_1().min_w_0().p(t.space(1)).border_r_1().border_color(t.colors.border).flex().flex_col().children(docx_view(t, c)));
+                        let span = c.span.max(1);
+                        let w = if total > 0. { widths.iter().skip(col).take(span).sum::<f32>() / total } else { 0. };
+                        col += span;
+                        let mut cell = div().min_w_0().overflow_hidden().p(t.rem(4. * PT)).flex().flex_col().when(*grid, |d| d.border_r_1().border_b_1().border_color(bc)).when_some(c.fill.as_deref(), |d, f| d.bg(hex_color(f)));
+                        cell = if w > 0. { cell.w(gpui::relative(w)).flex_none() } else { cell.flex_1() };
+                        line = line.child(cell.children(docx_view(t, &c.blocks)));
                     }
                     g = g.child(line);
                 }
-                g.into_any_element()
+                out.push(g.into_any_element());
             }
-        })
-        .collect()
+        }
+    }
+    out
 }
 
 fn human(n: usize) -> String {
@@ -675,7 +831,7 @@ impl DocsPanel {
         let truncated = l.text.as_ref().is_some_and(|x| x.1);
         let text = l.text.as_ref().map(|x| x.0.clone()).unwrap_or_default();
         let trunc = truncated.then(|| note(t, i.t("doc.truncated")));
-        let el: AnyElement = if (raw || kind == DocKind::Code) && is_text_kind(kind) {
+        let el: AnyElement = if (raw || always_raw(kind)) && is_text_kind(kind) {
             let q = self.find.as_ref().map(|f| f.read(cx).text().to_string()).unwrap_or_default();
             code_view_find(t, &self.look, &text, wrap, &q, self.find_at, &crate::ui::highlight::lang_of_path(path))
         } else {
@@ -699,7 +855,7 @@ impl DocsPanel {
                         let actual = self.actual.contains(path);
                         let p = path.to_string();
                         let err = i.t("doc.imageError");
-                        let im = gpui::img(std::path::PathBuf::from(path)).with_fallback(move || div().child(err.clone()).into_any_element());
+                        let im = gpui::img(std::path::PathBuf::from(self.temp.get(path).map(String::as_str).unwrap_or(path))).with_fallback(move || div().child(err.clone()).into_any_element());
                         let im = if actual || z != 1. {
                             // ukuran asli dikali zoom (piksel gambar → px logis)
                             match image_dims(&bytes) {
@@ -776,19 +932,15 @@ impl DocsPanel {
                 DocKind::Docx => match parse_docx(&bytes) {
                     Err(e) => note(t, i.tp("doc.officeFailed", &[("name", file_name(path)), ("error", &e)])),
                     Ok(r) => {
-                        let t2 = self.look.themed(t);
-                        self.look.prose(
-                            t,
-                            div()
-                                .flex()
-                                .flex_col()
-                                .gap(t.space(2))
-                                .p(t.space(4))
-                                .child(div().small(&t2).text_color(t2.colors.fg_muted).child(i.t("doc.officeBestEffort")))
-                                .children(docx_view(&t2, &r.blocks))
-                                .when(r.truncated, |d| d.child(note(&t2, i.t("doc.officeTruncated"))))
-                                .into_any_element(),
-                        )
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(t.space(2))
+                            .p(t.space(3))
+                            .child(div().small(t).text_color(t.colors.fg_muted).child(i.t("doc.officeBestEffort")))
+                            .child(docx_paper(t, &r))
+                            .when(r.truncated, |d| d.child(note(t, i.t("doc.officeTruncated"))))
+                            .into_any_element()
                     }
                 },
                 DocKind::Xlsx => match parse_xlsx(&bytes) {
@@ -842,11 +994,13 @@ impl DocsPanel {
                 DocKind::Audio | DocKind::Video => {
                     let p = path.to_string();
                     self.media.retain(|k, _| *k == p);
-                    self.media.entry(p.clone()).or_insert_with(|| cx.new(|cx| super::media_view::MediaView::new(&p, cx))).clone().into_any_element()
+                    let src = self.temp.get(path).cloned().unwrap_or_else(|| p.clone());
+                    self.media.entry(p).or_insert_with(|| cx.new(|cx| super::media_view::MediaView::new(&src, cx))).clone().into_any_element()
                 }
                 DocKind::Pdf => {
                     let p = path.to_string();
-                    self.pdfs.entry(p.clone()).or_insert_with(|| cx.new(|cx| super::pdf_view::PdfView::new(p, cx))).clone().into_any_element()
+                    let src = self.temp.get(path).cloned().unwrap_or_else(|| p.clone());
+                    self.pdfs.entry(p).or_insert_with(|| cx.new(|cx| super::pdf_view::PdfView::new(src, cx))).clone().into_any_element()
                 }
                 _ => {
                     let p = path.to_string();
@@ -925,8 +1079,13 @@ impl Render for DocsPanel {
         let kind = self.cache[&active].kind;
         self.media.retain(|k, _| *k == active);
         self.look = DocLook::from(&crate::core::appearance::AppearanceStore::global(cx).read(cx).docs);
+        // Tampilan kode/editor memakai latar + teks tema editor (editor.background / editor.foreground), seperti VS Code.
+        let code_surface = t.colors.code_bg.is_some()
+            && (self.editors.contains_key(&active) || ((self.raw.contains(&active) || always_raw(kind)) && is_text_kind(kind)) || matches!(kind, DocKind::Json | DocKind::Html));
+        let (surf_bg, surf_fg) = (t.colors.code_bg, t.colors.code_fg);
         if self.preview {
-            return self.body(&t, &i, &active, cx);
+            let body = self.body(&t, &i, &active, cx);
+            return div().w_full().when(code_surface, |d| d.when_some(surf_bg, |d, c| d.bg(c)).when_some(surf_fg, |d, c| d.text_color(c))).child(body).into_any_element();
         }
 
         let mut tabs = div().id("doc-tabs").flex().flex_none().items_center().gap(t.space(1)).px(t.space(2)).h(t.rem(rem::TITLEBAR_HEIGHT)).border_b_1().border_color(t.colors.border).overflow_x_scroll();
@@ -1003,7 +1162,7 @@ impl Render for DocsPanel {
         }
         let editing = self.editors.contains_key(&active);
         let dirty = self.is_dirty(&active, cx);
-        let textual = is_text_kind(kind) && (raw || kind == DocKind::Code);
+        let textual = is_text_kind(kind) && (raw || always_raw(kind));
         let can_find = textual && !editing;
         if kind == DocKind::Html {
             let p = active.clone();
@@ -1121,6 +1280,27 @@ impl Render for DocsPanel {
                 .child(icon_button("doc-find-next", "chevron_down", i.t("diff.next")).size(ControlSize::Sm).disabled(n == 0).on_click(cx.listener(move |s, _, _, cx| s.find_step(1, n, cx))))
                 .child(icon_button("doc-find-close", "close", i.t("ui.close")).size(ControlSize::Sm).on_click(cx.listener(|s, _, w, cx| s.toggle_find(w, cx))))
         });
+        let hint_bar = self.hint.clone().filter(|h| *h == active && textual && !editing).map(|_| {
+            let block = self.edit_block(&active);
+            let a_he = active.clone();
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(t.space(2))
+                .px(t.space(3))
+                .py(t.space(1))
+                .bg(t.colors.hover)
+                .child(icon("eye").size(IconSize::Sm).color(t.colors.fg_muted))
+                .child(div().flex_1().small(&t).text_color(t.colors.fg_muted).child(match block {
+                    None => i.t("doc.readOnly"),
+                    Some(b) => format!("{} {}", i.t("doc.readOnly"), i.t(&format!("doc.noEdit.{b}"))),
+                }))
+                .when(block.is_none(), |d| d.child(button("doc-hint-edit").size(ControlSize::Sm).label(i.t("doc.edit")).on_click(cx.listener(move |s, _, _, cx| s.begin_edit(&a_he, cx)))))
+        });
+        let ro_path = active.clone();
+        let ro_path2 = active.clone();
+        let read_only = textual && !editing;
         let menu = self.tab_menu.clone().map(|(anchor, pos)| {
             let idx = open.iter().position(|p| *p == anchor).unwrap_or(0);
             let last = open.len().saturating_sub(1);
@@ -1157,11 +1337,37 @@ impl Render for DocsPanel {
             .child(tabs)
             .child(bar)
             .children(find_bar)
+            .children(hint_bar)
             .child(if viewer == "pdf" || viewer == "media" {
                 // PDF menggulir sendiri (memuat halaman sesuai viewport)
                 div().id("doc-body").flex_1().min_h_0().flex().flex_col().child(body)
             } else {
-                div().id("doc-body").flex_1().min_h_0().overflow_scroll().track_scroll(&self.body_scroll).child(body)
+                div()
+                    .id("doc-body")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_scroll()
+                    .track_scroll(&self.body_scroll)
+                    .when(read_only, |d| {
+                        d.track_focus(&self.view_focus)
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(move |s, _, w, cx| {
+                                    s.view_focus.focus(w, cx);
+                                    s.show_hint(&ro_path, cx);
+                                }),
+                            )
+                            .on_key_down(cx.listener(move |s, e: &gpui::KeyDownEvent, _, cx| {
+                                let k = &e.keystroke;
+                                let m = &k.modifiers;
+                                let typing = (k.key.chars().count() == 1 && !m.control && !m.platform && !m.alt) || matches!(k.key.as_str(), "enter" | "backspace" | "delete" | "tab") || ((m.control || m.platform) && matches!(k.key.as_str(), "v" | "x"));
+                                if typing {
+                                    s.show_hint(&ro_path2, cx);
+                                }
+                            }))
+                    })
+                    .when(code_surface, |d| d.when_some(surf_bg, |d, c| d.bg(c)).when_some(surf_fg, |d, c| d.text_color(c)))
+                    .child(body)
             })
             .children(menu)
             .children(custom)
@@ -1311,7 +1517,7 @@ impl DocsPanel {
                 cx.notify();
             })))
             .child(div().flex_1())
-            .child(button(p("dacc")).size(ControlSize::Sm).variant(ButtonVariant::Solid).disabled(n == 0).child(icon("check").size(IconSize::Sm)).label(i.t("diff.accept")).on_click(cx.listener(move |s, _, _, cx| s.accept_hunk(&p3, cx))))
+            .child(button(p("dacc")).size(ControlSize::Sm).variant(ButtonVariant::Solid).disabled(n == 0).leading_icon("check").label(i.t("diff.accept")).on_click(cx.listener(move |s, _, _, cx| s.accept_hunk(&p3, cx))))
             .child(button(p("drej")).size(ControlSize::Sm).disabled(n == 0 || !can_reject).child(icon("undo").size(IconSize::Sm)).label(i.t("diff.reject")).on_click(cx.listener(move |s, _, _, cx| s.reject_hunk(&p4, cx))))
             .child(button(p("daccall")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).label(i.t("diff.acceptAll")).on_click(cx.listener(move |s, _, _, cx| s.state.update(cx, |d, cx| d.set_diff(&p5, None, cx)))))
             .child(button(p("drejall")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).disabled(!can_reject).label(i.t("diff.rejectAll")).on_click(cx.listener(|s, _, _, cx| {
@@ -1606,7 +1812,7 @@ fn viewer_name(kind: DocKind, raw: bool, diff: bool, editing: bool) -> &'static 
     if diff && !editing && is_text_kind(kind) {
         return "diff";
     }
-    if kind == DocKind::Code || (raw && has_raw_mode(kind)) {
+    if always_raw(kind) || (raw && has_raw_mode(kind)) {
         return "code";
     }
     match kind {

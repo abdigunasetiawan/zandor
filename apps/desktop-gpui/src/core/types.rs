@@ -229,6 +229,16 @@ fn n(o: &Obj, k: &str, d: f64) -> f64 {
 fn obj<'a>(o: &'a Obj, k: &str) -> Option<&'a Obj> {
     o.get(k).and_then(Value::as_object)
 }
+
+/// Status jalan sesi dari objek `{ type: "busy" | "retry" | "idle", ... }` (event `session.status` dan
+/// `GET /session/status`).
+pub fn parse_run_status(st: &Obj) -> SessionRunStatus {
+    match st.get("type").and_then(Value::as_str) {
+        Some("busy") => SessionRunStatus::Busy,
+        Some("retry") => SessionRunStatus::Retry { attempt: n(st, "attempt", 0.), message: s(st, "message").unwrap_or_default() },
+        _ => SessionRunStatus::Idle,
+    }
+}
 fn strs(v: Option<&Value>) -> Vec<String> {
     v.and_then(Value::as_array)
         .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
@@ -451,12 +461,7 @@ pub fn to_engine_event(raw: &Value) -> Option<EngineEvent> {
         },
         "session.status" => {
             let session_id = ne(p, "sessionID")?;
-            let st = obj(p, "status").unwrap_or(&e);
-            let status = match st.get("type").and_then(Value::as_str) {
-                Some("busy") => SessionRunStatus::Busy,
-                Some("retry") => SessionRunStatus::Retry { attempt: n(st, "attempt", 0.), message: s(st, "message").unwrap_or_default() },
-                _ => SessionRunStatus::Idle,
-            };
+            let status = parse_run_status(obj(p, "status").unwrap_or(&e));
             SessionStatus { session_id, status }
         }
         "session.updated" => {

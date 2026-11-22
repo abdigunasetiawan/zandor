@@ -144,8 +144,8 @@ impl DesignSystemPage {
                     .flex_col()
                     .gap(t.space(1))
                     .child(h("Font"))
-                    .child(div().font_family(t.font_ui.clone()).child("UI — Plus Jakarta Sans Variable (OFL)"))
-                    .child(div().font_family(t.font_code.clone()).code(t).child("Kode — JetBrains Mono Variable (OFL): const x = 42;"))
+                    .child(div().font_family(t.font_ui.clone()).child("UI — Inter Variable (OFL)"))
+                    .child(div().font_family(t.font_code.clone()).code(t).child("Kode — Fira Code Variable (OFL): const x = 42;"))
                     .child(note("Font terminal memakai font kode secara bawaan dan bisa diatur terpisah (--z-font-terminal).")),
             )
             .into_any_element()

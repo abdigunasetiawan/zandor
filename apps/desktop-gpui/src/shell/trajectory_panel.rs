@@ -1,6 +1,7 @@
 //! Panel alat Trajectory — port TrajectoryPanel.tsx (ADR-073): bilah (lipat semua giliran, tampil/sembunyi konteks/
 //! berpikir/tool/langkah, mode durasi/urutan, salin JSON, cari), statistik sesi, ikhtisar tiga jalur (Masukan/Model/
-//! Tool), daftar rekaman per giliran, dan inspektur (Ringkasan/Input/Output/Raw). Data murni dari pesan sesi.
+//! Tool), daftar rekaman per giliran, dan inspektur (Ringkasan/Input/Output/Raw). Data dari pesan sesi, ditambah
+//! system prompt per giliran dari rekaman plugin (`core::system_prompts`).
 use crate::core::chat_store::ChatStore;
 use crate::core::projects::ProjectStore;
 use crate::core::trajectory::{self as tj, Kind, Lane, Record, Turn};
@@ -20,6 +21,8 @@ pub struct TrajectoryPanel {
     selected: Option<String>,
     tab: SharedString,
     session: Option<String>,
+    /// Rekaman system prompt sesi terpilih (dibaca ulang hanya bila berkasnya berubah).
+    system: crate::core::system_prompts::Cache,
 }
 
 fn clock(ms: Option<f64>) -> String {
@@ -50,7 +53,7 @@ impl TrajectoryPanel {
         cx.subscribe(&query, |_, _, _: &InputChanged, cx| cx.notify()).detach();
         cx.observe(&ChatStore::global(cx), |_, _, cx| cx.notify()).detach();
         cx.observe(&ProjectStore::global(cx), |_, _, cx| cx.notify()).detach();
-        Self { query, hidden: HashSet::new(), folded: HashSet::new(), time_mode: true, selected: None, tab: "summary".into(), session: None }
+        Self { query, hidden: HashSet::new(), folded: HashSet::new(), time_mode: true, selected: None, tab: "summary".into(), session: None, system: Default::default() }
     }
 
     fn select(&mut self, r: &Record, cx: &mut Context<Self>) {
@@ -177,7 +180,8 @@ impl Render for TrajectoryPanel {
             self.folded.clear();
         }
         let msgs = ChatStore::global(cx).read(cx).sessions.get(&sess.id).map(|c| c.messages.clone()).unwrap_or_default();
-        let turns = tj::build(&msgs);
+        let mut turns = tj::build(&msgs);
+        tj::attach_system(&mut turns, self.system.get(&sess.id));
         let sum = tj::totals(&turns);
         let now = crate::core::projects::now_ms();
         let tl = tj::timeline(&turns, self.time_mode, now);
@@ -187,7 +191,7 @@ impl Render for TrajectoryPanel {
         let all_folded = !turns.is_empty() && turns.iter().all(|x| self.folded.contains(&x.turn));
 
         // ---- bilah ----
-        let mut bar = div().flex().flex_wrap().items_center().gap(t.space(1)).p(t.space(2));
+        let mut bar = div().flex().flex_wrap().items_center().gap(t.space(1)).p(t.space(2)).border_b_1().border_color(t.colors.border_soft);
         let turn_ids: Vec<usize> = turns.iter().map(|x| x.turn).collect();
         bar = bar.child(
             button("traj-fold")

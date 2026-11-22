@@ -15,6 +15,7 @@ pub struct Root {
     toasts: Entity<Toasts>,
     settings_page: Entity<super::settings_page::SettingsPage>,
     design_page: Entity<super::design_system_page::DesignSystemPage>,
+    labs_page: Entity<super::labs_page::LabsPage>,
     onboarding_page: Entity<super::onboarding_page::OnboardingPage>,
     palette: Option<Entity<super::command_center::CommandCenter>>,
     gsearch: Option<Entity<super::global_search::GlobalSearch>>,
@@ -44,7 +45,7 @@ impl Root {
             let mut tb = TitleBar::new(app.clone(), cx);
             tb.on_command = Some(Rc::new(move |id: &str, w: &mut Window, cx: &mut App| {
                 let id = id.to_string();
-                me.update(cx, |r, cx| r.run_command(&id, w, cx)).ok();
+                me.update(cx, |r, cx| r.run_user_command(&id, w, cx)).ok();
             }));
             tb
         });
@@ -56,7 +57,7 @@ impl Root {
             }
             if let Some(c) = super::commands::command_for_combo(&combo, cx) {
                 let id = c.id;
-                r.run_command(id, w, cx);
+                r.run_user_command(id, w, cx);
             }
         })
         .detach();
@@ -83,6 +84,7 @@ impl Root {
             p
         });
         let design_page = cx.new(|cx| super::design_system_page::DesignSystemPage::new(app.clone(), cx));
+        let labs_page = cx.new(|cx| super::labs_page::LabsPage::new(app.clone(), cx));
         let onboarding_page = cx.new(|cx| super::onboarding_page::OnboardingPage::new(app.clone(), cx));
         if crate::core::settings::SettingsStore::global(cx).read(cx).bool("onboarding") {
             app.update(cx, |a, cx| a.push("/welcome", cx));
@@ -101,10 +103,21 @@ impl Root {
         })
         .detach();
         // Kontrol aplikasi oleh agent (ADR-077): ambil antrean tiap POLL_MS, jalankan, jawab.
+        let mut snap_ms: u64 = 0;
         cx.spawn_in(window, async move |this, cx| loop {
             // polling cepat hanya saat agent sedang mengendalikan browser (loop snapshot → aksi)
             let poll = if super::browser_agent::session_active() { 100 } else { super::agent_control::POLL_MS };
             cx.background_executor().timer(std::time::Duration::from_millis(poll)).await;
+            // tangkapan halaman Browser (pengganti webview saat disembunyikan menu/dialog): tiap ~2 dtk
+            snap_ms += poll;
+            if snap_ms >= 2000 {
+                snap_ms = 0;
+                let _ = this.update_in(cx, |_, _, cx| {
+                    if let Some(p) = super::browser_agent::panel(cx) {
+                        p.update(cx, |b, cx| b.capture_snapshot(cx));
+                    }
+                });
+            }
             let dir = super::agent_control::control_dir();
             let raw = cx.background_spawn(async move { crate::control::take(&dir) }).await;
             let reqs: Vec<_> = raw.iter().filter_map(super::agent_control::to_request).collect();
@@ -160,7 +173,16 @@ impl Root {
             }
         })
         .detach();
-        Self { app, titlebar, layout, toasts, palette: None, gsearch: None, imagegen: None, confirm_chats: false, settings_page, design_page, onboarding_page }
+        Self { app, titlebar, layout, toasts, palette: None, gsearch: None, imagegen: None, confirm_chats: false, settings_page, design_page, labs_page, onboarding_page }
+    }
+
+    /// Perintah yang dipicu pengguna (menu, palet, pintasan): dicatat ke "Terakhir digunakan" lalu dijalankan.
+    /// Perintah dari agent (`agent_control`) memakai `run_command` langsung sehingga tidak tercatat.
+    pub fn run_user_command(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if id != "app.palette" {
+            self.app.update(cx, |a, cx| a.record_command(id, cx));
+        }
+        self.run_command(id, window, cx);
     }
 
     /// Jalankan perintah dari registry (menu, palet, pintasan).
@@ -200,7 +222,7 @@ impl Root {
                         r.palette = None;
                         match e {
                             PaletteEvent::Close => {}
-                            PaletteEvent::Run(PaletteAction::Command(id)) => r.run_command(id, w, cx),
+                            PaletteEvent::Run(PaletteAction::Command(id)) => r.run_user_command(id, w, cx),
                             PaletteEvent::Run(PaletteAction::Session(k, s)) => {
                                 let (k, s) = (k.clone(), s.clone());
                                 crate::core::projects::ProjectStore::global(cx).update(cx, |st, cx| st.select(Some(k), Some(s), cx));
@@ -239,6 +261,7 @@ impl Root {
             "app.goHome" => app.update(cx, |a, cx| a.push("/", cx)),
             "help.tour" => app.update(cx, |a, cx| a.push("/welcome", cx)),
             "dev.designSystem" => app.update(cx, |a, cx| a.push("/design-system", cx)),
+            "dev.labs" => app.update(cx, |a, cx| a.push("/labs", cx)),
             "dev.deleteChats" => {
                 if crate::core::projects::ProjectStore::global(cx).read(cx).chat_count() == 0 {
                     let title = cx.global::<I18n>().t("dev.deleteChats.none");
@@ -327,6 +350,8 @@ impl Render for Root {
             self.settings_page.clone().into_any_element()
         } else if route == "/design-system" {
             self.design_page.clone().into_any_element()
+        } else if route == "/labs" {
+            self.labs_page.clone().into_any_element()
         } else if route == "/welcome" {
             self.onboarding_page.clone().into_any_element()
         } else {
@@ -339,7 +364,12 @@ impl Render for Root {
             .flex_col()
             .size_full()
             .overflow_hidden()
-            .bg(t.colors.bg)
+            // Klik di area GPUI (klik di webview tidak sampai ke sini) → kembalikan fokus keyboard dari webview ke GPUI.
+            .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
+                super::browser::release_webview_focus();
+                window.refresh();
+            })
+            .bg(if t.colors.frame.a == 0. { t.colors.frame } else { t.colors.bg }) // Kaca: latar jendela buram menembus
             .text_color(t.colors.fg)
             .font_family(t.font_ui.clone())
             .text_size(t.rem(t.ty(crate::theme::P).size))
@@ -408,7 +438,68 @@ pub fn apply_settings(window: &mut Window, cx: &mut App) {
         ap.apply_type(&mut theme);
         ap.apply_editor(&mut theme.colors);
     }
+    let surface = if cfg!(windows) { crate::core::settings::SettingsStore::global(cx).read(cx).str("surface") } else { String::new() };
+    let glass = matches!(surface.as_str(), "glass" | "mica" | "clear");
+    if glass {
+        theme.colors.glassify(theme.dark, surface == "clear");
+    }
+    eprintln!("[zandor] permukaan={surface} alpha_bg={}", theme.colors.bg.a);
+    extend_frame(window, glass);
+    window.set_background_appearance(match surface.as_str() {
+        "glass" => gpui::WindowBackgroundAppearance::Blurred,
+        "mica" => gpui::WindowBackgroundAppearance::MicaAltBackdrop,
+        "clear" => gpui::WindowBackgroundAppearance::Transparent,
+        _ => gpui::WindowBackgroundAppearance::Opaque,
+    });
+    blur_behind(window, surface == "glass");
     cx.set_global(theme);
     cx.set_global(I18n::new(locale));
     window.refresh();
+}
+
+/// Windows: bahan latar DWM (Mica/Acrylic) hanya tampil bila bingkai diperluas ke area klien;
+/// tanpa ini jendela tanpa-bingkai-bawaan tampak hitam di balik panel transparan.
+fn extend_frame(window: &Window, on: bool) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMWA_SYSTEMBACKDROP_TYPE};
+        use windows_sys::Win32::UI::Controls::MARGINS;
+        let Ok(h) = HasWindowHandle::window_handle(window) else { return };
+        if let RawWindowHandle::Win32(w) = h.as_raw() {
+            // Lepas bahan latar sisa (mis. Mica) sebelum mode baru dipasang; GPUI tidak menghapusnya.
+            let none: u32 = 1; // DWMSBT_NONE
+            let r1 = unsafe { DwmSetWindowAttribute(w.hwnd.get() as _, DWMWA_SYSTEMBACKDROP_TYPE as u32, (&none as *const u32).cast(), 4) };
+            let n = if on { -1 } else { 0 };
+            let m = MARGINS { cxLeftWidth: n, cxRightWidth: n, cyTopHeight: n, cyBottomHeight: n };
+            let r2 = unsafe { DwmExtendFrameIntoClientArea(w.hwnd.get() as _, &m) };
+            let msg = format!("kaca: aktif={on} backdrop_none=0x{r1:x} extend=0x{r2:x} hwnd={:?}", w.hwnd);
+            eprintln!("[zandor] {msg}");
+            if let Ok(d) = std::env::var("TEMP") {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{d}/zandor-kaca.log")) {
+                    let _ = writeln!(f, "{msg}");
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (window, on);
+}
+
+/// Windows: blur-behind klasik DWM (tanpa tint). Cadangan bila acrylic dari GPUI tidak tampil.
+fn blur_behind(window: &Window, on: bool) {
+    #[cfg(windows)]
+    {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows_sys::Win32::Graphics::Dwm::{DwmEnableBlurBehindWindow, DWM_BB_ENABLE, DWM_BLURBEHIND};
+        let Ok(h) = HasWindowHandle::window_handle(window) else { return };
+        if let RawWindowHandle::Win32(w) = h.as_raw() {
+            let bb = DWM_BLURBEHIND { dwFlags: DWM_BB_ENABLE, fEnable: on as i32, hRgnBlur: std::ptr::null_mut(), fTransitionOnMaximized: 0 };
+            let r = unsafe { DwmEnableBlurBehindWindow(w.hwnd.get() as _, &bb) };
+            eprintln!("[zandor] blur_behind={on} hr=0x{r:x}");
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (window, on);
 }

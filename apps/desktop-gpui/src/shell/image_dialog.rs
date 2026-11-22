@@ -93,6 +93,7 @@ impl ImageDialog {
         let prompt = cx.new(|cx| {
             let mut t = TextInput::new(cx, "");
             t.multiline = true;
+            t.wrap = true;
             t
         });
         cx.subscribe(&prompt, |_, _, _: &InputChanged, cx| cx.notify()).detach();

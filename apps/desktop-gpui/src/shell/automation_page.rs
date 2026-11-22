@@ -62,6 +62,7 @@ impl AutomationPage {
                 let e = mk(cx, "", t.map(|t| t.prompt.clone()).unwrap_or_default());
                 e.update(cx, |ti, _| {
                     ti.multiline = true;
+                    ti.wrap = true;
                     ti.enter_newline = true;
                 });
                 e

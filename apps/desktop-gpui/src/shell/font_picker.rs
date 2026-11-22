@@ -1,7 +1,7 @@
 //! Pemilih jenis huruf — port FontPicker.tsx: pemicu bergaya Select → popover dengan kolom cari (langsung terfokus)
 //! dan daftar font: pilihan bawaan (preset), font yang dibundel aplikasi, dan font terinstal di komputer (dari sistem
 //! teks GPUI; dimuat sekali lalu di-cache). Tiap nama ditampilkan dengan font-nya sendiri sebagai pratinjau.
-//! Catatan jujur: GPUI hanya membundel Plus Jakarta Sans dan JetBrains Mono (versi web membundel 9 font).
+//! Catatan jujur: GPUI membundel Inter, Fira Code, Plus Jakarta Sans, dan JetBrains Mono (versi web membundel 9 font).
 use crate::core::appearance::{first_family, validate_font_family};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
@@ -10,7 +10,7 @@ use gpui::{anchored, div, prelude::*, px, Context, Entity, EventEmitter, Focusab
 use std::sync::OnceLock;
 
 /// Font yang dibundel aplikasi GPUI (assets/fonts, OFL).
-pub const BUNDLED_FONTS: [(&str, &str); 2] = [("Plus Jakarta Sans", "'Plus Jakarta Sans', sans-serif"), ("JetBrains Mono", "'JetBrains Mono', monospace")];
+pub const BUNDLED_FONTS: [(&str, &str); 4] = [("Inter", "'Inter', sans-serif"), ("Fira Code", "'Fira Code', monospace"), ("Plus Jakarta Sans", "'Plus Jakarta Sans', sans-serif"), ("JetBrains Mono", "'JetBrains Mono', monospace")];
 
 static SYSTEM_FONTS: OnceLock<Vec<String>> = OnceLock::new();
 

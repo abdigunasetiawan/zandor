@@ -344,6 +344,42 @@ pub fn build(messages: &[ChatMessage]) -> Vec<Turn> {
     b.turns
 }
 
+/// Sisipkan system prompt yang berlaku di setiap giliran (rekaman plugin, lihat `system_prompts`) sebagai rekaman
+/// Konteks bernama "system", tepat sesudah pesan pengguna. Yang berlaku = rekaman terakhir sebelum giliran berikutnya
+/// dimulai; `changed` di raw menandai isi yang baru berubah pada giliran itu. Giliran sebelum rekaman pertama
+/// (mis. sesi lama) dibiarkan tanpa system prompt. Indeks rekaman dihitung ulang.
+pub fn attach_system(turns: &mut [Turn], snaps: &[super::system_prompts::Snapshot]) {
+    if snaps.is_empty() {
+        return;
+    }
+    let starts: Vec<Option<f64>> = turns.iter().map(|t| t.start).collect();
+    for (k, turn) in turns.iter_mut().enumerate() {
+        let next = starts.get(k + 1).copied().flatten().unwrap_or(f64::INFINITY);
+        let Some(snap) = snaps.iter().rev().find(|s| s.t < next) else { continue };
+        let begin = turn.start.unwrap_or(snap.t);
+        let changed = snap.t >= begin;
+        let text = snap.text();
+        let mut r = rec(
+            format!("system:{}:{}", turn.turn, snap.t as i64),
+            Kind::Context,
+            clip(&one_line(&text)),
+            "",
+            json!({ "type": "system", "time": snap.t, "changed": changed, "parts": snap.system.len(), "system": snap.system }),
+        );
+        r.name = Some("system".into());
+        r.turn = turn.turn;
+        r.start = Some(if changed { snap.t } else { begin });
+        r.status = None;
+        r.input = Some(text);
+        r.message_id = turn.records.first().map(|x| x.message_id.clone()).unwrap_or_default();
+        let at = usize::from(turn.records.first().is_some_and(|x| x.kind == Kind::User));
+        turn.records.insert(at, r);
+    }
+    for (i, r) in turns.iter_mut().flat_map(|t| t.records.iter_mut()).enumerate() {
+        r.index = i;
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Totals {
     pub tokens: TokenUsage,
@@ -481,5 +517,36 @@ mod tests {
         assert_eq!(format_ms(125_000.), "2m 5s");
         assert_eq!(format_tokens(12_345.), "12.3k");
         assert_eq!(format_tokens(42.), "42");
+    }
+
+    #[test]
+    fn system_prompt_disisipkan_per_giliran() {
+        use crate::core::system_prompts::Snapshot;
+        let text = |s: &str| PartKind::Text { text: s.into(), synthetic: false };
+        let msgs = vec![
+            ChatMessage { info: info("u0", Role::User, 500., None), parts: vec![part("q0", "u0", text("sesi lama"))] },
+            ChatMessage { info: info("u1", Role::User, 1000., None), parts: vec![part("q1", "u1", text("satu"))] },
+            ChatMessage { info: info("a1", Role::Assistant, 1100., Some(1200.)), parts: vec![] },
+            ChatMessage { info: info("u2", Role::User, 2000., None), parts: vec![part("q2", "u2", text("dua"))] },
+            ChatMessage { info: info("a2", Role::Assistant, 2100., Some(2200.)), parts: vec![] },
+            ChatMessage { info: info("u3", Role::User, 3000., None), parts: vec![part("q3", "u3", text("tiga"))] },
+        ];
+        let snaps = vec![Snapshot { t: 1050., system: vec!["dasar".into(), "env".into()] }, Snapshot { t: 3050., system: vec!["dasar".into(), "memori".into()] }];
+        let mut turns = build(&msgs);
+        attach_system(&mut turns, &snaps);
+        // giliran 1 (sebelum rekaman pertama): tanpa system prompt
+        assert!(turns[0].records.iter().all(|r| r.name.as_deref() != Some("system")));
+        // giliran 2: rekaman baru, tepat sesudah pesan pengguna
+        let s2 = &turns[1].records[1];
+        assert_eq!((s2.kind, s2.name.as_deref(), s2.input.as_deref()), (Kind::Context, Some("system"), Some("dasar\n\nenv")));
+        assert_eq!(s2.raw["changed"], true);
+        // giliran 3: mewarisi isi giliran 2, waktu mulai = awal giliran
+        let s3 = &turns[2].records[1];
+        assert_eq!((s3.raw["changed"].clone(), s3.start), (json!(false), Some(2000.)));
+        // giliran 4: isi berubah
+        assert_eq!(turns[3].records[1].input.as_deref(), Some("dasar\n\nmemori"));
+        // indeks berurutan dan unik
+        let idx: Vec<usize> = turns.iter().flat_map(|t| t.records.iter().map(|r| r.index)).collect();
+        assert_eq!(idx, (0..idx.len()).collect::<Vec<_>>());
     }
 }

@@ -62,6 +62,8 @@ pub struct Colors {
     /// Latar/teks blok kode dari tema editor (None = token permukaan).
     pub code_bg: Option<Hsla>,
     pub code_fg: Option<Hsla>,
+    /// Warna nomor baris dari tema editor (`editorLineNumber.foreground`).
+    pub code_ln: Option<Hsla>,
 }
 
 fn c(hex: u32) -> Hsla {
@@ -125,6 +127,7 @@ impl Colors {
             code_del: c(0xff7b72),
             code_bg: None,
             code_fg: None,
+            code_ln: None,
         }
     }
 
@@ -169,7 +172,23 @@ impl Colors {
             code_del: c(0xc62828),
             code_bg: None,
             code_fg: None,
+            code_ln: None,
         }
+    }
+
+    /// Gaya Kaca: permukaan tembus pandang di atas latar jendela buram (alpha, bukan warna baru).
+    /// Teks, border, dan warna status tidak diubah; kontras teks tetap dari `fg`.
+    pub fn glassify(&mut self, dark: bool, clear: bool) {
+        let k = |x: Hsla, al: f32| Hsla { a: al, ..x };
+        let (base, layer, pop) = if clear { (0.18, 0.24, 0.92) } else if dark { (0.3, 0.38, 0.9) } else { (0.3, 0.4, 0.92) };
+        self.frame = k(self.frame, 0.0);
+        self.bg = k(self.bg, base);
+        self.surface = k(self.surface, layer);
+        self.raised = k(self.raised, layer);
+        self.segment = k(self.segment, layer);
+        self.composer = k(self.composer, pop);
+        self.bubble = k(self.bubble, 0.5);
+        self.border = k(self.border, if dark { 0.16 } else { 0.14 });
     }
 }
 
@@ -198,8 +217,8 @@ pub const BUTTON: TypeStyle = ts(7, 0.8125, 500., 1.2, 0.);
 pub const LABEL: TypeStyle = ts(8, 0.8125, 500., 1.3, 0.);
 pub const CODE: TypeStyle = ts(9, 0.8125, 400., 1.5, 0.);
 
-pub const FONT_UI: &str = "Plus Jakarta Sans";
-pub const FONT_CODE: &str = "JetBrains Mono";
+pub const FONT_UI: &str = "Inter";
+pub const FONT_CODE: &str = "Fira Code";
 
 /// Nilai rem dari tokens.css.
 pub mod rem {

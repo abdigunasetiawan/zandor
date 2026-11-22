@@ -126,7 +126,7 @@ fn notice(t: &Theme, text: String, big: bool) -> AnyElement {
     if big {
         super::widgets::tool_notice(t, "server", text)
     } else {
-        super::widgets::tool_notice_inline(t, text)
+        div().px(t.space(3)).py(t.space(2)).child(super::widgets::tool_notice_inline(t, text)).into_any_element()
     }
 }
 
@@ -148,6 +148,8 @@ impl Render for JobsPanel {
             .gap(t.space(2))
             .px(t.space(3))
             .py(t.space(2))
+            .border_b_1()
+            .border_color(t.colors.border_soft)
             .child(select("jobs-scope", vec![("session".into(), i.t("jobs.scope.session").into()), ("all".into(), i.t("jobs.scope.all").into())], self.scope.clone()).on_change(move |v, _, cx| {
                 me.update(cx, |s, cx| {
                     s.scope = v;
@@ -170,7 +172,7 @@ impl Render for JobsPanel {
         if shown.is_empty() {
             return col.child(notice(&t, i.t("jobs.empty"), true));
         }
-        let mut list = div().id("jobs-list").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().px(t.space(2)).gap(t.space(1));
+        let mut list = div().id("jobs-list").flex().flex_col().flex_1().min_h_0().overflow_y_scroll();
         for j in shown {
             let s = |k: &str| j[k].as_str().unwrap_or("").to_string();
             let (id, name, command, cwd, status) = (s("id"), s("name"), s("command"), s("cwd"), s("status"));
@@ -195,10 +197,16 @@ impl Render for JobsPanel {
             if status != "lost" {
                 actions = actions.child(icon_button(SharedString::from(format!("job-re-{id}")), "refresh", i.t("jobs.restart")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| s.act(id3.clone(), "restart", cx))));
             }
+            // Latar hover dipasang pada SELURUH baris (termasuk ikon aksi), lembut (alpha), bukan hanya sisi kiri.
+            let hover_bg = t.colors.hover.opacity(0.55);
             let head = div()
+                .id(SharedString::from(format!("job-row-{id}")))
                 .flex()
                 .items_center()
                 .gap(t.space(1))
+                .pr(t.space(1))
+                .rounded(t.rem(rem::RADIUS_MD))
+                .hover(move |s| s.bg(hover_bg))
                 .child(
                     div()
                         .id(SharedString::from(format!("job-{id}")))
@@ -207,11 +215,9 @@ impl Render for JobsPanel {
                         .min_w_0()
                         .items_center()
                         .gap(t.space(2))
-                        .px(t.space(1))
+                        .px(t.space(2))
                         .py(t.space(1))
-                        .rounded(t.rem(rem::RADIUS_SM))
                         .cursor_pointer()
-                        .hover(|s| s.bg(t.colors.hover))
                         .tooltip(crate::ui::tooltip::text_tooltip(command.clone().into()))
                         .on_click(cx.listener(move |s, _, _, cx| s.toggle(id1.clone(), cx)))
                         .child(icon(if expanded { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm).color(t.colors.fg_subtle))
@@ -239,7 +245,7 @@ impl Render for JobsPanel {
                         ),
                 )
                 .child(actions);
-            let mut row = div().flex().flex_col().gap(t.space(1)).py(t.space(1)).border_b_1().border_color(t.colors.border_soft).child(head);
+            let mut row = div().flex().flex_col().gap(t.space(1)).px(t.space(2)).py(t.space(1)).border_b_1().border_color(t.colors.border_soft).child(head);
             if expanded {
                 let text = match &self.log {
                     None => i.t("jobs.loadingLog"),

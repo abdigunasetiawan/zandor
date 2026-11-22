@@ -45,10 +45,28 @@ impl PanelId {
 }
 pub const SMART_RESIZE_SHORTCUT: &str = "Ctrl+Alt+0";
 
+/// Jumlah perintah terakhir yang diingat (palet menampilkan 3 teratas).
+pub const RECENT_COMMANDS: usize = 3;
+
 pub struct AppState {
     history: Vec<String>,
     index: usize,
     pub collapsed: HashSet<PanelId>,
+    /// Panel yang terakhir disentuh pengguna (klik di dalamnya atau dibuka lewat pintasan).
+    pub active_panel: Option<PanelId>,
+    /// Id perintah yang terakhir dipakai pengguna, terbaru di depan (tanpa duplikat).
+    recent: Vec<String>,
+}
+
+fn recent_path() -> std::path::PathBuf {
+    crate::core::services::app_data_dir().join("recent-commands.json")
+}
+
+/// Pasang `id` di depan daftar terbaru: pindah bila sudah ada, potong sesuai `max`.
+pub fn push_recent(list: &mut Vec<String>, id: &str, max: usize) {
+    list.retain(|x| x != id);
+    list.insert(0, id.to_string());
+    list.truncate(max);
 }
 
 pub enum AppEvent {
@@ -62,7 +80,8 @@ impl Global for AppStateHandle {}
 
 impl AppState {
     pub fn init(start: &str, cx: &mut App) -> Entity<AppState> {
-        let e = cx.new(|_| AppState { history: vec![start.to_string()], index: 0, collapsed: HashSet::new() });
+        let recent: Vec<String> = std::fs::read_to_string(recent_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let e = cx.new(|_| AppState { history: vec![start.to_string()], index: 0, collapsed: HashSet::new(), active_panel: None, recent });
         cx.set_global(AppStateHandle(e.clone()));
         e
     }
@@ -106,6 +125,24 @@ impl AppState {
     pub fn is_collapsed(&self, p: PanelId) -> bool {
         self.collapsed.contains(&p)
     }
+    /// Tandai panel terakhir yang disentuh (tidak merender ulang bila tidak berubah).
+    pub fn set_active_panel(&mut self, p: PanelId, cx: &mut Context<Self>) {
+        if self.active_panel != Some(p) {
+            self.active_panel = Some(p);
+            cx.notify();
+        }
+    }
+    pub fn recent_commands(&self) -> &[String] {
+        &self.recent
+    }
+    /// Catat perintah yang dijalankan pengguna dan simpan ke disk (galat tulis diabaikan: hanya kenyamanan).
+    pub fn record_command(&mut self, id: &str, cx: &mut Context<Self>) {
+        push_recent(&mut self.recent, id, RECENT_COMMANDS);
+        if let Ok(s) = serde_json::to_string(&self.recent) {
+            let _ = std::fs::write(recent_path(), s);
+        }
+        cx.notify();
+    }
     /// Chat tidak bisa dilipat bila ia satu-satunya panel utama yang terbuka (ADR-015).
     pub fn toggle(&mut self, p: PanelId, cx: &mut Context<Self>) {
         if !self.collapsed.remove(&p) {
@@ -115,6 +152,8 @@ impl AppState {
                 return;
             }
             self.collapsed.insert(p);
+        } else {
+            self.active_panel = Some(p); // panel yang baru dibuka dianggap yang sedang dipakai
         }
         cx.emit(AppEvent::PanelsChanged);
         cx.notify();
@@ -132,5 +171,19 @@ pub fn format_combo(combo: &str) -> String {
         combo.replace("Ctrl+", "⌘").replace("Alt+", "⌥").replace("Shift+", "⇧")
     } else {
         combo.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::push_recent;
+
+    #[test]
+    fn terakhir_dipakai_terbaru_di_depan_tanpa_duplikat_maks_3() {
+        let mut l: Vec<String> = vec![];
+        for id in ["a", "b", "c", "a", "d"] {
+            push_recent(&mut l, id, 3);
+        }
+        assert_eq!(l, vec!["d", "a", "c"]);
     }
 }

@@ -181,6 +181,9 @@ impl Render for DocStyleControls {
             match g {
                 "code" => {
                     let mut items: Vec<(SharedString, SharedString)> = vec![("auto".into(), i.t("ap.editor2.auto").into())];
+                    if !editor_themes.iter().any(|(id, _)| id == crate::core::editor_theme::DEFAULT_EDITOR_THEME) {
+                        items.push((crate::core::editor_theme::DEFAULT_EDITOR_THEME.into(), i.tp("ap.editor2.bundled", &[("name", &crate::core::editor_theme::bundled_theme().name)]).into()));
+                    }
                     items.extend(BUILTIN_EDITOR_THEMES.iter().map(|b| (SharedString::from(*b), SharedString::from(i.tp("ap.editor2.builtin", &[("name", b)])))));
                     items.extend(editor_themes.iter().map(|(id, name)| (SharedString::from(id.clone()), SharedString::from(name.clone()))));
                     let store = self.store.clone();

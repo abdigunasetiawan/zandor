@@ -19,7 +19,7 @@ pub fn popup(t: &Theme) -> Div {
         .border_1()
         .border_color(t.colors.border_soft)
         .rounded(t.rem(rem::RADIUS_LG))
-        .bg(t.colors.raised)
+        .bg(gpui::Hsla { a: 1., ..t.colors.raised }) // popup selalu buram, juga di gaya Kaca
         .text_color(t.colors.fg)
         .shadow(t.shadow_3())
 }
@@ -216,7 +216,7 @@ impl RenderOnce for Tabs {
             .flex_none()
             .gap(t.space(1))
             .when(!self.nav, |d| d.p(t.space(1)).rounded(t.rem(rem::RADIUS_LG)).bg(c.segment))
-            .when(self.nav, |d| d.gap(t.space(1) * 0.5).pr(t.space(2)).border_r_1().border_color(c.border))
+            .when(self.nav, |d| d.gap(t.space(1) * 0.5).pr(t.space(2)).min_h_full().w_full().border_r_1().border_color(c.border))
             .when(self.vertical, |d| d.flex_col());
         for (i, it) in self.items.into_iter().enumerate() {
             let active = it.value == self.value;
@@ -268,6 +268,7 @@ impl RenderOnce for Tabs {
             .id(self.id)
             .flex()
             .gap(t.space(3))
+            .when(self.nav, |d| d.min_h_full().w_full())
             .when(self.vertical, |d| d.flex_row())
             .when(!self.vertical, |d| d.flex_col())
             .child(list)

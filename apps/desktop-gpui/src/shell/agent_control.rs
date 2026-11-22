@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 pub const POLL_MS: u64 = 700;
 /// Aksi baca-saja: tanpa toast.
-const QUIET: [&str; 4] = ["status", "list_commands", "list_terminals", "get_settings"];
+const QUIET: [&str; 5] = ["status", "list_commands", "list_terminals", "get_settings", "suggest_project"];
 /// Pengaturan yang tidak boleh diubah agent: izin kontrol agent sendiri.
 pub const PROTECTED_SETTINGS: [&str; 2] = ["agentControl", "browserAgent"];
 /// Perintah palet yang tidak boleh dijalankan agent (menutup aplikasi, alat pengembang).
@@ -103,7 +103,7 @@ pub fn safe_rel_path(path: &str) -> Option<String> {
 
 /// Rute halaman yang dikenal aplikasi.
 pub fn is_route(path: &str) -> bool {
-    matches!(path, "/" | "/settings" | "/appearance" | "/memory" | "/automation" | "/welcome" | "/design-system") || path.strip_prefix("/settings/").is_some_and(|s| !s.is_empty() && !s.contains('/'))
+    matches!(path, "/" | "/settings" | "/appearance" | "/memory" | "/automation" | "/welcome" | "/design-system" | "/labs") || path.strip_prefix("/settings/").is_some_and(|s| !s.is_empty() && !s.contains('/'))
 }
 
 pub(super) fn known_roots(cx: &App) -> Vec<String> {
@@ -160,6 +160,18 @@ fn reveal(p: PanelId, cx: &mut App) {
 fn str_arg(a: &serde_json::Map<String, Value>, k: &str) -> String {
     a.get(k).and_then(|v| v.as_str()).map(|s| s.trim().to_string()).unwrap_or_default()
 }
+
+/// Saran project dari agent (aksi `suggest_project`): diisi di sini, dibaca `ChatPanel` yang menampilkan kartu.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AgentSuggest {
+    pub session_id: String,
+    pub reason: String,
+    pub summary: String,
+    pub name: String,
+}
+#[derive(Default)]
+pub struct SuggestProjectRequest(pub Option<AgentSuggest>);
+impl gpui::Global for SuggestProjectRequest {}
 
 /// Hasil langsung, atau generate gambar yang harus dijalankan di thread latar.
 pub enum Outcome {
@@ -300,6 +312,23 @@ pub fn execute(req: &ControlRequest, window: &mut Window, cx: &mut App, run: &mu
                 Ok(()) => ok(format!("{key} = {v}")),
                 Err(e) => fail(e),
             }
+        }
+        "suggest_project" => {
+            if !settings.read(cx).bool("suggestProject") {
+                return fail("Pengguna mematikan saran project; kerjakan langsung di sesi ini.");
+            }
+            let in_chat = crate::core::projects::ProjectStore::global(cx).read(cx).chat_dir.clone().is_some_and(|c| locate_dir(&[c], &req.directory).is_some_and(|(_, p)| !p.is_empty()));
+            if !in_chat {
+                return fail("Sesi ini sudah berada di project; tidak perlu menyarankan project baru.");
+            }
+            let (reason, summary) = (str_arg(a, "reason"), str_arg(a, "summary"));
+            if reason.is_empty() || summary.is_empty() {
+                return fail("reason dan summary wajib.");
+            }
+            let given = crate::core::project_intent::slugify(&str_arg(a, "name"));
+            let name = if given.is_empty() { crate::core::project_intent::suggest_name(&summary, crate::core::project_intent::Kind::Build) } else { given };
+            cx.set_global(SuggestProjectRequest(Some(AgentSuggest { session_id: req.session_id.clone(), reason, summary, name })));
+            ok("Kartu saran project sudah ditampilkan ke pengguna. Hentikan giliranmu sekarang dan tunggu pilihannya; jangan menginstal atau menulis berkas dulu.")
         }
         "generate_image" => {
             let prompt = str_arg(a, "prompt");

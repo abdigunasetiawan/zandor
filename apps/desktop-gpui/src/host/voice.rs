@@ -1,33 +1,16 @@
-//! Input suara (dikte). GPUI tidak punya Web Speech API milik WebView; di Windows port ini memakai dikte bawaan sistem
-//! (Win+H) yang mengetik ke kolom yang sedang fokus — composer difokuskan dulu oleh pemanggil. Bahasa mengikuti
-//! pengaturan dikte Windows. Daftar mikrofon dibaca dari WASAPI (port useAudioInputs); karena dikte Windows selalu
-//! mendengar mikrofon bawaan sistem, memilih perangkat lain memunculkan peringatan + tautan ke Pengaturan Suara
-//! (aplikasi tidak mengubah pengaturan sistem sendiri). Di OS lain dilaporkan tidak tersedia (tidak dipalsukan).
+//! Input suara (dikte). Aplikasi merekam sendiri dari mikrofon pilihan pengguna (`voice_capture`, WASAPI) dan
+//! mengenali ucapan dengan Whisper lokal (`voice_stt`); sesi di `voice_session`. Modul ini memuat daftar mikrofon
+//! (port useAudioInputs) dan kunci preferensi. Menggantikan pintasan dikte Windows (Win+H) yang tidak bisa memilih
+//! perangkat maupun bahasa. Di OS lain dilaporkan tidak tersedia (tidak dipalsukan).
 
-/// true bila dikte sistem tersedia di platform ini.
+/// true bila perekaman mikrofon tersedia di platform ini.
 pub fn supported() -> bool {
     cfg!(windows)
 }
 
-/// Buka/tutup panel dikte sistem (Win+H menyalakan/mematikan). Galat dilaporkan apa adanya.
-#[cfg(windows)]
-pub fn toggle_dictation() -> Result<(), String> {
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_LWIN};
-    let key = |vk: u16, up: bool| INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: vk, wScan: 0, dwFlags: if up { KEYEVENTF_KEYUP } else { 0 }, time: 0, dwExtraInfo: 0 } },
-    };
-    let h = b'H' as u16;
-    let seq = [key(VK_LWIN, false), key(h, false), key(h, true), key(VK_LWIN, true)];
-    // SAFETY: larik INPUT valid dan ukuran struktur benar.
-    let n = unsafe { SendInput(seq.len() as u32, seq.as_ptr(), std::mem::size_of::<INPUT>() as i32) };
-    if n as usize == seq.len() { Ok(()) } else { Err("SendInput ditolak sistem".into()) }
-}
-
-#[cfg(not(windows))]
-pub fn toggle_dictation() -> Result<(), String> {
-    Err("dikte sistem tidak tersedia".into())
-}
+/// Kunci preferensi dikte (prefs.json): kosakata (initial prompt) dan kamus koreksi `salah = benar` per baris.
+pub const VOCAB_KEY: &str = "zandor.voice.vocabulary";
+pub const CORRECTIONS_KEY: &str = "zandor.voice.corrections";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct AudioInput {
@@ -79,28 +62,13 @@ pub fn audio_inputs() -> Vec<AudioInput> {
     vec![]
 }
 
-/// Bila pengguna memilih mikrofon yang bukan bawaan sistem: nama perangkat itu (dikte Windows tidak akan memakainya).
-pub fn chosen_not_default(chosen: &str, devices: &[AudioInput]) -> Option<String> {
-    if chosen.is_empty() {
-        return None;
-    }
-    devices.iter().find(|d| d.id == chosen && !d.is_default).map(|d| d.label.clone())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn not_default_detection() {
-        let d = vec![
-            AudioInput { id: "a".into(), label: "A".into(), is_default: true },
-            AudioInput { id: "b".into(), label: "B".into(), is_default: false },
-        ];
-        assert_eq!(chosen_not_default("", &d), None);
-        assert_eq!(chosen_not_default("a", &d), None);
-        assert_eq!(chosen_not_default("b", &d), Some("B".into()));
-        assert_eq!(chosen_not_default("gone", &d), None);
-        let _ = audio_inputs();
+    fn audio_inputs_does_not_panic_and_has_at_most_one_default() {
+        let d = audio_inputs();
+        assert!(d.iter().filter(|x| x.is_default).count() <= 1);
     }
 }

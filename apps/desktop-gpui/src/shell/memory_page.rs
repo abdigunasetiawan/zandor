@@ -104,6 +104,7 @@ fn multiline(cx: &mut App, text: String) -> Entity<TextInput> {
     cx.new(|cx| {
         let mut ti = TextInput::new(cx, "");
         ti.multiline = true;
+        ti.wrap = true;
         ti.enter_newline = true;
         ti.set_text(text, cx);
         ti

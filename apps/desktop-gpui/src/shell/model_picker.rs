@@ -6,7 +6,7 @@ use super::*;
 use crate::core::engine::{ModelOption, ModelRef};
 use crate::core::model_prefs::{ModelPrefsStore, Ref};
 use crate::core::pings::{ping_label, PingState, PingStore};
-use crate::shell::widgets::model_logo;
+use crate::shell::widgets::{model_logo, model_logo_sized};
 
 pub(super) fn model_key(m: &ModelOption) -> String {
     format!("{}/{}", m.provider_id, m.model_id)
@@ -35,12 +35,15 @@ fn latency_of(s: Option<&PingState>) -> u64 {
     }
 }
 pub(super) fn sort_rows(rows: &mut [(ModelOption, Option<PingState>)], by: &str) {
-    let name = |a: &ModelOption, b: &ModelOption| a.name.to_lowercase().cmp(&b.name.to_lowercase());
-    rows.sort_by(|(a, sa), (b, sb)| match by {
-        "provider" => a.provider_name.to_lowercase().cmp(&b.provider_name.to_lowercase()).then(name(a, b)),
-        "status" => status_rank(&status_key(sa.as_ref())).cmp(&status_rank(&status_key(sb.as_ref()))).then(name(a, b)),
-        "latency" => latency_of(sa.as_ref()).cmp(&latency_of(sb.as_ref())).then(name(a, b)),
-        _ => name(a, b),
+    // Kunci dihitung sekali per baris (bukan di dalam pembanding: menghindari alokasi String O(n log n)).
+    rows.sort_by_cached_key(|(m, st)| {
+        let name = m.name.to_lowercase();
+        match by {
+            "provider" => (m.provider_name.to_lowercase(), 0u64, name),
+            "status" => (String::new(), status_rank(&status_key(st.as_ref())) as u64, name),
+            "latency" => (String::new(), latency_of(st.as_ref()), name),
+            _ => (String::new(), 0, name),
+        }
     });
 }
 pub(super) fn group_rows(rows: Vec<(ModelOption, Option<PingState>)>, by: &str) -> Vec<(String, Vec<(ModelOption, Option<PingState>)>)> {
@@ -76,10 +79,31 @@ pub(super) struct PickerState {
     pub ping_list: Option<gpui::ListState>,
 }
 
-/// Entri daftar tab Uji (elemen yang sudah dibangun; dikonsumsi sekali per render oleh list virtual).
-enum PingEntry {
-    Head(AnyElement),
-    Row(AnyElement),
+/// Entri daftar tab Uji: hanya data; elemennya dibangun lazy oleh list virtual untuk baris yang terlihat.
+#[derive(Clone)]
+enum PingItem {
+    Head { gid: String, title: String, ids: Vec<(String, String)>, pending: bool },
+    Row(ModelOption, Option<PingState>),
+}
+
+fn ping_status_label(i: &I18n, k: &str) -> String {
+    match k {
+        "untested" => i.t("mp.st.untested"),
+        "unsupported" => i.t("mp.st.unsupported"),
+        "pending" => i.t("pv.pinging"),
+        "ok" => i.t("mp.st.ok"),
+        k => i.t(&format!("pv.ping.{k}")),
+    }
+}
+
+fn ping_run(list: Vec<(String, String)>) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) {
+    move |_, _, cx| {
+        PingStore::global(cx).update(cx, |p, cx| {
+            for (a, b) in &list {
+                p.ping(a, b, cx);
+            }
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -104,7 +128,7 @@ impl ChatPanel {
             .collect()
     }
 
-    fn close_picker(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn close_picker(&mut self, cx: &mut Context<Self>) {
         self.picker.open = false;
         self.picker.tab = "models".into();
         self.mp_search.update(cx, |s, cx| s.set_text("", cx));
@@ -113,7 +137,10 @@ impl ChatPanel {
 
     fn choose_model(&mut self, m: &ModelOption, cx: &mut Context<Self>) {
         let r = ModelRef { provider_id: m.provider_id.clone(), model_id: m.model_id.clone() };
-        self.chat.update(cx, |c, cx| c.select_model(r, cx));
+        let sid = self.current(cx).map(|c| c.1).filter(|s| !s.is_empty());
+        self.chat.update(cx, |c, cx| {
+            c.switch_model(sid.as_deref(), r, cx);
+        });
         self.close_picker(cx);
     }
 
@@ -236,7 +263,7 @@ impl ChatPanel {
                 cx.notify();
             }))
             .child(icon(if is_open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
-            .child(model_logo(t, cx, Some(id), None, name, false, &format!("mgl-{id}")))
+            .child(model_logo_sized(t, cx, Some(id), None, name, false, &format!("mgl-{id}"), rem::ICON_SM))
             .child(div().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(name.to_string()))
             .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("({n})")))
             .child(div().flex_1())
@@ -339,8 +366,9 @@ impl ChatPanel {
 
     fn picker_ping_tab(&mut self, t: &Theme, i: &I18n, visible: &[ModelOption], cx: &mut Context<Self>) -> AnyElement {
         let pings = PingStore::global(cx).read(cx).pings.clone();
+        let q = self.mp_search.read(cx).text().trim().to_lowercase();
         let mut rows: Vec<(ModelOption, Option<PingState>)> =
-            visible.iter().map(|m| (m.clone(), pings.get(&crate::core::pings::ping_key(&m.provider_id, &m.model_id)).cloned())).collect();
+            visible.iter().filter(|m| matches(m, &q)).map(|m| (m.clone(), pings.get(&crate::core::pings::ping_key(&m.provider_id, &m.model_id)).cloned())).collect();
         let (mut ok, mut bad, mut pending, mut todo) = (0, 0, 0, 0);
         for (_, s) in &rows {
             match status_key(s.as_ref()).as_str() {
@@ -352,16 +380,7 @@ impl ChatPanel {
         }
         sort_rows(&mut rows, &self.picker.sort);
         let all: Vec<(String, String)> = rows.iter().map(|(m, _)| (m.provider_id.clone(), m.model_id.clone())).collect();
-        let run = |list: Vec<(String, String)>| {
-            move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut App| {
-                let ps = PingStore::global(cx);
-                ps.update(cx, |p, cx| {
-                    for (a, b) in &list {
-                        p.ping(a, b, cx);
-                    }
-                })
-            }
-        };
+        let run = ping_run;
         let sorts = ["status", "name", "provider", "latency"]
             .iter()
             .map(|v| (SharedString::from(*v), SharedString::from(format!("{}: {}", i.t("mp.sort.short"), i.t(&format!("mp.sort.{v}"))))))
@@ -400,114 +419,21 @@ impl ChatPanel {
                 .ok();
             }));
         let summary = i.tp("mp.ping.summary", &[("ok", &ok.to_string()), ("bad", &bad.to_string()), ("todo", &(todo + pending).to_string()), ("na", "0")]);
-        let status_label = |k: &str| match k {
-            "untested" => i.t("mp.st.untested"),
-            "unsupported" => i.t("mp.st.unsupported"),
-            "pending" => i.t("pv.pinging"),
-            "ok" => i.t("mp.st.ok"),
-            k => i.t(&format!("pv.ping.{k}")),
-        };
         let group_by = self.picker.group.clone();
-        // Datar (judul grup + baris) → gpui::list: hanya yang terlihat yang dibangun.
-        let mut items: Vec<PingEntry> = vec![];
+        // Hanya data ringan yang disusun per render; elemen (logo, tombol, tooltip) dibangun lazy untuk baris yang terlihat.
+        let mut items: Vec<PingItem> = vec![];
         for (gid, rs) in group_rows(rows, &group_by) {
-            let title = match group_by.as_str() {
-                "provider" => rs[0].0.provider_name.clone(),
-                "status" => status_label(&gid),
-                _ => String::new(),
-            };
             if group_by != "none" {
+                let title = match group_by.as_str() {
+                    "provider" => rs[0].0.provider_name.clone(),
+                    _ => gid.clone(),
+                };
                 let ids: Vec<(String, String)> = rs.iter().map(|(m, _)| (m.provider_id.clone(), m.model_id.clone())).collect();
-                let label = if group_by == "provider" { i.tp("mp.ping.provider", &[("name", &title)]) } else { i.tp("mp.ping.group.run", &[("name", &title)]) };
-                items.push(PingEntry::Head(div()
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap(t.space(2))
-                        .pt(t.space(2))
-                        .when(group_by == "provider", |d| d.child(model_logo(t, cx, Some(&gid), None, &title, false, &format!("mpg-{gid}"))))
-                        .child(div().flex_1().truncate().font_weight(FontWeight::MEDIUM).child(title.clone()))
-                        .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("({})", rs.len())))
-                        .child(
-                            icon_button(SharedString::from(format!("mpg-run-{gid}")), "ping", label)
-                                .size(ControlSize::Sm)
-                                .disabled(rs.iter().any(|(_, s)| *s == Some(PingState::Pending)))
-                                .on_click(run(ids)),
-                        ).into_any_element()));
+                let pending = rs.iter().any(|(_, s)| *s == Some(PingState::Pending));
+                items.push(PingItem::Head { gid: gid.clone(), title, ids, pending });
             }
-            for (m, st) in &rs {
-                let k = status_key(st.as_ref());
-                let tone = match k.as_str() {
-                    "ok" => t.colors.success,
-                    "untested" | "pending" | "unsupported" => t.colors.fg_muted,
-                    _ => t.colors.danger,
-                };
-                let meta = match st {
-                    Some(PingState::Done(r)) => Some(
-                        [
-                            r.status.map(|s| format!("HTTP {s}")),
-                            Some(i.tp("mp.ping.models", &[("n", &r.models.len().to_string())])),
-                            r.error.clone(),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect::<Vec<_>>()
-                        .join(" · "),
-                    ),
-                    _ => None,
-                };
-                let rid = format!("mping-{}", model_key(m));
-                let (pp, pm) = (m.provider_id.clone(), m.model_id.clone());
-                let sub = if group_by == "provider" { m.model_id.clone() } else { format!("{} · {}", m.provider_name, m.model_id) };
-                items.push(PingEntry::Row(div()
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap(t.space(2))
-                        .px(t.space(1))
-                        .pb(t.space(1))
-                        .child(model_logo(t, cx, Some(&m.provider_id), Some(&m.model_id), &m.provider_name, false, &rid))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .flex_1()
-                                .min_w_0()
-                                .child(div().truncate().child(m.name.clone()))
-                                .child(div().small(t).text_color(t.colors.fg_subtle).truncate().child(sub))
-                                .children(meta.map(|mt| {
-                                    div()
-                                        .id(SharedString::from(format!("{rid}-meta")))
-                                        .small(t)
-                                        .text_color(t.colors.fg_muted)
-                                        .truncate()
-                                        .tooltip(crate::ui::tooltip::text_tooltip(mt.clone().into()))
-                                        .child(mt)
-                                })),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(t.space(1))
-                                .small(t)
-                                .whitespace_nowrap()
-                                .text_color(tone)
-                                .child(if k == "pending" { crate::ui::spinner(IconSize::Sm).into_any_element() } else { status_label(&k).into_any_element() })
-                                .children(match st {
-                                    Some(PingState::Done(r)) => Some(div().text_color(t.colors.fg_subtle).child(i.tp("mp.ping.latency", &[("ms", &r.latency_ms.to_string())]))),
-                                    _ => None,
-                                }),
-                        )
-                        .child(
-                            icon_button(SharedString::from(format!("{rid}-run")), "ping", i.tp("pv.ping", &[("name", &m.name)]))
-                                .size(ControlSize::Sm)
-                                .disabled(k == "pending")
-                                .on_click(cx.listener(move |_, _, _, cx| PingStore::global(cx).update(cx, |p, cx| p.ping(&pp, &pm, cx)))),
-                        ).into_any_element()));
-            }
+            items.extend(rs.into_iter().map(|(m, st)| PingItem::Row(m, st)));
         }
-        // Elemen sudah dibangun di atas; list virtual hanya memakainya saat terlihat (dibangun murah, dilukis lazy).
         let n = items.len();
         let state = match &self.picker.ping_list {
             Some(l) if l.item_count() == n => {
@@ -524,10 +450,15 @@ impl ChatPanel {
                 l
             }
         };
-        let cell = std::rc::Rc::new(std::cell::RefCell::new(items.into_iter().map(Some).collect::<Vec<_>>()));
-        let list = gpui::list(state, move |ix, _, _| match cell.borrow_mut()[ix].take() {
-            Some(PingEntry::Head(e)) | Some(PingEntry::Row(e)) => e,
-            None => div().into_any_element(),
+        let items = std::rc::Rc::new(items);
+        let me = cx.entity();
+        let list = gpui::list(state, move |ix, _, cx| {
+            let it = items[ix].clone();
+            me.update(cx, |this, cx| {
+                let t = cx.global::<Theme>().clone();
+                let i = cx.global::<I18n>().clone();
+                this.ping_item(&t, &i, &group_by, it, cx)
+            })
         })
         .flex_1()
         .min_h_0();
@@ -536,11 +467,106 @@ impl ChatPanel {
             .flex_col()
             .gap(t.space(2))
             .size_full()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t.space(2))
+                    .h(t.rem(rem::CONTROL_MD))
+                    .px(t.space(3))
+                    .rounded(t.rem(rem::RADIUS_MD))
+                    .bg(t.colors.hover)
+                    .child(icon("search").size(IconSize::Sm).color(t.colors.fg_subtle))
+                    .child(div().flex_1().min_w_0().child(self.mp_search.clone())),
+            )
             .child(bar)
             .child(div().small(t).text_color(t.colors.fg_muted).child(summary))
             .child(div().small(t).text_color(t.colors.fg_subtle).child(i.t("mp.ping.cost")))
             .child(list)
             .into_any_element()
+    }
+
+    /// Membangun satu entri tab Uji (judul grup atau baris model) — dipanggil lazy hanya untuk yang terlihat.
+    fn ping_item(&mut self, t: &Theme, i: &I18n, group_by: &str, item: PingItem, cx: &mut Context<Self>) -> AnyElement {
+        match item {
+            PingItem::Head { gid, title, ids, pending } => {
+                let shown = if group_by == "status" { ping_status_label(i, &title) } else { title.clone() };
+                let label = if group_by == "provider" { i.tp("mp.ping.provider", &[("name", &shown)]) } else { i.tp("mp.ping.group.run", &[("name", &shown)]) };
+                div()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(t.space(2))
+                    .pt(t.space(2))
+                    .when(group_by == "provider", |d| d.child(model_logo(t, cx, Some(&gid), None, &title, false, &format!("mpg-{gid}"))))
+                    .child(div().flex_1().truncate().font_weight(FontWeight::MEDIUM).child(shown))
+                    .child(div().small(t).text_color(t.colors.fg_subtle).child(format!("({})", ids.len())))
+                    .child(icon_button(SharedString::from(format!("mpg-run-{gid}")), "ping", label).size(ControlSize::Sm).disabled(pending).on_click(ping_run(ids)))
+                    .into_any_element()
+            }
+            PingItem::Row(m, st) => {
+                let k = status_key(st.as_ref());
+                let tone = match k.as_str() {
+                    "ok" => t.colors.success,
+                    "untested" | "pending" | "unsupported" => t.colors.fg_muted,
+                    _ => t.colors.danger,
+                };
+                let meta = match &st {
+                    Some(PingState::Done(r)) => Some(
+                        [r.status.map(|s| format!("HTTP {s}")), Some(i.tp("mp.ping.models", &[("n", &r.models.len().to_string())])), r.error.clone()]
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>()
+                            .join(" · "),
+                    ),
+                    _ => None,
+                };
+                let rid = format!("mping-{}", model_key(&m));
+                let (pp, pm) = (m.provider_id.clone(), m.model_id.clone());
+                let sub = if group_by == "provider" { m.model_id.clone() } else { format!("{} · {}", m.provider_name, m.model_id) };
+                div()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(t.space(2))
+                    .px(t.space(1))
+                    .pb(t.space(1))
+                    .child(model_logo(t, cx, Some(&m.provider_id), Some(&m.model_id), &m.provider_name, false, &rid))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().truncate().child(m.name.clone()))
+                            .child(div().small(t).text_color(t.colors.fg_subtle).truncate().child(sub))
+                            .children(meta.map(|mt| {
+                                div().id(SharedString::from(format!("{rid}-meta"))).small(t).text_color(t.colors.fg_muted).truncate().tooltip(crate::ui::tooltip::text_tooltip(mt.clone().into())).child(mt)
+                            })),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(t.space(1))
+                            .small(t)
+                            .whitespace_nowrap()
+                            .text_color(tone)
+                            .child(if k == "pending" { crate::ui::spinner(IconSize::Sm).into_any_element() } else { ping_status_label(i, &k).into_any_element() })
+                            .children(match &st {
+                                Some(PingState::Done(r)) => Some(div().text_color(t.colors.fg_subtle).child(i.tp("mp.ping.latency", &[("ms", &r.latency_ms.to_string())]))),
+                                _ => None,
+                            }),
+                    )
+                    .child(
+                        icon_button(SharedString::from(format!("{rid}-run")), "ping", i.tp("pv.ping", &[("name", &m.name)]))
+                            .size(ControlSize::Sm)
+                            .disabled(k == "pending")
+                            .on_click(cx.listener(move |_, _, _, cx| PingStore::global(cx).update(cx, |p, cx| p.ping(&pp, &pm, cx)))),
+                    )
+                    .into_any_element()
+            }
+        }
     }
 
     fn picker_provider_tab(&self, t: &Theme, i: &I18n, id: &str, name: &str, models: &[ModelOption], cx: &mut Context<Self>) -> AnyElement {
@@ -549,7 +575,9 @@ impl ChatPanel {
         let sub = format!("{kind} · {}", i.tp("mp.provider.models", &[("n", &models.len().to_string())]));
         let ids: Vec<(String, String)> = models.iter().map(|m| (m.provider_id.clone(), m.model_id.clone())).collect();
         // Virtual: provider bisa punya ratusan model (mis. 831); hanya baris yang terlihat yang dirender.
-        let rows: std::rc::Rc<Vec<ModelOption>> = std::rc::Rc::new(models.to_vec());
+        let q = self.mp_search.read(cx).text().trim().to_lowercase();
+        let rows: std::rc::Rc<Vec<ModelOption>> = std::rc::Rc::new(models.iter().filter(|m| matches(m, &q)).cloned().collect());
+        let none = rows.is_empty();
         let list = gpui::uniform_list(
             SharedString::from(format!("mph-list-{id}")),
             rows.len(),
@@ -595,13 +623,26 @@ impl ChatPanel {
                             }),
                     ),
             )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t.space(2))
+                    .h(t.rem(rem::CONTROL_MD))
+                    .px(t.space(3))
+                    .rounded(t.rem(rem::RADIUS_MD))
+                    .bg(t.colors.hover)
+                    .child(icon("search").size(IconSize::Sm).color(t.colors.fg_subtle))
+                    .child(div().flex_1().min_w_0().child(self.mp_search.clone())),
+            )
             .child(list)
+            .when(none, |d| d.child(div().small(t).text_color(t.colors.fg_muted).child(i.t("mp.none"))))
             .into_any_element()
     }
 
     /// Pemicu + popover pemilih model.
     /// `joined`: ada kontrol yang menyambung di kanan (pemilih varian) → sudut kanan tombol siku.
-    pub(super) fn model_picker(&mut self, t: &Theme, i: &I18n, joined: bool, viewport_h: gpui::Pixels, cx: &mut Context<Self>) -> Option<AnyElement> {
+    pub(super) fn model_picker(&mut self, t: &Theme, i: &I18n, joined: bool, compact: bool, viewport_h: gpui::Pixels, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.models.is_empty() {
             return None;
         }
@@ -615,7 +656,7 @@ impl ChatPanel {
             .square_right(joined)
             .tooltip_text(i.tp("mp.open", &[("name", &cur_name)]))
             .child(model_logo(t, cx, current.as_ref().map(|m| m.provider_id.as_str()), current.as_ref().map(|m| m.model_id.as_str()), current.as_ref().map(|m| m.provider_name.as_str()).unwrap_or(""), false, "mp-trigger"))
-            .child(div().max_w(t.rem(rem::SPACE[7] * 3.)).truncate().font_family(t.font_code.clone()).child(cur_name))
+            .when(!compact, |b| b.child(div().max_w(t.rem(rem::SPACE[7] * 3.)).truncate().font_family(t.font_code.clone()).child(cur_name)))
             .on_click(cx.listener(|s, _, w, cx| {
                 if s.picker.open {
                     s.close_picker(cx);
@@ -641,7 +682,7 @@ impl ChatPanel {
             }
             groups.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
             let mut items = vec![
-                crate::ui::TabItem { value: "models".into(), label: i.t("mp.tab.models").into(), icon: None, disabled: false },
+                crate::ui::TabItem { value: "models".into(), label: i.t("mp.tab.models").into(), icon: Some("bot"), disabled: false },
                 crate::ui::TabItem { value: "ping".into(), label: i.t("mp.tab.ping").into(), icon: Some("ping"), disabled: false },
             ];
             for (id, name, _) in &groups {
@@ -659,12 +700,14 @@ impl ChatPanel {
             let me2 = me.clone();
             let me3 = me.clone();
             let tabs = crate::ui::tabs("mp-tabs", items, if tab.is_empty() { "models".to_string() } else { tab }).vertical(true).nav(true).leads({
-                let logos: std::collections::HashMap<String, AnyElement> = groups.iter().map(|(id, name, _)| (format!("p:{id}"), model_logo(t, cx, Some(id), None, name, false, &format!("mtl-{id}")))).collect();
+                let logos: std::collections::HashMap<String, AnyElement> = groups.iter().map(|(id, name, _)| (format!("p:{id}"), model_logo_sized(t, cx, Some(id), None, name, false, &format!("mtl-{id}"), rem::ICON_SM))).collect();
                 let logos = std::cell::RefCell::new(logos);
                 move |v| logos.borrow_mut().remove(v)
-            }).on_change(move |v, _, cx| {
+            }).on_change(move |v, w, cx| {
                 me.update(cx, |s, cx| {
                     s.picker.tab = v.to_string();
+                    let fh = gpui::Focusable::focus_handle(s.mp_search.read(cx), cx);
+                    fh.focus(w, cx);
                     cx.notify();
                 })
                 .ok();
@@ -686,7 +729,7 @@ impl ChatPanel {
                         .flex_1()
                         .min_h_0()
                         .gap(t.space(2))
-                        .child(div().id("mp-tablist").flex_none().w(t.rem(10.)).overflow_y_scroll().child(tabs))
+                        .child(div().id("mp-tablist").flex_none().w(t.rem(9.)).h_full().overflow_y_scroll().child(tabs))
                         .child(div().flex_1().min_w_0().min_h_0().child(panel)),
                 )
                 .child(

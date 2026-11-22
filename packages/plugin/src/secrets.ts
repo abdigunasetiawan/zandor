@@ -16,3 +16,13 @@ const RULES: Array<[string, RegExp]> = [
 export function scanSecrets(text: string): string[] {
   return RULES.filter(([, re]) => re.test(text)).map(([name]) => name);
 }
+
+/** Ganti setiap kecocokan secret dengan `[disamarkan: <jenis>]` (mis. sebelum system prompt disimpan ke disk). */
+export function redactSecrets(text: string): string {
+  let out = text;
+  for (const [name, re] of RULES) {
+    const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
+    out = out.replace(new RegExp(re.source, flags), `[disamarkan: ${name}]`);
+  }
+  return out;
+}

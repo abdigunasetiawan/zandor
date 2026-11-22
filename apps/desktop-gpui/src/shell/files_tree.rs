@@ -398,7 +398,7 @@ impl Render for FilesTree {
             .flex()
             .items_center()
             .gap(t.space(1))
-            .px(t.space(2))
+            .px(t.space(3))
             .py(t.space(1))
             .child(
                 div().relative().flex_1().min_w_0().child(
@@ -430,7 +430,7 @@ impl Render for FilesTree {
         if !has {
             return col.child(Self::note(&t, i.t("files.noProject"), 0.75)).into_any_element();
         }
-        col = col.child(div().px(t.space(2)).pb(t.space(1)).child(self.query.clone()));
+        col = col.child(div().px(t.space(3)).pb(t.space(1)).child(self.query.clone()));
 
         let q = self.query.read(cx).text().trim().to_lowercase();
         let mut rows: Vec<AnyElement> = vec![];
@@ -484,7 +484,7 @@ impl Render for FilesTree {
             self.dir_rows(&t, &i, "", 0, &mut rows, cx);
         }
         // kotak pohon: border lembut + sudut besar, mengisi sisa tinggi dan menggulir sendiri (.ftree__tree)
-        col = col.child(div().group("ftree-box").flex().flex_col().flex_1().min_h_0().mx(t.space(2)).mb(t.space(2)).border_1().border_color(t.colors.border_soft).rounded(t.rem(rem::RADIUS_LG)).child(div().id("ftree-tree").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.space(2)).children(rows)));
+        col = col.child(div().group("ftree-box").flex().flex_col().flex_1().min_h_0().mx(t.space(3)).mb(t.space(3)).border_1().border_color(t.colors.border_soft).rounded(t.rem(rem::RADIUS_LG)).child(div().id("ftree-tree").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.space(1)).children(rows)));
         if self.capped {
             col = col.child(Self::note(&t, i.tp("files.partial", &[("max", &MAX_EXPAND.to_string())]), 0.75));
         }

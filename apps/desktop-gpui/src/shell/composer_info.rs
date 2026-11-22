@@ -53,13 +53,17 @@ impl ChatPanel {
         let st = c.sessions.get(sid)?;
         let last = st.messages.iter().rev().find(|m| m.info.role == Role::Assistant && m.info.model_id.is_some());
         let model = c.model.clone();
+        // Batas konteks mengikuti model AKTIF (permintaan berikutnya berjalan di model itu), bukan model giliran terakhir,
+        // supaya setelah ganti model persennya langsung terhadap jendela model baru.
         let used = self
             .models
             .iter()
-            .find(|m| last.is_some_and(|l| l.info.provider_id.as_deref() == Some(m.provider_id.as_str()) && l.info.model_id.as_deref() == Some(m.model_id.as_str())))
-            .or_else(|| self.models.iter().find(|m| model.as_ref().is_some_and(|r| r.provider_id == m.provider_id && r.model_id == m.model_id)))
+            .find(|m| model.as_ref().is_some_and(|r| r.provider_id == m.provider_id && r.model_id == m.model_id))
+            .or_else(|| self.models.iter().find(|m| last.is_some_and(|l| l.info.provider_id.as_deref() == Some(m.provider_id.as_str()) && l.info.model_id.as_deref() == Some(m.model_id.as_str()))))
             .cloned();
-        let u = session_usage(&st.messages, used.as_ref().and_then(|m| m.context_limit).map(|v| v as f64), used.as_ref().and_then(|m| m.output_limit).map(|v| v as f64));
+        let max = crate::core::settings::SettingsStore::global(cx).read(cx).num("contextMax").max(0.) as u64;
+        let limit = crate::core::context_policy::effective_limit(used.as_ref().and_then(|m| m.context_limit), max).map(|v| v as f64);
+        let u = session_usage(&st.messages, limit, used.as_ref().and_then(|m| m.output_limit).map(|v| v as f64));
         let (variant, mode) = (c.variant.clone(), c.permission_mode.clone());
         let level = usage_level(u.context_percent);
         let id_loc = i.locale == crate::i18n::Locale::Id;

@@ -5,7 +5,7 @@
 
 - **Tema default monokrom** tanpa warna primary. Dark: `#121212` (latar), `#141414` (permukaan),
   `#1f1f1f` (permukaan menonjol). Light: padanan monokrom.
-- **Font:** Plus Jakarta Sans untuk UI (OFL); font kode dan terminal bisa diatur.
+- **Font:** Inter untuk UI dan Fira Code untuk kode (OFL); font kode dan terminal bisa diatur.
 - **Ketebalan & ukuran per variabel** (h1–h4, p, link, tombol, code), semuanya lewat token.
 - **Zoom UI** lewat token `--ui-scale` (75–150%), bukan zoom webview. Semua ukuran memakai `rem`
   (ADR-014, ADR-025). Konten browser bawaan tidak ikut ter-zoom.

@@ -48,6 +48,7 @@ pub const COMMANDS: &[CommandDef] = &[
     c("view.smartResize", "cmd.smartResize", Group::View, Some("Ctrl+Alt+0")),
     c("view.resetLayout", "cmd.resetLayout", Group::View, None),
     c("dev.designSystem", "cmd.designSystem", Group::Dev, None),
+    c("dev.labs", "cmd.labs", Group::Dev, None),
     c("dev.deleteChats", "cmd.deleteChats", Group::Dev, None),
     c("help.about", "cmd.about", Group::Help, None),
     c("help.tour", "cmd.tour", Group::Help, None),
@@ -65,6 +66,18 @@ pub fn find(id: &str) -> Option<&'static CommandDef> {
     COMMANDS.iter().find(|c| c.id == id)
 }
 
+/// Perintah yang paling berguna saat `panel` sedang dipakai (urutan = urutan tampil di palet).
+/// Perintah yang tidak ada di registry diabaikan oleh pemanggil; tes menjaga semuanya valid.
+pub fn relevant_for(panel: super::state::PanelId) -> &'static [&'static str] {
+    use super::state::PanelId::*;
+    match panel {
+        Sidebar => &["chat.new", "app.searchSessions", "app.automation", "app.memory", "view.toggleSidebar"],
+        Chat => &["chat.new", "app.searchSessions", "image.generate", "app.providers", "app.memory", "view.toggleChat"],
+        Docs => &["view.toggleDocs", "image.generate", "view.smartResize", "view.zoomIn", "view.zoomOut", "view.zoomReset"],
+        Tools | Rail => &["view.toggleTools", "view.toggleRail", "view.smartResize", "view.resetLayout"],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -72,6 +85,18 @@ mod tests {
         let id = crate::i18n::I18n::new(crate::i18n::Locale::Id);
         for c in super::COMMANDS {
             assert_ne!(id.t(c.title_key), c.title_key, "kunci i18n hilang: {}", c.title_key);
+        }
+    }
+
+    #[test]
+    fn perintah_relevan_semuanya_terdaftar() {
+        use crate::shell::state::PANEL_IDS;
+        for p in PANEL_IDS {
+            assert!(!super::relevant_for(p).is_empty());
+            for id in super::relevant_for(p) {
+                assert!(super::find(id).is_some(), "perintah relevan tak terdaftar: {id}");
+                assert_ne!(*id, "app.palette");
+            }
         }
     }
 }

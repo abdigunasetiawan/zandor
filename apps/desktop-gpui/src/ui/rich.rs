@@ -170,7 +170,7 @@ pub fn esc_html(s: &str) -> String {
 
 fn frame_style(t: &Theme) -> String {
     format!(
-        "background:{};color:{};font-family:'Plus Jakarta Sans','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5;padding:16px;border-radius:8px;border:1px solid {}",
+        "background:{};color:{};font-family:'Inter','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5;padding:16px;border-radius:8px;border:1px solid {}",
         css(t.colors.bg),
         css(t.colors.fg),
         css(t.colors.border)
@@ -203,7 +203,7 @@ pub fn code_html(t: &Theme, lang: &str, raw: &str) -> String {
     body.push_str(&esc_html(&raw[at..]));
     let head = if lang.is_empty() { String::new() } else { format!("<div style=\"font-size:12px;color:{};margin-bottom:8px\">{}</div>", css(t.colors.fg_muted), esc_html(lang)) };
     format!(
-        "<div style=\"{}\">{head}<pre style=\"margin:0;padding:12px;border-radius:6px;background:{};font-family:'JetBrains Mono',Consolas,monospace;font-size:13px;white-space:pre\">{body}</pre></div>",
+        "<div style=\"{}\">{head}<pre style=\"margin:0;padding:12px;border-radius:6px;background:{};font-family:'Fira Code',Consolas,monospace;font-size:13px;white-space:pre\">{body}</pre></div>",
         frame_style(t),
         css(t.colors.raised)
     )
@@ -314,7 +314,7 @@ pub fn message_html(t: &Theme, src: &str) -> String {
                 _ => "",
             }),
             Event::Text(x) => out.push_str(&esc_html(&x)),
-            Event::Code(x) => out.push_str(&format!("<code style=\"font-family:'JetBrains Mono',Consolas,monospace;font-size:12.5px;background:{raised};padding:1px 4px;border-radius:4px\">{}</code>", esc_html(&x))),
+            Event::Code(x) => out.push_str(&format!("<code style=\"font-family:'Fira Code',Consolas,monospace;font-size:12.5px;background:{raised};padding:1px 4px;border-radius:4px\">{}</code>", esc_html(&x))),
             Event::InlineMath(x) => out.push_str(&super::math::to_mathml(&x, false)),
             Event::DisplayMath(x) => out.push_str(&format!("<div style=\"margin:8px 0\">{}</div>", super::math::to_mathml(&x, true))),
             Event::SoftBreak => out.push(' '),

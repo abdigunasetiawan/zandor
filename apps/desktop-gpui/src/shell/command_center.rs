@@ -35,6 +35,8 @@ pub enum PaletteEvent {
 impl EventEmitter<PaletteEvent> for CommandCenter {}
 
 struct Row {
+    /// Judul bagian (Terakhir digunakan / Relevan / Semua perintah / Sesi); kosong saat mencari (daftar rata).
+    section: String,
     /// Kelompok (redup, di kanan baris).
     group: String,
     title: String,
@@ -118,15 +120,52 @@ impl CommandCenter {
         let q = self.input.read(cx).text().to_string();
         let mut out = vec![];
         if let Some((k, si, m)) = super::chat_panel::chat_parts::parse_message_link(&q) {
-            out.push(Row { group: i.t("group.app"), title: i.t("msg.openLink"), hint: None, disabled: false, matched: vec![], action: PaletteAction::MessageLink(k, si, m) });
+            out.push(Row { section: String::new(), group: i.t("group.app"), title: i.t("msg.openLink"), hint: None, disabled: false, matched: vec![], action: PaletteAction::MessageLink(k, si, m) });
             return out;
         }
         let app = super::state::AppState::global(cx).read(cx);
         let (can_back, can_forward) = (app.can_back(), app.can_forward());
+        let group_key = |g: Group| match g {
+            Group::App => "app",
+            Group::View => "view",
+            Group::Help => "help",
+            Group::Dev => "dev",
+        };
+        let command_row = |c: &'static super::commands::CommandDef, title: String, matched: Vec<usize>, section: String| Row {
+            section,
+            group: i.t(&format!("group.{}", group_key(c.group))),
+            title,
+            hint: super::commands::shortcut_of(c.id, cx).map(|s| s.replace("ArrowLeft", "←").replace("ArrowRight", "→")),
+            disabled: (c.id == "nav.back" && !can_back) || (c.id == "nav.forward" && !can_forward),
+            matched,
+            action: PaletteAction::Command(c.id),
+        };
+        let mut sessions_section = String::new();
+        if q.trim().is_empty() {
+            // Palet kosong dibagi 3: terakhir dipakai → relevan untuk panel aktif → semua perintah (sisanya, tanpa duplikat).
+            let mut shown: Vec<&'static str> = vec!["app.palette"];
+            let section = |ids: Vec<&'static super::commands::CommandDef>, name: String, out: &mut Vec<Row>, shown: &mut Vec<&'static str>| {
+                for c in ids {
+                    shown.push(c.id);
+                    out.push(command_row(c, i.t(c.title_key), vec![], name.clone()));
+                }
+            };
+            let recent: Vec<_> = app.recent_commands().iter().filter_map(|id| super::commands::find(id)).filter(|c| c.id != "app.palette").collect();
+            section(recent, i.t("palette.recent"), &mut out, &mut shown);
+            if let Some(p) = app.active_panel {
+                let rel: Vec<_> = super::commands::relevant_for(p).iter().filter_map(|id| super::commands::find(id)).filter(|c| !shown.contains(&c.id)).collect();
+                section(rel, i.tp("palette.relevant", &[("panel", &i.t(p.label_key()))]), &mut out, &mut shown);
+            }
+            let mut rest: Vec<_> = COMMANDS.iter().filter(|c| !shown.contains(&c.id)).map(|c| (c, i.t(c.title_key))).collect();
+            rest.sort_by(|a, b| group_key(a.0.group).cmp(group_key(b.0.group)).then_with(|| a.1.cmp(&b.1)));
+            let all = i.t("palette.all");
+            out.extend(rest.into_iter().map(|(c, title)| command_row(c, title, vec![], all.clone())));
+            sessions_section = i.t("sb.tab.sessions");
+        }
         let mut hits: Vec<(f32, &'static super::commands::CommandDef, String, Vec<usize>)> = vec![];
         for c in COMMANDS {
-            if c.id == "app.palette" {
-                continue;
+            if c.id == "app.palette" || q.trim().is_empty() {
+                continue; // kueri kosong sudah ditangani di atas
             }
             let title = i.t(c.title_key);
             let mut m = fuzzy_match(&q, &title);
@@ -137,26 +176,9 @@ impl CommandCenter {
             let Some((score, matched)) = m else { continue };
             hits.push((score, c, title, matched));
         }
-        let group_key = |g: Group| match g {
-            Group::App => "app",
-            Group::View => "view",
-            Group::Help => "help",
-            Group::Dev => "dev",
-        };
-        if q.trim().is_empty() {
-            hits.sort_by(|a, b| group_key(a.1.group).cmp(group_key(b.1.group)).then_with(|| a.2.cmp(&b.2)));
-        } else {
-            hits.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
-        }
+        hits.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
         for (_, c, title, matched) in hits {
-            out.push(Row {
-                group: i.t(&format!("group.{}", group_key(c.group))),
-                title,
-                hint: super::commands::shortcut_of(c.id, cx).map(|s| s.replace("ArrowLeft", "←").replace("ArrowRight", "→")),
-                disabled: (c.id == "nav.back" && !can_back) || (c.id == "nav.forward" && !can_forward),
-                matched,
-                action: PaletteAction::Command(c.id),
-            });
+            out.push(command_row(c, title, matched, String::new()));
         }
         let store = ProjectStore::global(cx).read(cx);
         let untitled = i.t("sb.untitled");
@@ -173,6 +195,7 @@ impl CommandCenter {
                     continue;
                 }
                 sessions.push((s.updated, Row {
+                    section: sessions_section.clone(),
                     group: i.t("sb.tab.sessions"),
                     title,
                     hint: Some(pname.clone()),
@@ -223,7 +246,21 @@ impl Render for CommandCenter {
         }
         // mengisi sisa tinggi popup lalu menggulir (popup dibatasi tinggi jendela, lihat `max_h` di bawah)
         let mut list = div().id("palette-list").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.space(1));
+        let mut prev_section = "";
         for (n, r) in rows.iter().enumerate() {
+            if !r.section.is_empty() && r.section != prev_section {
+                list = list.child(
+                    div()
+                        .id(("pal-sec", n))
+                        .px(t.space(3))
+                        .pt(if n == 0 { t.space(1) } else { t.space(3) })
+                        .pb(t.space(1))
+                        .small(&t)
+                        .text_color(t.colors.fg_subtle)
+                        .child(r.section.clone()),
+                );
+            }
+            prev_section = &r.section;
             let sel = n == self.selected;
             let disabled = r.disabled;
             let label: gpui::AnyElement = if r.matched.is_empty() {

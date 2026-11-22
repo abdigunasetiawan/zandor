@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { BROWSER_ACTIONS, createControlTools, requestControl } from "./control";
+import { BROWSER_ACTIONS, CHAT_SCOPE_HINT, createControlTools, isInside, requestControl } from "./control";
 
 describe("kontrol aplikasi (ADR-077)", () => {
   test("permintaan ditulis atomik, jawaban dibaca lalu dihapus", async () => {
@@ -68,6 +68,44 @@ describe("kontrol aplikasi (ADR-077)", () => {
       expect(seen).toEqual([{ action: "browser_navigate", args: { url: "https://x.test/" } }]);
       expect(tools.zandor_browser.description).toMatch(/halaman_tidak_tepercaya/);
       expect(tools.zandor_browser.description).toMatch(/baca-saja/);
+    } finally {
+      clearInterval(app);
+    }
+  });
+});
+
+describe("saran project dari agent", () => {
+  test("isInside: folder sesi Chat dikenali lintas pemisah dan huruf besar-kecil", () => {
+    expect(isInside(String.raw`C:\Data\chats`, "c:/data/CHATS/chat-1")).toBe(true);
+    expect(isInside(String.raw`C:\Data\chats`, String.raw`C:\Data\chats`)).toBe(false);
+    expect(isInside(String.raw`C:\Data\chats`, String.raw`C:\Data\chats-lain\x`)).toBe(false);
+    expect(isInside("", String.raw`C:\Data\x`)).toBe(false);
+    expect(CHAT_SCOPE_HINT).toMatch(/zandor_suggest_project/);
+  });
+
+  test("zandor_suggest_project mengirim aksi suggest_project beserta ringkasan", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zctl-"));
+    let seen: { action: string; args: Record<string, unknown>; sessionID: string } | null = null;
+    const app = setInterval(() => {
+      const reqDir = join(dir, "requests");
+      if (!existsSync(reqDir)) return;
+      for (const f of readdirSync(reqDir).filter((n) => n.endsWith(".json"))) {
+        const req = JSON.parse(readFileSync(join(reqDir, f), "utf8"));
+        rmSync(join(reqDir, f), { force: true });
+        seen = req;
+        mkdirSync(join(dir, "responses"), { recursive: true });
+        writeFileSync(join(dir, "responses", f), JSON.stringify({ ok: true, result: "Kartu saran ditampilkan." }));
+      }
+    }, 20);
+    try {
+      const t = createControlTools(dir).zandor_suggest_project;
+      const out = await t.execute(
+        { reason: "Perlu menginstal dependensi.", summary: "Pengguna ingin aplikasi todo React lengkap dengan tes." },
+        { sessionID: "ses_1", directory: "D", worktree: "D", abort: new AbortController().signal } as never,
+      );
+      expect(out).toBe("Kartu saran ditampilkan.");
+      expect(seen).toMatchObject({ action: "suggest_project", sessionID: "ses_1" });
+      expect((seen as unknown as { args: { summary: string } }).args.summary).toMatch(/todo React/);
     } finally {
       clearInterval(app);
     }

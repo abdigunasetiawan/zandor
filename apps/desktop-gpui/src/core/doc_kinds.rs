@@ -151,14 +151,18 @@ pub fn mime_for(path: &str) -> &'static str {
 
 /// Kind yang punya dua tampilan (render + mentah).
 pub fn has_raw_mode(k: DocKind) -> bool {
-    matches!(k, DocKind::Markdown | DocKind::Svg | DocKind::Csv | DocKind::Tsv | DocKind::Json | DocKind::Html | DocKind::Notebook)
+    matches!(k, DocKind::Markdown | DocKind::Svg | DocKind::Csv | DocKind::Tsv | DocKind::Json | DocKind::Notebook)
+}
+/// Jenis yang selalu tampil sebagai kode (tanpa tab render): kode biasa dan HTML (pratinjau lewat "Buka di browser").
+pub fn always_raw(k: DocKind) -> bool {
+    matches!(k, DocKind::Code | DocKind::Html)
 }
 pub fn is_text_kind(k: DocKind) -> bool {
-    k == DocKind::Code || has_raw_mode(k)
+    always_raw(k) || has_raw_mode(k)
 }
 /// true = tampilan render; false = mentah.
 pub fn default_render(k: DocKind) -> bool {
-    k != DocKind::Code
+    !always_raw(k)
 }
 
 pub const MAX_TEXT_BYTES: usize = 5 * 1024 * 1024;

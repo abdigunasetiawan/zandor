@@ -25,11 +25,13 @@ pub struct Select {
     up: bool,
     /// Menyatu dengan elemen di kirinya: sudut kiri atas/bawah lurus (hover tidak membulat di sisi sambungan).
     flat_left: bool,
+    /// Hanya ikon depan (label + chevron disembunyikan) — untuk ruang sempit; wajib ada `lead_icon`.
+    icon_only: bool,
 }
 
 /// `items`: (nilai, label).
 pub fn select(id: impl Into<ElementId>, items: Vec<(SharedString, SharedString)>, value: impl Into<SharedString>) -> Select {
-    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None, pill: false, lead: None, descs: None, up: false, flat_left: false }
+    Select { id: id.into(), items, value: value.into(), size: ControlSize::Sm, disabled: false, on_change: None, icons: None, pill: false, lead: None, descs: None, up: false, flat_left: false, icon_only: false }
 }
 
 impl Select {
@@ -59,6 +61,10 @@ impl Select {
     }
     pub fn up(mut self, v: bool) -> Self {
         self.up = v;
+        self
+    }
+    pub fn icon_only(mut self, v: bool) -> Self {
+        self.icon_only = v && self.lead.is_some();
         self
     }
     pub fn lead_icon(mut self, name: &'static str) -> Self {
@@ -104,8 +110,8 @@ impl RenderOnce for Select {
                     })
                     .children(self.lead.map(|n| icon(n).size(IconSize::Sm).color(t.colors.fg_muted)))
                     .children(self.icons.as_ref().map(|f| f(&self.value)))
-                    .child(if self.pill { div().whitespace_nowrap().child(label) } else { div().flex_1().min_w_0().truncate().child(label) })
-                    .child(icon("chevron_down").size(IconSize::Sm).color(t.colors.fg_muted)),
+                    .when(!self.icon_only, |d| d.child(if self.pill { div().whitespace_nowrap().child(label) } else { div().flex_1().min_w_0().truncate().child(label) }))
+                    .when(!self.icon_only, |d| d.child(icon("chevron_down").size(IconSize::Sm).color(t.colors.fg_muted))),
             );
         if is_open {
             let entries = self

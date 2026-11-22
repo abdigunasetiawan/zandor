@@ -20,7 +20,7 @@ const MENUS: &[(&str, &[&str])] = &[
         ],
     ),
     ("menu.help", &["app.palette", "help.about"]),
-    ("menu.dev", &["dev.designSystem", "-", "dev.deleteChats"]),
+    ("menu.dev", &["dev.designSystem", "dev.labs", "-", "dev.deleteChats"]),
 ];
 
 pub struct TitleBar {
@@ -39,7 +39,7 @@ impl TitleBar {
         let maximized = window.is_maximized();
         let w = t.rem(rem::RAIL_WIDTH);
         let (hover, danger, on_accent, fg) = (t.colors.hover, t.colors.danger, t.colors.on_accent, t.colors.fg);
-        let ctl = |id: &'static str, glyph: &'static str, area: WindowControlArea, label: String, close: bool| {
+        let ctl = |id: &'static str, glyph: &'static str, label: String, close: bool| {
             div()
                 .id(id)
                 .flex()
@@ -48,24 +48,24 @@ impl TitleBar {
                 .h_full()
                 .w(w)
                 .text_color(fg)
-                .window_control_area(area)
                 .tooltip(crate::ui::tooltip::text_tooltip(label.into()))
                 .hover(move |s| if close { s.bg(danger).text_color(on_accent) } else { s.bg(hover) })
                 .child(icon(glyph))
         };
+        // Minimize dan Close sengaja tombol area klien biasa (klik ditangani aplikasi), BUKAN
+        // `window_control_area(Min/Close)`: area kontrol non-klien (HTMINBUTTON/HTCLOSE) membuat Windows menampilkan
+        // tooltip bawaannya sendiri ("Close") di luar kendali GPUI, yang bisa tersangkut di layar. Maximize tetap
+        // `WindowControlArea::Max` karena Snap Layouts Windows 11 hanya muncul dari HTMAXBUTTON.
         div()
             .flex()
             .flex_none()
             .self_stretch()
-            .child(ctl("win-min", "minimize", WindowControlArea::Min, i.t("window.minimize"), false))
-            .child(ctl(
-                "win-max",
-                if maximized { "restore" } else { "maximize" },
-                WindowControlArea::Max,
-                i.t(if maximized { "window.restore" } else { "window.maximize" }),
-                false,
-            ))
-            .child(ctl("win-close", "close", WindowControlArea::Close, i.t("window.close"), true))
+            .child(ctl("win-min", "minimize", i.t("window.minimize"), false).on_click(|_, window, _| window.minimize_window()))
+            .child(
+                ctl("win-max", if maximized { "restore" } else { "maximize" }, i.t(if maximized { "window.restore" } else { "window.maximize" }), false)
+                    .window_control_area(WindowControlArea::Max),
+            )
+            .child(ctl("win-close", "close", i.t("window.close"), true).on_click(|_, window, _| window.remove_window()))
             .into_any_element()
     }
 
@@ -189,6 +189,9 @@ impl Render for TitleBar {
             .window_control_area(WindowControlArea::Drag);
         if !on_settings {
             let cb = self.on_command.clone();
+            // Jendela sempit: kolom tengah lebih kecil dari ikon + chip pintasan, sehingga chip meluap ke toolbar.
+            // Di bawah ambang ini chip disembunyikan (label sudah menyusut habis).
+            let show_kbd = window.viewport_size().width >= t.rem(rem::SPACE[7] * 18.);
             center = center.child(
                 div()
                     .id("omnibox")
@@ -197,6 +200,7 @@ impl Render for TitleBar {
                     .gap(t.space(2))
                     .w_full()
                     .max_w(t.rem(rem::SPACE[7] * 9.))
+                    .overflow_hidden()
                     .h(t.rem(rem::CONTROL_MD))
                     .px(t.space(3))
                     .border_1()
@@ -215,7 +219,7 @@ impl Render for TitleBar {
                     })
                     .child(icon("search").size(IconSize::Sm).color(muted))
                     .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().child(palette_l))
-                    .child(kbd("Ctrl+K")),
+                    .when(show_kbd, |d| d.child(kbd("Ctrl+K"))),
             );
         }
 

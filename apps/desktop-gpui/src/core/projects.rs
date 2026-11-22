@@ -710,6 +710,15 @@ impl ProjectStore {
         Ok(project)
     }
 
+    /// Buat folder baru di `Documents/Zandor Projects/<name>` (nama unik) lalu daftarkan sebagai project.
+    /// Folder dibuat Zandor sendiri sehingga tidak perlu dialog "percayai folder".
+    pub fn create_project_folder(&mut self, name: &str, cx: &mut Context<Self>) -> Result<Project, String> {
+        let fallback = self.host.chats.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| self.host.chats.clone());
+        let root = super::project_intent::projects_root(&fallback);
+        let dir = super::project_intent::create_unique_dir(&root, name)?;
+        self.add_project(&dir.to_string_lossy(), cx)
+    }
+
     pub fn remove_project(&mut self, id: &str, cx: &mut Context<Self>) {
         if !self.projects.iter().any(|p| p.id == id) {
             return;
@@ -761,14 +770,36 @@ impl ProjectStore {
                 }
             }
         }
+        let prev = self.selection.clone();
         self.selection = Selection { key, session_id };
         self.persist();
         self.changed(cx);
+        if let (Some(k), Some(s)) = (prev.key, prev.session_id) {
+            if self.selection.session_id.as_deref() != Some(s.as_str()) {
+                self.discard_if_empty(&k, &s, cx);
+            }
+        }
+    }
+
+    /// Sesi kosong = judul bawaan engine dan belum pernah ada aktivitas (updated ≈ created).
+    fn is_empty_session(&self, key: &str, session_id: &str) -> bool {
+        self.sessions
+            .get(key)
+            .and_then(|g| g.items.iter().find(|s| s.id == session_id))
+            .is_some_and(|s| is_default_session_title(&s.title) && !self.user_titled.contains(&s.id) && s.updated - s.created < 1500.)
+    }
+
+    /// Hapus sesi yang ditinggalkan tanpa satu pun chat, agar daftar tidak penuh sampah.
+    fn discard_if_empty(&mut self, key: &str, session_id: &str, cx: &mut Context<Self>) {
+        if self.is_empty_session(key, session_id) {
+            self.delete_session(key, session_id, cx);
+        }
     }
 
     /// Tutup tab; bila aktif, pindah ke tetangganya.
     pub fn close_tab(&mut self, session_id: &str, cx: &mut Context<Self>) {
         let Some(i) = self.tabs.iter().position(|t| t.session_id == session_id) else { return };
+        let closed_key = self.tabs[i].key.clone();
         self.tabs.remove(i);
         if self.selection.session_id.as_deref() == Some(session_id) {
             let next = self.tabs.get(i.min(self.tabs.len().saturating_sub(1))).cloned();
@@ -779,6 +810,7 @@ impl ProjectStore {
         }
         self.persist();
         self.changed(cx);
+        self.discard_if_empty(&closed_key, session_id, cx);
     }
 
     /// Tutup banyak tab: "others" | "right" | "left" | "all".

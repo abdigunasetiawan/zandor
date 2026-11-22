@@ -266,7 +266,7 @@ impl Render for ProjectStyleDialog {
         let i = cx.global::<I18n>().clone();
         let draft = self.draft(cx);
         let get = |k: &str| draft.iter().find(|(x, _)| *x == k).and_then(|(_, v)| v.clone());
-        let layers = super::sidebar::style_layers(&get);
+        let layers = super::sidebar::style_layers(&get, t.rem(rem::RADIUS_MD));
         let (pbg, pborder, pfg) = (get("background").and_then(|v| parse_color(&v)), get("border").and_then(|v| parse_color(&v)), get("fg").and_then(|v| parse_color(&v)));
         let logo_img = self.logo_image.as_deref().and_then(gradient::image_of);
         let logo_txt = self.logo.read(cx).text().trim().to_string();
@@ -301,7 +301,7 @@ impl Render for ProjectStyleDialog {
                 let mut tpl = div().flex().flex_wrap().gap(t.space(1));
                 for (n, (_, name, ..)) in gradient::TEMPLATES.iter().enumerate() {
                     let sp = gradient::template(n).unwrap_or_else(default_gradient);
-                    let layer = super::sidebar::style_layers(&|k| (k == "gradient").then(|| gradient::gradient_css(&sp)));
+                    let layer = super::sidebar::style_layers(&|k| (k == "gradient").then(|| gradient::gradient_css(&sp)), t.rem(rem::RADIUS_SM));
                     tpl = tpl.child(
                         div()
                             .id(SharedString::from(format!("pst-tpl-{n}")))

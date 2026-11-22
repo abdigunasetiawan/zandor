@@ -130,6 +130,7 @@ impl OnboardingPage {
         let paste = cx.new(|cx| {
             let mut t = TextInput::new(cx, "");
             t.multiline = true;
+            t.wrap = true;
             t.enter_newline = true;
             t
         });
@@ -417,7 +418,7 @@ impl OnboardingPage {
                 div()
                     .flex()
                     .gap(t.space(2))
-                    .child(button("onb-start").variant(ButtonVariant::Solid).label(i.t("onb.welcome.start")).child(icon("arrow_right").size(IconSize::Sm)).on_click(cx.listener(|s, _, _, cx| s.go(1, cx))))
+                    .child(button("onb-start").variant(ButtonVariant::Solid).label(i.t("onb.welcome.start")).trailing_icon("arrow_right").on_click(cx.listener(|s, _, _, cx| s.go(1, cx))))
                     .child(button("onb-skip").variant(ButtonVariant::Ghost).label(i.t("onb.skip")).on_click(cx.listener(|s, _, _, cx| s.finish(cx)))),
             )
             .child(segmented(t, "onb-lang", i.t("settings.language"), vec![("id".into(), i.t("language.id")), ("en".into(), i.t("language.en"))], &lang, set("language")))
@@ -803,13 +804,13 @@ impl Render for OnboardingPage {
             })))
             .child(div().flex_1())
             .child(if last {
-                button("onb-finish").variant(ButtonVariant::Solid).label(i.t("onb.finish")).child(icon("arrow_right").size(IconSize::Sm)).on_click(cx.listener(|s, _, _, cx| {
+                button("onb-finish").variant(ButtonVariant::Solid).label(i.t("onb.finish")).trailing_icon("arrow_right").on_click(cx.listener(|s, _, _, cx| {
                     if s.leave_ok(cx) {
                         s.finish(cx)
                     }
                 }))
             } else {
-                button("onb-next").variant(ButtonVariant::Solid).label(i.t("tour.next")).child(icon("arrow_right").size(IconSize::Sm)).on_click(cx.listener(|s, _, _, cx| {
+                button("onb-next").variant(ButtonVariant::Solid).label(i.t("tour.next")).trailing_icon("arrow_right").on_click(cx.listener(|s, _, _, cx| {
                     let n = s.step + 1;
                     s.go(n, cx)
                 }))

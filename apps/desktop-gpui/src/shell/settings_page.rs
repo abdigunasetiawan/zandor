@@ -7,7 +7,7 @@ use crate::core::settings::{group_of, keys, properties, SettingsStore, GROUPS};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme, H4};
 use crate::ui::{
-    button, icon, icon_button, select, switch, ButtonVariant, ControlSize, IconSize, InputChanged, TextInput,
+    button, icon, icon_button, select, switch, tabs, ButtonVariant, ControlSize, IconSize, InputChanged, TabItem, TextInput,
     ToastInput, ToastTone, Toasts, TypeExt,
 };
 use gpui::{div, prelude::*, AnyElement, App, ClipboardItem, Context, Entity, FontWeight, IntoElement, ScrollHandle, SharedString, Window};
@@ -34,12 +34,14 @@ pub struct SettingsPage {
     settings: Entity<SettingsStore>,
     search: Entity<TextInput>,
     active: &'static str,
+    ap_tab: &'static str,
     scroll: ScrollHandle,
     models: Option<Result<Vec<ModelOption>, String>>,
     providers: Entity<super::providers_section::ProvidersSection>,
     models_sec: Entity<super::models_section::ModelsSection>,
     notif: Entity<super::notification_section::NotificationSection>,
     profile: Entity<super::profile_section::ProfileSection>,
+    voice: Entity<super::voice_section::VoiceSection>,
     themes: Entity<super::themes_section::ThemesSection>,
     typography: Entity<super::type_section::TypeSection>,
     chat_style: Entity<super::chat_style_section::ChatStyleSection>,
@@ -79,6 +81,7 @@ impl SettingsPage {
         .detach();
         let providers = cx.new(super::providers_section::ProvidersSection::new);
         let profile = cx.new(super::profile_section::ProfileSection::new);
+        let voice = cx.new(super::voice_section::VoiceSection::new);
         let themes = cx.new(super::themes_section::ThemesSection::new);
         let typography = cx.new(super::type_section::TypeSection::new);
         let chat_style = cx.new(super::chat_style_section::ChatStyleSection::new);
@@ -105,7 +108,7 @@ impl SettingsPage {
                 a
             }
         });
-        let mut me = Self { memory, automation, app, settings, search, active: "general", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
+        let mut me = Self { memory, automation, app, settings, search, active: "general", ap_tab: "themes", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, voice, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
         me.load_models(cx);
         me
     }
@@ -155,16 +158,17 @@ fn group(t: &Theme, title: String, rows: Vec<AnyElement>) -> AnyElement {
     let mut g = div()
         .flex()
         .flex_col()
-        .mb(t.space(5))
-        .px(t.space(4))
+        .mb(t.space(3))
         .py(t.space(3))
-        .rounded(t.rem(rem::RADIUS_LG))
-        .bg(t.colors.surface)
         .child(div().typo(t, H4).mb(t.space(2)).child(title));
     for (n, r) in rows.into_iter().enumerate() {
         g = g.child(div().when(n > 0, |d| d.border_t_1().border_color(t.colors.border_soft)).child(r));
     }
     g.into_any_element()
+}
+
+fn subs_id(v: &str) -> &'static str {
+    ["themes", "type", "chat", "projects", "editor", "keys"].into_iter().find(|x| *x == v).unwrap_or("themes")
 }
 
 fn matches_q(q: &str, parts: &[&str]) -> bool {
@@ -236,11 +240,8 @@ impl Render for SettingsPage {
             .flex()
             .flex_col()
             .w_full()
-            .max_w(t.rem(rem::SPACE[7] * 16.))
-            .mx_auto()
             .px(t.space(4))
-            .py(t.space(5))
-            .child(div().small(&t).text_color(t.colors.fg_muted).mb(t.space(4)).child(i.t("settings.schemaNote")));
+            .py(t.space(3));
 
         if show("profile") && matches_q(&q, &[&i.t("settings.profile"), &i.t("profile.name")]) {
             content = content.child(group(&t, i.t("settings.profile"), vec![div().py(t.space(2)).child(self.profile.clone()).into_any_element()]));
@@ -315,6 +316,9 @@ impl Render for SettingsPage {
                     .on_click(cx.listener(move |s, _, _, cx| s.settings.update(cx, |st, cx| st.reset(key, cx))));
                 rows.push(row(&t, title, desc, control, Some(reset.into_any_element())).into_any_element());
             }
+            if g == "chat" && matches_q(&q, &[&i.t("voice.vocabulary"), &i.t("voice.corrections"), &i.t("settings.voiceLanguage")]) {
+                rows.push(self.voice.clone().into_any_element());
+            }
             if g == "layout" && matches_q(&q, &[&i.t("settings.layout.reset"), &i.t("settings.layout.resetBody")]) {
                 rows.push(
                     row(
@@ -333,23 +337,53 @@ impl Render for SettingsPage {
                     .into_any_element(),
                 );
             }
-            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.themes"), &i.t("ap.title")]) {
-                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.themes"))).child(self.themes.clone()).into_any_element());
-            }
-            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.type"), &i.t("ap.type.fonts")]) {
-                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.type"))).child(self.typography.clone()).into_any_element());
-            }
-            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.chat"), &i.t("chatStyle.title")]) {
-                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.chat"))).child(self.chat_style.clone()).into_any_element());
-            }
-            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.projects"), &i.t("ap.projects.logo")]) {
-                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.projects"))).child(self.pstyles.clone()).into_any_element());
-            }
-            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.editor"), &i.t("ap.editor2.select")]) {
-                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.editor"))).child(self.editor.clone()).into_any_element());
-            }
-            if g == "appearance" && matches_q(&q, &[&i.t("ap.tab.keys"), &i.t("ap.keys.change")]) {
-                rows.push(div().py(t.space(2)).child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t("ap.tab.keys"))).child(self.keys.clone()).into_any_element());
+            if g == "appearance" {
+                let subs: [(&'static str, &str, &str, &str, &'static str); 6] = [
+                    ("themes", "ap.tab.themes", "ap.title", "eye", "themes"),
+                    ("type", "ap.tab.type", "ap.type.fonts", "file", "type"),
+                    ("chat", "ap.tab.chat", "chatStyle.title", "chat", "chat"),
+                    ("projects", "ap.tab.projects", "ap.projects.logo", "layout", "projects"),
+                    ("editor", "ap.tab.editor", "ap.editor2.select", "wrench", "editor"),
+                    ("keys", "ap.tab.keys", "ap.keys.change", "settings", "keys"),
+                ];
+                let searching = !q.is_empty();
+                if !searching {
+                    let me = cx.entity().downgrade();
+                    let items = subs
+                        .iter()
+                        .map(|(id, k, _, ic, _)| TabItem { value: SharedString::from(*id), label: SharedString::from(i.t(k)), icon: Some(*ic), disabled: false })
+                        .collect();
+                    rows.push(
+                        div()
+                            .py(t.space(2))
+                            .child(tabs("ap-tabs", items, self.ap_tab).on_change(move |v, _, cx| {
+                                me.update(cx, |s, cx| {
+                                    s.ap_tab = subs_id(&v);
+                                    cx.notify();
+                                })
+                                .ok();
+                            }))
+                            .into_any_element(),
+                    );
+                }
+                for (id, k, k2, _, _) in subs {
+                    if !(searching || self.ap_tab == id) || !matches_q(&q, &[&i.t(k), &i.t(k2)]) {
+                        continue;
+                    }
+                    let body = match id {
+                        "themes" => self.themes.clone().into_any_element(),
+                        "type" => self.typography.clone().into_any_element(),
+                        "chat" => self.chat_style.clone().into_any_element(),
+                        "projects" => self.pstyles.clone().into_any_element(),
+                        "editor" => self.editor.clone().into_any_element(),
+                        _ => self.keys.clone().into_any_element(),
+                    };
+                    let mut d = div().py(t.space(2));
+                    if searching {
+                        d = d.child(div().typo(&t, crate::theme::H4).mb(t.space(2)).child(i.t(k)));
+                    }
+                    rows.push(d.child(body).into_any_element());
+                }
             }
             if g == "notifications" && matches_q(&q, &[&i.t("notif.permission.title"), &i.t("notif.testAll.title"), &i.t("notif.custom.title")]) {
                 rows.push(div().child(self.notif.clone()).into_any_element());
@@ -469,7 +503,18 @@ impl Render for SettingsPage {
             .flex()
             .size_full()
             .child(side)
-            .child(div().id("set-scroll").flex_1().min_w_0().bg(t.colors.frame).overflow_y_scroll().track_scroll(&self.scroll).child(content))
+            .child(
+                div().flex_1().min_w_0().h_full().bg(t.colors.frame).p(t.space(4)).child(
+                    div()
+                        .id("set-scroll")
+                        .size_full()
+                        .rounded(t.rem(rem::RADIUS_LG))
+                        .bg(t.colors.surface)
+                        .overflow_y_scroll()
+                        .track_scroll(&self.scroll)
+                        .child(content),
+                ),
+            )
     }
 }
 

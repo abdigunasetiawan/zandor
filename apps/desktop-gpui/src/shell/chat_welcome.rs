@@ -16,6 +16,8 @@ pub struct WelcomeCtx {
     pub branch: Option<String>,
     pub detached: bool,
     pub branches: Vec<(String, bool)>,
+    /// Folder induk (monorepo/multi-repo) yang bukan repo git sendiri: sub-repo di dalamnya (nama folder, cabang).
+    pub sub_repos: Vec<(String, Option<String>)>,
 }
 
 /// Port dayPart (use-os-user.ts).
@@ -52,12 +54,25 @@ fn load_ctx(root: &str) -> WelcomeCtx {
     let changed: Vec<String> = st.as_ref().map(|s| s.files.iter().map(|f| f.path.clone()).collect()).unwrap_or_default();
     let staged = st.as_ref().map(|s| s.files.iter().filter(|f| f.index != ' ' && f.index != '?').count()).unwrap_or(0);
     let branches = if is_repo { crate::git::branches(path).unwrap_or_default().into_iter().map(|b| (b.name, b.current)).collect() } else { vec![] };
+    let sub_repos = if is_repo {
+        vec![]
+    } else {
+        crate::git::find_repos(path)
+            .into_iter()
+            .map(|r| {
+                let name = std::path::Path::new(&r).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| r.clone());
+                let branch = crate::git::status(std::path::Path::new(&r)).ok().and_then(|s| s.branch);
+                (name, branch)
+            })
+            .collect()
+    };
     WelcomeCtx {
         ctx: SuggestionContext { has_project: true, root_files, changed, staged, active_doc: None },
         is_repo,
         branch: st.as_ref().and_then(|s| s.branch.clone()),
         detached: st.as_ref().is_some_and(|s| s.detached),
         branches,
+        sub_repos,
     }
 }
 
@@ -168,7 +183,9 @@ impl ChatPanel {
             (None, _) => pill = pill.child(meta(String::new()).pr(t.space(2)).child(i.t("scope.chatHint"))),
             (Some(_), None) => pill = pill.child(meta(String::new()).pr(t.space(2)).child(icon("git").size(IconSize::Sm)).child(i.t("scope.gitLoading"))),
             (Some((_, root)), Some(w)) => {
-                let text = if !w.is_repo {
+                let text = if !w.is_repo && !w.sub_repos.is_empty() {
+                    i.tp("scope.subRepos", &[("n", &w.sub_repos.len().to_string())])
+                } else if !w.is_repo {
                     i.t("scope.noGit")
                 } else if w.detached {
                     i.t("scope.detached")
@@ -204,6 +221,20 @@ impl ChatPanel {
                             .child(meta(String::new()).child(text))
                             .child(icon("chevron_down").size(IconSize::Sm))
                             .when(self.scope_menu == Some(2), |d| d.child(menu_popup("m-scope-branch", t, entries, Anchor::TopLeft, close.clone()))),
+                    );
+                } else if !w.sub_repos.is_empty() {
+                    // daftar informatif: tiap sub-repo dengan cabang aktifnya
+                    let entries = w
+                        .sub_repos
+                        .iter()
+                        .map(|(name, branch)| entry(format!("{name} · {}", branch.clone().unwrap_or_else(|| i.t("scope.detached"))), |_, _| {}))
+                        .collect();
+                    pill = pill.child(
+                        pill_btn("scope-subrepos", 2)
+                            .child(icon("git").size(IconSize::Sm))
+                            .child(meta(String::new()).child(text))
+                            .child(icon("chevron_down").size(IconSize::Sm))
+                            .when(self.scope_menu == Some(2), |d| d.child(menu_popup("m-scope-subrepos", t, entries, Anchor::TopLeft, close.clone()))),
                     );
                 } else {
                     pill = pill.child(meta(String::new()).pr(t.space(2)).child(icon("git").size(IconSize::Sm)).child(text));

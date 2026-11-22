@@ -37,7 +37,9 @@ impl ChatState {
         !matches!(self.status, SessionRunStatus::Idle)
     }
 
-    /// Ganti riwayat penuh (muat awal / sinkron ulang).
+    /// Ganti riwayat penuh (muat awal / sinkron ulang). `live` = status jalan menurut engine (`GET /session/status`);
+    /// bila ada, itu yang dipakai. Tebakan dari pesan terakhir hanya cadangan bila engine tak menjawab, karena
+    /// pesan asisten tanpa `completed` tertinggal selamanya bila engine dimatikan di tengah giliran.
     pub fn load(
         &mut self,
         mut messages: Vec<ChatMessage>,
@@ -45,6 +47,7 @@ impl ChatState {
         revert: Option<String>,
         questions: Option<Vec<QuestionRequest>>,
         todos: Option<Vec<Todo>>,
+        live: Option<SessionRunStatus>,
     ) {
         messages.sort_by(|a, b| a.info.id.cmp(&b.info.id));
         let running = messages.last().is_some_and(|m| m.info.role == Role::Assistant && m.info.completed.is_none());
@@ -59,8 +62,10 @@ impl ChatState {
             self.todos = t;
         }
         self.pending.clear();
-        if running && self.status == SessionRunStatus::Idle {
-            self.status = SessionRunStatus::Busy;
+        match live {
+            Some(s) => self.status = s,
+            None if running && self.status == SessionRunStatus::Idle => self.status = SessionRunStatus::Busy,
+            None => {}
         }
     }
 
@@ -324,5 +329,21 @@ mod turn_tests {
         assert_eq!(t[1].message.parts.len(), 2);
         assert_eq!(t[1].message.info.cost, Some(2.));
         assert_eq!(t[3].message.info.completed, None);
+    }
+    #[test]
+    fn status_engine_mengalahkan_pesan_yatim() {
+        // engine dimatikan di tengah giliran: pesan asisten terakhir tak punya `completed`, tapi engine bilang idle
+        let ms = vec![msg("m1", Role::User, 1., None), msg("m2", Role::Assistant, 2., None)];
+        let mut s = ChatState::new("s");
+        s.load(ms.clone(), vec![], None, None, None, Some(SessionRunStatus::Idle));
+        assert!(!s.busy());
+        // engine tak menjawab: jatuh ke tebakan lama
+        let mut s = ChatState::new("s");
+        s.load(ms.clone(), vec![], None, None, None, None);
+        assert!(s.busy());
+        // engine bilang sedang jalan
+        let mut s = ChatState::new("s");
+        s.load(ms, vec![], None, None, None, Some(SessionRunStatus::Busy));
+        assert!(s.busy());
     }
 }

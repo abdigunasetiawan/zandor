@@ -92,7 +92,7 @@ impl ToolId {
             ToolId::Changes => "diff",
             ToolId::Files => "files",
             ToolId::Browser => "globe",
-            ToolId::Info => "info",
+            ToolId::Info => "layout",
             ToolId::Session => "activity",
             ToolId::Trajectory => "trajectory",
             ToolId::Log => "list",
@@ -117,6 +117,11 @@ pub struct ShellLayout {
     dragging: Option<usize>,
     pub content: PanelContent,
     saved: String,
+    /// Smart resize otomatis: aktif sejak aplikasi dibuka, mati bila pengguna menyeret pemisah.
+    auto_smart: bool,
+    auto_w: f32,
+    /// Status terlipat pada render sebelumnya, untuk mempertahankan lebar sidebar saat panel lain dibuka/ditutup.
+    prev_collapsed: Option<Vec<bool>>,
 }
 
 fn layout_path() -> std::path::PathBuf {
@@ -141,11 +146,22 @@ impl ShellLayout {
             }
         })
         .detach();
-        let mut me = Self { app, sizes: DEFAULT_LAYOUT, active_tool: ToolId::Terminal, group: None, dragging: None, content, saved: String::new() };
+        let mut me = Self { app, sizes: DEFAULT_LAYOUT, active_tool: ToolId::Terminal, group: None, dragging: None, content, saved: String::new(), auto_smart: true, auto_w: 0., prev_collapsed: None };
         if remember(cx) {
             me.restore(cx);
         }
+        me.sync_docs(cx);
+        let docs = super::docs_panel::DocsState::global(cx);
+        cx.observe(&docs, |s, _, cx| s.sync_docs(cx)).detach();
         me
+    }
+
+    /// Panel 3 (dokumen) otomatis tersembunyi bila tak ada dokumen terbuka, dan tampil saat ada yang dibuka.
+    fn sync_docs(&mut self, cx: &mut Context<Self>) {
+        let has_docs = !super::docs_panel::DocsState::global(cx).read(cx).open.is_empty();
+        if has_docs == self.app.read(cx).is_collapsed(PanelId::Docs) {
+            self.app.update(cx, |a, cx| a.toggle(PanelId::Docs, cx));
+        }
     }
 
     /// Simpan ukuran panel, panel terlipat, dan alat aktif (pengaturan `rememberLayout`).
@@ -200,9 +216,11 @@ impl ShellLayout {
 
     /// Smart resize: sidebar "secukupnya" (16rem, maks 22% grup), sisanya dibagi rata panel utama terbuka.
     pub fn smart_resize(&mut self, cx: &mut Context<Self>) {
+        self.auto_smart = true;
         let Some(g) = self.group else { return };
         let scale = cx.global::<Theme>().scale;
         let w: f32 = g.size.width.into();
+        self.auto_w = w;
         let side = ((16. * 16. * scale) / w * 100.).min(22.);
         let open: Vec<usize> = (1..4).filter(|i| !self.app.read(cx).is_collapsed(RESIZABLE[*i])).collect();
         let rest = (100. - side) / open.len().max(1) as f32;
@@ -267,6 +285,21 @@ impl Render for ShellLayout {
         let rail_hidden = self.app.read(cx).is_collapsed(PanelId::Rail);
         let open: Vec<usize> = (0..4).filter(|i| !collapsed[*i]).collect();
         set_panel_shown(PanelShown { docs: !collapsed[2], tools: !collapsed[3] }, cx);
+        // Sidebar (P1) mempertahankan lebarnya saat panel lain dibuka/ditutup: porsi sidebar terhadap grup dijaga tetap.
+        if let Some(prev) = self.prev_collapsed.as_ref().filter(|p| **p != collapsed) {
+            if !prev[0] && !collapsed[0] {
+                let old_total: f32 = (0..4).filter(|i| !prev[*i]).map(|i| self.sizes[i]).sum::<f32>().max(1.);
+                let frac = (self.sizes[0] / old_total).clamp(0.01, 0.9);
+                let others: f32 = (1..4).filter(|i| !collapsed[*i]).map(|i| self.sizes[i]).sum();
+                if others > 0. {
+                    self.sizes[0] = frac / (1. - frac) * others;
+                }
+            }
+        }
+        if self.prev_collapsed.as_ref().is_some_and(|p| *p != collapsed) {
+            self.auto_w = 0.; // panel dibuka/ditutup: mode otomatis menghitung ulang
+        }
+        self.prev_collapsed = Some(collapsed.clone());
         let total: f32 = open.iter().map(|i| self.sizes[*i]).sum::<f32>().max(1.);
         let i18n = cx.global::<I18n>();
         let tool_label = i18n.t(&format!("tools.{}", self.active_tool.key()));
@@ -298,7 +331,25 @@ impl Render for ShellLayout {
                 canvas(
                     {
                         let this = this.clone();
-                        move |b, _, cx| this.update(cx, |s, _| s.group = Some(b))
+                        move |b, _, cx| {
+                            let run = this.update(cx, |s, _| {
+                                s.group = Some(b);
+                                let w: f32 = b.size.width.into();
+                                // Mode otomatis: hitung ulang tiap lebar grup berubah (buka, ubah ukuran, maksimalkan,
+                                // pulihkan, minimize) sampai pengguna menyeret pemisah; Ctrl+Alt+0 menyalakannya lagi.
+                                // Lebar sangat kecil (jendela diminimalkan) dilewati agar ukuran tak rusak.
+                                let run = s.auto_smart && w > 100. && (w - s.auto_w).abs() > 1.;
+                                if run {
+                                    s.auto_w = w;
+                                }
+                                run
+                            });
+                            // Ditunda: notify saat prepaint tidak memicu render ulang, sehingga ukuran baru tak tampil.
+                            if run {
+                                let this = this.clone();
+                                cx.defer(move |cx| this.update(cx, |s, cx| s.smart_resize(cx)));
+                            }
+                        }
                     },
                     |_, _, _, _| {},
                 )
@@ -378,7 +429,19 @@ impl Render for ShellLayout {
                 }
             };
             let frac = self.sizes[*idx] / total;
-            group = group.child(div().h_full().min_w(t.rem(min_rem(pid))).flex_basis(px(0.)).flex_grow(frac).flex_shrink(1.).w_0().child(frame(inner)));
+            let app_for_focus = self.app.clone();
+            group = group.child(
+                div()
+                    .h_full()
+                    .min_w(t.rem(min_rem(pid)))
+                    .flex_basis(px(0.))
+                    .flex_grow(frac)
+                    .flex_shrink(1.)
+                    .w_0()
+                    // fase capture: panel tercatat aktif walau anaknya menelan klik; klik tidak dihentikan
+                    .capture_any_mouse_down(move |_, _, cx| app_for_focus.update(cx, |a, cx| a.set_active_panel(pid, cx)))
+                    .child(frame(inner)),
+            );
 
             if k + 1 < open.len() {
                 let sep = k;
@@ -395,6 +458,7 @@ impl Render for ShellLayout {
                         .cursor_col_resize()
                         .on_mouse_down(MouseButton::Left, cx.listener(move |s, _, _, cx| {
                             s.dragging = Some(sep);
+                            s.auto_smart = false;
                             cx.notify();
                         }))
                         .child(
@@ -454,12 +518,25 @@ impl Render for ShellLayout {
                 .border_1()
                 .border_color(c.border)
                 .rounded(t.rem(rem::RADIUS_LG))
-                .bg(c.bg);
+                .bg(c.bg)
+                .capture_any_mouse_down({
+                    let app = self.app.clone();
+                    move |_, _, cx| app.update(cx, |a, cx| a.set_active_panel(PanelId::Rail, cx))
+                });
             for (n, tool) in TOOL_IDS.iter().enumerate() {
                 let tool = *tool;
                 let pressed = tool == self.active_tool && tools_open;
                 let mut b = icon_button(("rail", n), tool.icon(), rail_labels[n].clone())
-                    .on_click(cx.listener(move |s, _, _, cx| s.open_tool(tool, cx)));
+                    .on_click(cx.listener(move |s, _, _, cx| {
+                        // klik ikon yang sedang aktif → tutup Panel 4
+                        if tool == s.active_tool && !s.app.read(cx).is_collapsed(PanelId::Tools) {
+                            s.app.update(cx, |a, cx| a.toggle(PanelId::Tools, cx));
+                            s.persist(cx);
+                            cx.notify();
+                        } else {
+                            s.open_tool(tool, cx);
+                        }
+                    }));
                 if pressed {
                     b = b.variant(ButtonVariant::Outline).pressed(true);
                 }

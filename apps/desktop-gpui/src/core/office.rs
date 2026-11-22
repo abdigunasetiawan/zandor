@@ -110,16 +110,60 @@ pub struct DocxRun {
     pub strike: bool,
     pub href: Option<String>,
     pub image: Option<String>,
+    /// Ukuran gambar (lebar, tinggi) dalam pt, dari `wp:extent`.
+    pub image_size: Option<(f32, f32)>,
+    /// Ukuran huruf (pt), warna (hex 6), nama font, sorotan (hex) — sudah digabung dengan gaya dokumen.
+    pub size: Option<f32>,
+    pub color: Option<String>,
+    pub font: Option<String>,
+    pub highlight: Option<String>,
 }
+
+/// Format paragraf (satuan pt). `align`: left | center | right | justify.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ParaFmt {
+    pub align: Option<String>,
+    pub left: Option<f32>,
+    pub right: Option<f32>,
+    /// Indentasi baris pertama; negatif = menggantung.
+    pub first: Option<f32>,
+    pub before: Option<f32>,
+    pub after: Option<f32>,
+    /// Kelipatan jarak baris (1.0 = tunggal).
+    pub line: Option<f32>,
+    pub fill: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DocxCell {
+    pub blocks: Vec<DocxBlock>,
+    pub fill: Option<String>,
+    pub span: usize,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum DocxBlock {
-    P { style: Option<String>, list: Option<(u32, bool)>, runs: Vec<DocxRun> },
-    Table { rows: Vec<Vec<Vec<DocxBlock>>> },
+    P { style: Option<String>, list: Option<(u32, bool)>, runs: Vec<DocxRun>, fmt: ParaFmt },
+    /// `widths` = lebar kolom grid (pt); `grid` = tabel bergaris.
+    Table { rows: Vec<Vec<DocxCell>>, widths: Vec<f32>, grid: bool },
 }
+
+/// Ukuran halaman dan margin (pt).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DocxPage {
+    pub width: f32,
+    pub height: f32,
+    pub left: f32,
+    pub right: f32,
+    pub top: f32,
+    pub bottom: f32,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct DocxResult {
     pub blocks: Vec<DocxBlock>,
     pub truncated: bool,
+    pub page: Option<DocxPage>,
 }
 const MAX_BLOCKS: usize = 5000;
 
@@ -133,12 +177,176 @@ fn heading_of(style: Option<&str>) -> Option<String> {
     (1..=6).contains(&n).then(|| format!("h{n}"))
 }
 
+// ---- format langsung + gaya (styles.xml) ----
+
+#[derive(Clone, Debug, Default)]
+struct RunFmt {
+    bold: Option<bool>,
+    italic: Option<bool>,
+    underline: Option<bool>,
+    strike: Option<bool>,
+    size: Option<f32>,
+    color: Option<String>,
+    font: Option<String>,
+    highlight: Option<String>,
+}
+
+fn set<T: Clone>(a: &mut Option<T>, b: &Option<T>) {
+    if b.is_some() {
+        *a = b.clone();
+    }
+}
+
+impl RunFmt {
+    fn over(&mut self, o: &RunFmt) {
+        set(&mut self.bold, &o.bold);
+        set(&mut self.italic, &o.italic);
+        set(&mut self.underline, &o.underline);
+        set(&mut self.strike, &o.strike);
+        set(&mut self.size, &o.size);
+        set(&mut self.color, &o.color);
+        set(&mut self.font, &o.font);
+        set(&mut self.highlight, &o.highlight);
+    }
+}
+
+impl ParaFmt {
+    fn over(&mut self, o: &ParaFmt) {
+        set(&mut self.align, &o.align);
+        set(&mut self.left, &o.left);
+        set(&mut self.right, &o.right);
+        set(&mut self.first, &o.first);
+        set(&mut self.before, &o.before);
+        set(&mut self.after, &o.after);
+        set(&mut self.line, &o.line);
+        set(&mut self.fill, &o.fill);
+    }
+}
+
+fn hex6(s: &str) -> Option<String> {
+    (s.len() == 6 && s.chars().all(|c| c.is_ascii_hexdigit())).then(|| s.to_uppercase())
+}
+
+fn highlight_hex(name: &str) -> Option<String> {
+    let h = match name {
+        "yellow" => "FFFF00",
+        "green" => "00FF00",
+        "cyan" => "00FFFF",
+        "magenta" => "FF00FF",
+        "blue" => "0000FF",
+        "red" => "FF0000",
+        "darkBlue" => "000080",
+        "darkCyan" => "008080",
+        "darkGreen" => "008000",
+        "darkMagenta" => "800080",
+        "darkRed" => "800000",
+        "darkYellow" => "808000",
+        "darkGray" => "808080",
+        "lightGray" => "C0C0C0",
+        "black" => "000000",
+        "white" => "FFFFFF",
+        _ => return None,
+    };
+    Some(h.into())
+}
+
+fn twips(el: Option<Node>, names: &[&str]) -> Option<f32> {
+    names.iter().find_map(|n| attr(el, n)).and_then(|v| v.parse::<f32>().ok()).map(|v| v / 20.)
+}
+
+fn bool_prop(rpr: Option<Node>, name: &str) -> Option<bool> {
+    let e = rpr.and_then(|p| kid(p, name))?;
+    Some(attr(Some(e), "val").is_none_or(|v| !["0", "false", "none"].contains(&v)))
+}
+
+fn read_rpr(rpr: Option<Node>) -> RunFmt {
+    let k = |n: &str| rpr.and_then(|p| kid(p, n));
+    RunFmt {
+        bold: bool_prop(rpr, "b"),
+        italic: bool_prop(rpr, "i"),
+        underline: bool_prop(rpr, "u"),
+        strike: bool_prop(rpr, "strike"),
+        size: attr(k("sz"), "val").and_then(|v| v.parse::<f32>().ok()).map(|v| v / 2.),
+        color: attr(k("color"), "val").and_then(hex6),
+        font: attr(k("rFonts"), "ascii").map(String::from),
+        highlight: attr(k("highlight"), "val").and_then(highlight_hex).or_else(|| attr(k("shd"), "fill").and_then(hex6)),
+    }
+}
+
+fn read_ppr(ppr: Option<Node>) -> ParaFmt {
+    let k = |n: &str| ppr.and_then(|p| kid(p, n));
+    let ind = k("ind");
+    let sp = k("spacing");
+    let rule = attr(sp, "lineRule");
+    ParaFmt {
+        align: attr(k("jc"), "val").and_then(|v| match v {
+            "center" => Some("center"),
+            "right" | "end" => Some("right"),
+            "both" | "distribute" => Some("justify"),
+            "left" | "start" => Some("left"),
+            _ => None,
+        }).map(String::from),
+        left: twips(ind, &["left", "start"]),
+        right: twips(ind, &["right", "end"]),
+        first: twips(ind, &["firstLine"]).or_else(|| twips(ind, &["hanging"]).map(|v| -v)),
+        before: twips(sp, &["before"]),
+        after: twips(sp, &["after"]),
+        line: attr(sp, "line").and_then(|v| v.parse::<f32>().ok()).filter(|_| rule.is_none_or(|r| r == "auto")).map(|v| v / 240.),
+        fill: attr(k("shd"), "fill").and_then(hex6),
+    }
+}
+
+struct StyleDef {
+    based: Option<String>,
+    p: ParaFmt,
+    r: RunFmt,
+}
+#[derive(Default)]
+struct Styles {
+    map: HashMap<String, StyleDef>,
+    def_p: ParaFmt,
+    def_r: RunFmt,
+    default_para: Option<String>,
+}
+
+fn load_styles(files: &Files) -> Styles {
+    let mut out = Styles::default();
+    let Some(t) = text_of(files, "word/styles.xml") else { return out };
+    let Ok(d) = Document::parse(&t) else { return out };
+    if let Some(r) = all(d.root(), "rPrDefault").into_iter().next() {
+        out.def_r = read_rpr(kid(r, "rPr"));
+    }
+    if let Some(p) = all(d.root(), "pPrDefault").into_iter().next() {
+        out.def_p = read_ppr(kid(p, "pPr"));
+    }
+    for s in all(d.root(), "style") {
+        let Some(id) = attr(Some(s), "styleId") else { continue };
+        if attr(Some(s), "type") == Some("paragraph") && attr(Some(s), "default") == Some("1") {
+            out.default_para = Some(id.to_string());
+        }
+        out.map.insert(id.to_string(), StyleDef { based: attr(kid(s, "basedOn"), "val").map(String::from), p: read_ppr(kid(s, "pPr")), r: read_rpr(kid(s, "rPr")) });
+    }
+    out
+}
+
+fn resolve_style(map: &HashMap<String, StyleDef>, id: &str, depth: u8) -> (ParaFmt, RunFmt) {
+    let Some(s) = map.get(id) else { return Default::default() };
+    let (mut p, mut r) = match (&s.based, depth < 8) {
+        (Some(b), true) => resolve_style(map, b, depth + 1),
+        _ => Default::default(),
+    };
+    p.over(&s.p);
+    r.over(&s.r);
+    (p, r)
+}
+
 pub fn parse_docx(bytes: &[u8]) -> Result<DocxResult, String> {
-    let re = regex::Regex::new(r"^word/(document\.xml|numbering\.xml|_rels/document\.xml\.rels|media/[^/]+)$").expect("regex");
+    let re = regex::Regex::new(r"^word/(document\.xml|styles\.xml|numbering\.xml|_rels/document\.xml\.rels|media/[^/]+)$").expect("regex");
     let files = open(bytes, |n| re.is_match(n))?;
     let doc_t = text_of(&files, "word/document.xml").ok_or("word/document.xml tidak ditemukan atau rusak")?;
     let doc = Document::parse(&doc_t).map_err(|_| "word/document.xml tidak ditemukan atau rusak".to_string())?;
     let rels = rels_of(&files, "word/_rels/document.xml.rels");
+    let styles = load_styles(&files);
     let mut budget = 0usize;
     let mut ordered: HashMap<String, bool> = HashMap::new();
     if let Some(nt) = text_of(&files, "word/numbering.xml") {
@@ -157,14 +365,16 @@ pub fn parse_docx(bytes: &[u8]) -> Result<DocxResult, String> {
     let mut count = 0usize;
     let mut truncated = false;
 
-    let run_of = |r: Node, href: Option<String>, budget: &mut usize| -> Option<DocxRun> {
+    let run_of = |r: Node, href: Option<String>, base: &RunFmt, budget: &mut usize| -> Option<DocxRun> {
         let rpr = kid(r, "rPr");
-        let flag = |name: &str| match rpr.and_then(|p| kid(p, name)) {
-            None => false,
-            Some(e) => attr(Some(e), "val").is_none_or(|v| !["0", "false", "none"].contains(&v)),
-        };
+        let mut f = base.clone();
+        if let Some(rs) = attr(rpr.and_then(|p| kid(p, "rStyle")), "val") {
+            f.over(&resolve_style(&styles.map, rs, 0).1);
+        }
+        f.over(&read_rpr(rpr));
         let mut text = String::new();
         let mut image = None;
+        let mut image_size = None;
         for c in r.children().filter(|c| c.is_element()) {
             match local(&c) {
                 "t" => text.push_str(&node_text(c)),
@@ -177,6 +387,9 @@ pub fn parse_docx(bytes: &[u8]) -> Result<DocxResult, String> {
                             image = image_url(&files, &resolve("word/", &rel.target), budget);
                         }
                     }
+                    let ext = all(c, "extent").into_iter().next();
+                    let dim = |n: &str| attr(ext, n).and_then(|v| v.parse::<f32>().ok()).map(|v| v / 12700.);
+                    image_size = dim("cx").zip(dim("cy"));
                 }
                 _ => {}
             }
@@ -184,7 +397,20 @@ pub fn parse_docx(bytes: &[u8]) -> Result<DocxResult, String> {
         if text.is_empty() && image.is_none() {
             return None;
         }
-        Some(DocxRun { text, bold: flag("b"), italic: flag("i"), underline: flag("u"), strike: flag("strike"), href, image })
+        Some(DocxRun {
+            text,
+            bold: f.bold.unwrap_or(false),
+            italic: f.italic.unwrap_or(false),
+            underline: f.underline.unwrap_or(false),
+            strike: f.strike.unwrap_or(false),
+            href,
+            image,
+            image_size,
+            size: f.size,
+            color: f.color,
+            font: f.font,
+            highlight: f.highlight,
+        })
     };
 
     let para = |p: Node, budget: &mut usize| -> DocxBlock {
@@ -204,21 +430,32 @@ pub fn parse_docx(bytes: &[u8]) -> Result<DocxResult, String> {
                 list = Some((0, true));
             }
         }
+        let (sp, sr) = style.or(styles.default_para.as_deref()).map(|s| resolve_style(&styles.map, s, 0)).unwrap_or_default();
+        let mut fmt = styles.def_p.clone();
+        fmt.over(&sp);
+        fmt.over(&read_ppr(ppr));
+        let mut base = styles.def_r.clone();
+        base.over(&sr);
         let mut runs = vec![];
         for c in p.children().filter(|c| c.is_element()) {
             match local(&c) {
-                "r" => runs.extend(run_of(c, None, budget)),
+                "r" => runs.extend(run_of(c, None, &base, budget)),
                 "hyperlink" => {
                     let rel = c.attributes().find(|a| a.name() == "id").and_then(|a| rels.get(a.value()));
                     let href = rel.filter(|r| r.external && (r.target.starts_with("http://") || r.target.starts_with("https://"))).map(|r| r.target.clone());
                     for r in kids(c, "r") {
-                        runs.extend(run_of(r, href.clone(), budget));
+                        runs.extend(run_of(r, href.clone(), &base, budget));
+                    }
+                }
+                "ins" | "smartTag" => {
+                    for r in kids(c, "r") {
+                        runs.extend(run_of(r, None, &base, budget));
                     }
                 }
                 _ => {}
             }
         }
-        DocxBlock::P { style: heading_of(style), list, runs }
+        DocxBlock::P { style: heading_of(style), list, runs, fmt }
     };
 
     fn body<'a, 'i>(
@@ -241,8 +478,31 @@ pub fn parse_docx(bytes: &[u8]) -> Result<DocxResult, String> {
                     *count += 1;
                 }
                 "tbl" if depth < 3 => {
-                    let rows = kids(c, "tr").into_iter().map(|tr| kids(tr, "tc").into_iter().map(|tc| body(tc, depth + 1, count, truncated, budget, para)).collect()).collect();
-                    out.push(DocxBlock::Table { rows });
+                    let tblpr = kid(c, "tblPr");
+                    let widths: Vec<f32> = kid(c, "tblGrid")
+                        .map(|g| kids(g, "gridCol").iter().filter_map(|x| attr(Some(*x), "w").and_then(|v| v.parse::<f32>().ok())).map(|v| v / 20.).collect())
+                        .unwrap_or_default();
+                    let grid = tblpr.is_some_and(|p| {
+                        kid(p, "tblBorders").is_some_and(|b| b.children().any(|e| e.is_element() && !["nil", "none"].contains(&attr(Some(e), "val").unwrap_or("single"))))
+                            || attr(kid(p, "tblStyle"), "val").is_some_and(|s| s.to_lowercase().contains("grid"))
+                    });
+                    let rows = kids(c, "tr")
+                        .into_iter()
+                        .map(|tr| {
+                            kids(tr, "tc")
+                                .into_iter()
+                                .map(|tc| {
+                                    let tcpr = kid(tc, "tcPr");
+                                    DocxCell {
+                                        blocks: body(tc, depth + 1, count, truncated, budget, para),
+                                        fill: attr(tcpr.and_then(|x| kid(x, "shd")), "fill").and_then(hex6),
+                                        span: attr(tcpr.and_then(|x| kid(x, "gridSpan")), "val").and_then(|v| v.parse().ok()).unwrap_or(1),
+                                    }
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    out.push(DocxBlock::Table { rows, widths, grid });
                     *count += 1;
                 }
                 _ => {}
@@ -252,7 +512,18 @@ pub fn parse_docx(bytes: &[u8]) -> Result<DocxResult, String> {
     }
     let b = all(doc.root(), "body").into_iter().next().ok_or("isi dokumen tidak ditemukan")?;
     let blocks = body(b, 0, &mut count, &mut truncated, &mut budget, &para);
-    Ok(DocxResult { blocks, truncated })
+    let page = all(b, "sectPr").into_iter().last().and_then(|s| {
+        let (sz, mar) = (kid(s, "pgSz"), kid(s, "pgMar"));
+        Some(DocxPage {
+            width: twips(sz, &["w"])?,
+            height: twips(sz, &["h"])?,
+            left: twips(mar, &["left"]).unwrap_or(72.),
+            right: twips(mar, &["right"]).unwrap_or(72.),
+            top: twips(mar, &["top"]).unwrap_or(72.),
+            bottom: twips(mar, &["bottom"]).unwrap_or(72.),
+        })
+    });
+    Ok(DocxResult { blocks, truncated, page })
 }
 
 // ====================== XLSX ======================
@@ -500,7 +771,7 @@ mod tests {
             }
             _ => panic!(),
         }
-        assert!(matches!(&r.blocks[1], DocxBlock::Table { rows } if rows.len() == 1));
+        assert!(matches!(&r.blocks[1], DocxBlock::Table { rows, .. } if rows.len() == 1));
         assert!(parse_docx(b"bukan zip").is_err());
     }
     #[test]

@@ -333,6 +333,17 @@ impl ChatPanel {
         .detach();
     }
 
+    /// Berkas/folder yang diseret dari OS ke composer → lampiran (folder terdeteksi dari sistem berkas).
+    pub(super) fn attach_dropped(&mut self, paths: &[std::path::PathBuf], cx: &mut Context<Self>) {
+        for p in paths {
+            let a = attachment_from_path(&p.to_string_lossy(), p.is_dir());
+            if !self.assist.files.iter().any(|f| f.url == a.url) {
+                self.assist.files.push(a);
+            }
+        }
+        cx.notify();
+    }
+
     fn clear_composer(&mut self, cx: &mut Context<Self>) {
         self.input.update(cx, |i, cx| i.set_text("", cx));
         self.assist.files.clear();

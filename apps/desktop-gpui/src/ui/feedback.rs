@@ -185,7 +185,13 @@ impl RenderOnce for Avatar {
             .text_size(t.rem(t.ty(crate::theme::SMALL).size))
             .font_weight(FontWeight(t.ty(crate::theme::LABEL).weight));
         match self.src {
-            Some(src) => base.child(gpui::img(src).size_full().object_fit(gpui::ObjectFit::Cover)),
+            // GPUI memotong `overflow_hidden` secara persegi: gambar sendiri harus ikut membulat.
+            Some(src) => base.child(
+                gpui::img(src)
+                    .size_full()
+                    .rounded(t.rem(rem::RADIUS_FULL))
+                    .object_fit(gpui::ObjectFit::Cover),
+            ),
             None => base.child(initials(&self.name).to_uppercase()),
         }
     }

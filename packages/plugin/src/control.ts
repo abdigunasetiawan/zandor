@@ -19,6 +19,7 @@ export const APP_ACTIONS = [
   "close_terminal",
   "get_settings",
   "set_setting",
+  "suggest_project",
 ] as const;
 /** Aksi browser-use (F1, baca saja). Dikirim ke aplikasi sebagai `browser_<aksi>`. */
 export const BROWSER_ACTIONS = ["navigate", "tabs", "snapshot", "screenshot", "back", "forward", "reload"] as const;
@@ -88,6 +89,26 @@ const format = (r: ControlResponse) => {
   return typeof r.result === "string" ? r.result : JSON.stringify(r.result, null, 2);
 };
 
+/** Petunjuk system prompt untuk sesi Chat (folder sesi di dalam `chatsDir`): kerja besar disarankan pindah ke project. */
+export const CHAT_SCOPE_HINT = [
+  "<zandor-chat-scope>",
+  "Sesi ini adalah Chat tanpa project (folder kerja sementara). Bila permintaan pengguna butuh hal yang layak punya project:",
+  "instal dependensi/paket, banyak berkas, clone repo, menjalankan server, kerja berulang atau bertahap — baik kode, analisis data,",
+  "riset mendalam, dokumen panjang, pengolahan media massal, maupun otomasi — JANGAN mulai mengerjakannya di sini.",
+  "Panggil tool zandor_suggest_project (alasan singkat + ringkasan mandiri permintaan), lalu hentikan giliranmu dan beri tahu pengguna",
+  "bahwa kartu saran sudah tampil. Jika pengguna memilih tetap di Chat, kerjakan di sini dan jangan menyarankan lagi.",
+  "Tugas kecil (pertanyaan, satu fungsi, satu berkas, terjemahan, ringkasan) kerjakan langsung tanpa saran.",
+  "</zandor-chat-scope>",
+].join("\n");
+
+/** `directory` berada di dalam `root` (tanpa peduli pemisah/huruf besar-kecil, seperti path Windows). */
+export function isInside(root: string, directory: string): boolean {
+  const n = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const r = n(root);
+  const d = n(directory);
+  return r !== "" && d.startsWith(`${r}/`);
+}
+
 export function createControlTools(dir: string) {
   mkdirSync(dir, { recursive: true });
   return {
@@ -142,9 +163,46 @@ export function createControlTools(dir: string) {
         const { action, ...rest } = args;
         const r = await requestControl(
           dir,
-          { action: `browser_${action}`, args: rest, sessionID: ctx.sessionID, directory: ctx.directory || ctx.worktree },
+          {
+            action: `browser_${action}`,
+            args: rest,
+            sessionID: ctx.sessionID,
+            directory: ctx.directory || ctx.worktree,
+          },
           // navigate bisa menunggu kartu izin pengguna (hingga 120 dtk) + pemuatan halaman
           { timeoutMs: action === "navigate" ? 160_000 : 40_000, signal: ctx.abort },
+        );
+        return format(r);
+      },
+    }),
+    zandor_suggest_project: tool({
+      description: [
+        "Sarankan pengguna memindahkan pekerjaan ini ke project baru (hanya di sesi Chat tanpa project). Aplikasi menampilkan kartu",
+        "'Buat project' / 'Tetap di Chat'. Setelah memanggil tool ini, hentikan giliranmu: jangan menginstal atau menulis berkas dulu.",
+        "Bila pengguna menerima, aplikasi membuat folder project dan mengirim `summary` sebagai pesan pertama di sesi baru.",
+      ].join(" "),
+      args: {
+        reason: tool.schema
+          .string()
+          .min(5)
+          .max(300)
+          .describe(
+            "Alasan singkat untuk pengguna, mis. 'Perlu menginstal beberapa dependensi dan membuat banyak berkas.'",
+          ),
+        summary: tool.schema
+          .string()
+          .min(20)
+          .max(4000)
+          .describe(
+            "Ringkasan MANDIRI permintaan pengguna dan keputusan sejauh ini; agen di sesi baru tidak melihat riwayat ini.",
+          ),
+        name: tool.schema.string().max(60).optional().describe("Nama folder usulan (huruf kecil, tanda hubung)"),
+      },
+      async execute(args, ctx) {
+        const r = await requestControl(
+          dir,
+          { action: "suggest_project", args, sessionID: ctx.sessionID, directory: ctx.directory || ctx.worktree },
+          { timeoutMs: 20_000, signal: ctx.abort },
         );
         return format(r);
       },

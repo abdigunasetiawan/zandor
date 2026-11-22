@@ -18,7 +18,11 @@ pub fn checker_command() -> String {
     format!("\"{exe}\" office-check")
 }
 
-pub const SKILLS: [(&str, &str); 5] = [
+pub const SKILLS: [(&str, &str); 6] = [
+    (
+        "zandor-code",
+        include_str!("../bundled-skills/zandor-code/SKILL.md"),
+    ),
     (
         "zandor-docx",
         include_str!("../bundled-skills/zandor-docx/SKILL.md"),
@@ -90,7 +94,7 @@ mod tests {
             );
             // Skill dokumen memakai pemeriksa bawaan; skill aplikasi (zandor-app) tidak.
             assert!(
-                name == "zandor-app" || body.contains("{{OFFICE_CHECK}}"),
+                name == "zandor-app" || name == "zandor-code" || body.contains("{{OFFICE_CHECK}}"),
                 "{name}"
             );
             assert!(!body.contains("office_check.py"), "{name}");

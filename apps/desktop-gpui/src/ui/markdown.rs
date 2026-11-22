@@ -189,8 +189,8 @@ impl Inline {
             any = true;
         }
         if code {
-            h.background_color = Some(t.colors.raised);
-            h.color = Some(t.colors.code_string);
+            h.font_weight = Some(FontWeight::MEDIUM);
+            h.color = Some(t.colors.fg);
             any = true;
         }
         if any {

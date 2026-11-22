@@ -216,7 +216,7 @@ impl Drop for BusyGuard {
     }
 }
 
-fn panel(app: &App) -> Option<Entity<BrowserPanel>> {
+pub(crate) fn panel(app: &App) -> Option<Entity<BrowserPanel>> {
     app.try_global::<BrowserHandle>()?.0.upgrade()
 }
 

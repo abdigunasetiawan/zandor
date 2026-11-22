@@ -389,11 +389,114 @@ fn now_ms() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as f64).unwrap_or(0.)
 }
 
+/// Konteks giliran asisten yang dihitung dari transkrip (bukan dari pesan itu sendiri).
+#[derive(Default)]
+pub(super) struct TurnCtx {
+    /// Pesan tak selesai padahal engine idle (aplikasi/engine mati di tengah giliran).
+    pub interrupted: bool,
+    /// Giliran terputus ini yang terakhir dan sesi idle → tombol Lanjutkan.
+    pub can_resume: bool,
+    /// Catatan lanjutan (`<zandor-resume>`) dari pesan pengguna sebelum giliran ini, bila giliran ini hasil Lanjutkan.
+    pub resume_note: Option<String>,
+    pub sid: String,
+}
+
+/// Toggle buka/tutup untuk kunci `expanded` (dipakai lipatan proses dan catatan lanjutan).
+fn toggle_key(me: &WeakEntity<ChatPanel>, key: String) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static {
+    let me = me.clone();
+    move |_, _, cx| {
+        let key = key.clone();
+        me.update(cx, |s, cx| {
+            if !s.expanded.remove(&key) {
+                s.expanded.insert(key);
+            }
+            cx.notify();
+        })
+        .ok();
+    }
+}
+
+/// Langkah pertama di detail proses giliran hasil Lanjutkan: isi reprompt yang dikirim ke model (dapat dibuka).
+fn resume_step(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, note: &str, turn_id: &str, expanded: &HashSet<String>) -> AnyElement {
+    let key = format!("resume:{turn_id}");
+    let open = expanded.contains(&key);
+    let body = note.strip_prefix(crate::core::resume::TAG).unwrap_or(note).trim_end().trim_end_matches("</zandor-resume>").trim().to_string();
+    div()
+        .flex()
+        .flex_col()
+        .gap(t.space(1))
+        .child(
+            div()
+                .id(SharedString::from(format!("rsm-{turn_id}")))
+                .flex()
+                .items_center()
+                .gap(t.space(2))
+                .py(t.space(1))
+                .text_color(t.colors.fg_muted)
+                .cursor_pointer()
+                .hover(|s| s.text_color(t.colors.fg))
+                .on_click(toggle_key(me, key))
+                .child(icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm))
+                .child(icon("refresh").size(IconSize::Sm))
+                .child(div().flex_none().text_color(t.colors.fg).child(i.t("chat.resume.step")))
+                .child(div().min_w_0().truncate().small(t).text_color(t.colors.fg_subtle).child(i.t("chat.resume.stepHint"))),
+        )
+        .when(open, |d| d.child(div().p(t.space(2)).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.surface).font_family(t.font_code.clone()).code(t).child(body)))
+        .into_any_element()
+}
+
+/// Baris "proses terputus" di bawah giliran asisten + tombol Lanjutkan (hanya pada giliran terakhir saat sesi idle).
+fn interrupted_notice(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, ctx: &TurnCtx, turn_id: &str) -> AnyElement {
+    let mut row = div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .gap(t.space(2))
+        .px(t.space(3))
+        .py(t.space(2))
+        .rounded(t.rem(rem::RADIUS_LG))
+        .border_1()
+        .border_color(t.colors.border_soft)
+        .bg(t.colors.surface)
+        .child(icon("octagon_x").size(IconSize::Sm).color(t.colors.fg_muted))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .child(div().font_weight(gpui::FontWeight::MEDIUM).child(i.t("chat.interrupted.title")))
+                .child(div().small(t).text_color(t.colors.fg_muted).child(i.t(if ctx.can_resume { "chat.interrupted.desc" } else { "chat.interrupted.descOld" }))),
+        );
+    if ctx.can_resume {
+        let (me, sid) = (me.clone(), ctx.sid.clone());
+        row = row.child(
+            crate::ui::button(SharedString::from(format!("resume-{turn_id}")))
+                .size(ControlSize::Sm)
+                .variant(ButtonVariant::Solid)
+                .leading_icon("play")
+                .label(i.t("chat.resume"))
+                .tooltip_text(i.t("chat.resume.hint"))
+                .on_click(move |_, _, cx| {
+                    let visible = cx.global::<I18n>().t("chat.resume.prompt");
+                    let r = me.update(cx, |s, cx| s.chat.update(cx, |c, cx| c.resume(&sid, visible, cx)));
+                    if let Ok(Err(e)) = r {
+                        fail(cx, e);
+                    }
+                }),
+        );
+    }
+    row.into_any_element()
+}
+
 /// ProcessBlock.
-fn process_block(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, process: &[&MessagePart], working_now: bool, info: &MessageInfo, turn_id: &str, expanded: &HashSet<String>) -> AnyElement {
+#[allow(clippy::too_many_arguments)]
+fn process_block(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, process: &[&MessagePart], working_now: bool, info: &MessageInfo, turn_id: &str, expanded: &HashSet<String>, ctx: &TurnCtx) -> AnyElement {
     let key = format!("proc:{turn_id}");
     let open = expanded.contains(&key);
-    let end = if working_now { now_ms() } else { info.completed.unwrap_or_else(now_ms) };
+    // Giliran terputus tak pernah punya `completed`: hentikan durasi di aktivitas terakhir, bukan "sekarang".
+    let stopped = || crate::core::resume::last_activity(process).unwrap_or(info.created).max(info.created);
+    let end = if working_now { now_ms() } else { info.completed.unwrap_or_else(|| if ctx.interrupted { stopped() } else { now_ms() }) };
     let secs = tv::elapsed_seconds(end - info.created);
     let steps = tv::count_steps(process);
     let last = process.iter().rev().find_map(|p| tv::step_of(p));
@@ -414,6 +517,9 @@ fn process_block(t: &Theme, i: &I18n, me: &WeakEntity<ChatPanel>, process: &[&Me
     let chevron = icon(if open { "chevron_down" } else { "chevron_right" }).size(IconSize::Sm);
     let list = open.then(|| {
         let mut l = div().flex().flex_col().gap(t.space(1)).mt(t.space(1)).mb(t.space(2));
+        if let Some(note) = &ctx.resume_note {
+            l = l.child(resume_step(t, i, me, note, turn_id, expanded));
+        }
         for p in process {
             if let Some(el) = part_el(t, i, me, p, expanded, false) {
                 l = l.child(el);
@@ -546,7 +652,7 @@ pub(super) fn chat_turn_documents(process: &[&MessagePart], dir: &str, info: &cr
 
 /// AssistantMessage (tanpa toolbar aksi; lihat message_toolbar).
 #[allow(clippy::too_many_arguments)]
-pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatPanel>, turn: &crate::core::chat::Turn, expanded: &HashSet<String>, streaming: bool, has_project: bool, dir: &str, provider_name: &str, toolbar: Option<AnyElement>) -> AnyElement {
+pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatPanel>, turn: &crate::core::chat::Turn, expanded: &HashSet<String>, streaming: bool, has_project: bool, dir: &str, provider_name: &str, toolbar: Option<AnyElement>, ctx: &TurnCtx) -> AnyElement {
     let m = &turn.message;
     let turn_id = turn.source_ids.first().cloned().unwrap_or_else(|| m.info.id.clone());
     let info = &m.info;
@@ -554,8 +660,8 @@ pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatP
     let (process, answer) = tv::split_turn(&parts);
     let done = info.completed.is_some() && !streaming;
     let mut col = div().flex().flex_col().gap(t.space(2)).w_full().min_w_0();
-    if !process.is_empty() || streaming {
-        col = col.child(process_block(t, i, me, &process, streaming, info, &turn_id, expanded));
+    if !process.is_empty() || streaming || ctx.resume_note.is_some() {
+        col = col.child(process_block(t, i, me, &process, streaming, info, &turn_id, expanded, ctx));
     }
     let mut ans = div().flex().flex_col().gap(t.space(2));
     for p in &answer {
@@ -575,6 +681,9 @@ pub(super) fn assistant_msg(t: &Theme, i: &I18n, cx: &App, me: &WeakEntity<ChatP
         }
     }
     col = col.child(ans);
+    if ctx.interrupted {
+        col = col.child(interrupted_notice(t, i, me, ctx, &turn_id));
+    }
     if let Some(e) = &info.error {
         col = col.child(div().small(t).text_color(t.colors.danger).child(if e.name == "MessageAbortedError" { i.t("chat.aborted") } else { e.message.clone() }));
     }
@@ -816,7 +925,8 @@ impl ChatPanel {
                 if s.chat.read(cx).sessions.get(&sid2).is_some_and(|x| x.busy()) {
                     return fail(cx, "hentikan sesi sebelum revert");
                 }
-                s.chat.update(cx, |c, cx| c.revert_to(&sid2, &mid2, cx));
+                s.revert_confirm = Some((sid2.clone(), mid2.clone()));
+                cx.notify();
             })));
         }
         if is_last_assistant {

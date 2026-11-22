@@ -140,6 +140,15 @@ pub fn read_small_model(path: &Path) -> Option<String> {
     valid_model_ref(small).then(|| small.to_string())
 }
 
+/// Sakelar `autoCompact` dari settings.json; berkas tidak ada/rusak/tidak ada kuncinya = true (bawaan skema).
+pub fn read_auto_compact(path: &Path) -> bool {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .and_then(|v| v.get("autoCompact")?.as_bool())
+        .unwrap_or(true)
+}
+
 /// Isi `OPENCODE_CONFIG_CONTENT`: plugin guard + provider kustom. Tidak pernah memuat nilai secret: kunci API
 /// hanya berupa rujukan `{env:...}` yang nilainya dikirim lewat environment proses engine.
 pub fn config_content(
@@ -149,18 +158,24 @@ pub fn config_content(
     providers: &[Provider],
     with_key: &dyn Fn(&str) -> bool,
     small_model: Option<&str>,
+    auto_compact: bool,
 ) -> String {
     // Background job (ADR-072) tinggal di sebelah memori: `<app_data>/jobs`.
     let jobs = memory.parent().unwrap_or(memory).join("jobs");
     // Kontrol aplikasi oleh agent (ADR-077): `<app_data>/control`.
     let control = memory.parent().unwrap_or(memory).join("control");
+    // Rekaman system prompt per sesi untuk panel Trajectory: `<app_data>/system-prompts`.
+    let chats = memory.parent().unwrap_or(memory).join("chats");
+    let system = memory.parent().unwrap_or(memory).join(crate::core::system_prompts::DIR_NAME);
     let mut cfg = serde_json::json!({
         "$schema": "https://opencode.ai/config.json",
         "autoupdate": false,
-        "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy(), "memoryDir": memory.to_string_lossy(), "jobsDir": jobs.to_string_lossy(), "controlDir": control.to_string_lossy() }]],
+        "plugin": [[file_url(plugin), { "markerFile": marker.to_string_lossy(), "memoryDir": memory.to_string_lossy(), "jobsDir": jobs.to_string_lossy(), "controlDir": control.to_string_lossy(), "systemDir": system.to_string_lossy(), "chatsDir": chats.to_string_lossy() }]],
         // Bawaan aman: opencode mengizinkan edit/shell tanpa bertanya. Zandor meminta persetujuan (kartu izin di chat).
         "permission": { "edit": "ask", "bash": "ask", "webfetch": "ask", "external_directory": "ask" },
         "provider": providers::config_section(providers, with_key),
+        // Auto compact engine (juga memadatkan saat konteks meluap) mengikuti Pengaturan → Chat → Auto compact.
+        "compaction": { "auto": auto_compact },
     });
     // Model kecil (judul sesi, ringkasan) — "model peran" dari Pengaturan → Provider dan model.
     if let Some(m) = small_model.filter(|m| valid_model_ref(m)) {
@@ -204,6 +219,7 @@ fn engine_config(paths: &EnginePaths) -> EngineConfig {
         &providers,
         &has_key,
         read_small_model(&paths.model_roles).as_deref(),
+        read_auto_compact(&crate::core::services::app_data_dir().join("settings.json")),
     );
     cfg.env.extend(secret_env.iter().cloned());
     cfg.env.push(("OPENCODE_CONFIG_CONTENT".into(), content));
@@ -493,9 +509,17 @@ mod tests {
             &[],
             &|_| false,
             Some("openai/gpt-mini"),
+            false,
         );
         let v: serde_json::Value = serde_json::from_str(&c).unwrap();
         assert_eq!(v["small_model"], "openai/gpt-mini");
+        assert_eq!(v["compaction"]["auto"], false);
+        std::fs::write(&f, r#"{"autoCompact":false}"#).unwrap();
+        assert!(!read_auto_compact(&f));
+        std::fs::write(&f, "{}").unwrap();
+        assert!(read_auto_compact(&f));
+        std::fs::write(&f, "rusak").unwrap();
+        assert!(read_auto_compact(&f));
         assert!(!valid_model_ref("a/b c") && !valid_model_ref("/b") && !valid_model_ref("a/"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -509,6 +533,7 @@ mod tests {
             &[],
             &|_| false,
             None,
+            true,
         );
         let v: serde_json::Value = serde_json::from_str(&c).unwrap();
         assert!(v.get("small_model").is_none());
@@ -517,6 +542,8 @@ mod tests {
         assert_eq!(v["plugin"][0][1]["memoryDir"], r"C:\data\memory");
         assert_eq!(v["plugin"][0][1]["jobsDir"], r"C:\data\jobs");
         assert_eq!(v["plugin"][0][1]["controlDir"], r"C:\data\control");
+        assert_eq!(v["plugin"][0][1]["systemDir"], r"C:\data\system-prompts");
+        assert_eq!(v["plugin"][0][1]["chatsDir"], r"C:\data\chats");
         assert_eq!(v["autoupdate"], false);
         for k in ["edit", "bash", "webfetch", "external_directory"] {
             assert_eq!(v["permission"][k], "ask", "{k} harus meminta izin");

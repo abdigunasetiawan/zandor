@@ -70,6 +70,21 @@ mod engine;
 #[path = "host/voice.rs"]
 mod voice;
 #[allow(dead_code)]
+#[path = "host/voice_dsp.rs"]
+mod voice_dsp;
+#[allow(dead_code)]
+#[path = "host/voice_capture.rs"]
+mod voice_capture;
+#[allow(dead_code)]
+#[path = "host/voice_stt.rs"]
+mod voice_stt;
+#[allow(dead_code)]
+#[path = "host/voice_session.rs"]
+mod voice_session;
+#[allow(dead_code)]
+#[path = "host/voice_models.rs"]
+mod voice_models;
+#[allow(dead_code)]
 #[path = "host/sound.rs"]
 mod sound;
 
@@ -84,7 +99,12 @@ use shell::root::Root;
 use shell::state::AppState;
 use theme::{Theme, ThemeMode};
 
+mod single_instance;
+
 fn main() {
+    if !single_instance::acquire_or_activate() {
+        return;
+    }
     gpui_platform::application()
         .with_assets(assets::Assets)
         .run(|cx: &mut App| {

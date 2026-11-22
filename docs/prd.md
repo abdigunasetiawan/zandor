@@ -119,7 +119,7 @@ Zandor adalah aplikasi desktop _agentic harness_ untuk vibecoder dan pekerja yan
 
 - **Dark:** `#121212`, `#141414`, `#1f1f1f`, monokrom tanpa warna primary.
 - **Light:** padanan monokrom.
-- **Font:** Plus Jakarta Sans untuk UI (OFL); font kode dan font terminal bisa diatur.
+- **Font:** Inter untuk UI dan Fira Code untuk kode (OFL); font kode dan font terminal bisa diatur.
 - **Ketebalan per variabel:** h1–h4, p, link, tombol, code, dan lain-lain, semua lewat token.
 
 ## 11. Non-Fungsional

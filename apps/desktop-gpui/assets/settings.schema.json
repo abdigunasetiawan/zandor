@@ -74,6 +74,28 @@
         }
       }
     },
+    "surface": {
+      "type": "string",
+      "title": "Gaya permukaan",
+      "description": "Solid memakai latar buram; Kaca membuat panel tembus pandang dengan latar jendela buram (Windows).",
+      "enum": [
+        "solid",
+        "glass",
+        "mica",
+        "clear"
+      ],
+      "default": "solid",
+      "x-zandor": {
+        "titleKey": "surface.label",
+        "group": "appearance",
+        "enumLabelKeys": {
+          "solid": "surface.solid",
+          "glass": "surface.glass",
+          "mica": "surface.mica",
+          "clear": "surface.clear"
+        }
+      }
+    },
     "uiScale": {
       "type": "number",
       "title": "Skala UI",
@@ -281,6 +303,48 @@
         }
       }
     },
+    "voiceLanguage": {
+      "type": "string",
+      "title": "Bahasa dikte",
+      "description": "Bahasa yang diucapkan saat dikte. Pilih bahasa tetap; deteksi otomatis kurang akurat pada kalimat pendek.",
+      "enum": [
+        "id",
+        "en",
+        "auto"
+      ],
+      "default": "id",
+      "x-zandor": {
+        "titleKey": "settings.voiceLanguage",
+        "group": "chat",
+        "enumLabelKeys": {
+          "id": "voice.lang.id",
+          "en": "voice.lang.en",
+          "auto": "voice.lang.auto"
+        }
+      }
+    },
+    "voiceModel": {
+      "type": "string",
+      "title": "Model dikte",
+      "description": "Ukuran model pengenal suara. Lebih besar lebih akurat tetapi lebih lambat dan butuh unduhan lebih besar.",
+      "enum": [
+        "base",
+        "small",
+        "medium",
+        "large-v3-turbo-q5_0"
+      ],
+      "default": "small",
+      "x-zandor": {
+        "titleKey": "settings.voiceModel",
+        "group": "chat",
+        "enumLabelKeys": {
+          "base": "voice.model.base",
+          "small": "voice.model.small",
+          "medium": "voice.model.medium",
+          "large-v3-turbo-q5_0": "voice.model.turbo"
+        }
+      }
+    },
     "sendKey": {
       "type": "string",
       "title": "Tombol kirim pesan",
@@ -344,6 +408,86 @@
       "default": true,
       "x-zandor": {
         "titleKey": "settings.confirmDelete",
+        "group": "chat"
+      }
+    },
+    "contextMax": {
+      "type": "number",
+      "title": "Batas konteks sesi",
+      "description": "Membatasi jendela konteks yang dipakai sesi (dalam token). 0 = ikut batas model. Tidak pernah melampaui batas asli model. Dipakai untuk indikator konteks dan pemicu auto compact.",
+      "enum": [
+        0,
+        32000,
+        64000,
+        128000,
+        200000,
+        400000,
+        1000000
+      ],
+      "default": 0,
+      "x-zandor": {
+        "titleKey": "settings.contextMax",
+        "group": "chat",
+        "enumLabelKeys": {
+          "0": "settings.contextMax.model",
+          "32000": "settings.contextMax.32k",
+          "64000": "settings.contextMax.64k",
+          "128000": "settings.contextMax.128k",
+          "200000": "settings.contextMax.200k",
+          "400000": "settings.contextMax.400k",
+          "1000000": "settings.contextMax.1m"
+        }
+      }
+    },
+    "autoCompact": {
+      "type": "boolean",
+      "title": "Auto compact",
+      "description": "Ringkas riwayat sesi otomatis saat konteks mendekati batas, dan saat model diganti ke model dengan jendela lebih kecil. Sakelar ini juga diteruskan ke engine (berlaku setelah engine dimulai ulang).",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.autoCompact",
+        "group": "chat"
+      }
+    },
+    "autoCompactAt": {
+      "type": "number",
+      "title": "Ambang auto compact",
+      "description": "Persentase pemakaian konteks yang memicu auto compact.",
+      "enum": [
+        70,
+        80,
+        90,
+        95
+      ],
+      "default": 90,
+      "x-zandor": {
+        "titleKey": "settings.autoCompactAt",
+        "group": "chat",
+        "enumLabelKeys": {
+          "70": "settings.autoCompactAt.70",
+          "80": "settings.autoCompactAt.80",
+          "90": "settings.autoCompactAt.90",
+          "95": "settings.autoCompactAt.95"
+        }
+      }
+    },
+    "nextSteps": {
+      "type": "boolean",
+      "title": "Kesimpulan dan saran aksi",
+      "description": "Di akhir jawaban asisten, tampilkan kesimpulan singkat dan tombol saran langkah berikutnya. Dibuat oleh model kecil dengan satu panggilan singkat tambahan per jawaban.",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.nextSteps",
+        "group": "chat"
+      }
+    },
+    "suggestProject": {
+      "type": "boolean",
+      "title": "Sarankan membuat project",
+      "description": "Di Chat, tawarkan membuat project bila pesan pertama terlihat seperti pekerjaan besar (instal dependensi, banyak berkas, data, riset, dokumen panjang).",
+      "default": true,
+      "x-zandor": {
+        "titleKey": "settings.suggestProject",
         "group": "chat"
       }
     },

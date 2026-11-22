@@ -55,6 +55,10 @@ pub struct Button {
     tooltip: Option<SharedString>,
     /// Ikon tombol ikon: digambar saat render dengan warna teks varian (mis. putih di atas aksen solid).
     icon_name: Option<&'static str>,
+    /// Ikon kecil sebelum/sesudah label, berwarna teks varian. Jangan menambah ikon lewat `.child(icon(..))`:
+    /// ikon tanpa warna eksplisit memakai `fg`, sehingga tak terlihat di tombol Solid (latar aksen) atau salah warna di Danger.
+    leading_icon: Option<&'static str>,
+    trailing_icon: Option<&'static str>,
     round: bool,
     square_right: bool,
     soft_border: bool,
@@ -75,6 +79,8 @@ pub fn button(id: impl Into<ElementId>) -> Button {
         pressed: false,
         tooltip: None,
         icon_name: None,
+        leading_icon: None,
+        trailing_icon: None,
         round: false,
         square_right: false,
         soft_border: false,
@@ -138,6 +144,16 @@ impl Button {
         self.disabled = d;
         self
     }
+    /// Ikon kecil sebelum label, berwarna teks varian (mis. `on_accent` di Solid).
+    pub fn leading_icon(mut self, name: &'static str) -> Self {
+        self.leading_icon = Some(name);
+        self
+    }
+    /// Ikon kecil sesudah label (mis. panah "Berikutnya"), berwarna teks varian.
+    pub fn trailing_icon(mut self, name: &'static str) -> Self {
+        self.trailing_icon = Some(name);
+        self
+    }
     pub fn label(self, text: impl Into<SharedString>) -> Self {
         self.child(text.into())
     }
@@ -159,7 +175,9 @@ impl RenderOnce for Button {
         let h = t.rem(self.size.height_rem());
 
         let (bg, border, fg) = match self.variant {
-            ButtonVariant::Solid => (c.accent, c.accent, c.on_accent),
+            // Solid tanpa border (border accent tampak sebagai garis hitam saat opacity/disabled); nonaktif = latar redup, bukan opacity
+            ButtonVariant::Solid if inert => (c.active, gpui::transparent_black(), c.fg_subtle),
+            ButtonVariant::Solid => (c.accent, gpui::transparent_black(), c.on_accent),
             ButtonVariant::Outline => (c.hover, gpui::transparent_black(), c.fg),
             ButtonVariant::Ghost => (gpui::transparent_black(), gpui::transparent_black(), c.fg),
             ButtonVariant::Danger => (c.hover, gpui::transparent_black(), c.danger),
@@ -201,7 +219,7 @@ impl RenderOnce for Button {
         el = if self.square { el.w(h) } else { el.px(t.space(self.size.pad_space())) };
 
         if inert {
-            el = el.opacity(0.5).cursor_not_allowed();
+            el = if solid { el.cursor_not_allowed() } else { el.opacity(0.5).cursor_not_allowed() };
         } else {
             el = el
                 .cursor_pointer()
@@ -218,7 +236,9 @@ impl RenderOnce for Button {
             el = el.child(spinner(IconSize::Sm));
         } else if let Some(name) = self.icon_name {
             el = el.child(icon(name).size(IconSize::Md).color(fg));
+        } else if let Some(name) = self.leading_icon {
+            el = el.child(icon(name).size(IconSize::Sm).color(fg));
         }
-        el.children(self.children)
+        el.children(self.children).when_some(self.trailing_icon, |d, name| d.child(icon(name).size(IconSize::Sm).color(fg)))
     }
 }

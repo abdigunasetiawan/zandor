@@ -134,6 +134,9 @@ impl Render for EditorSection {
             (s.editor_theme.clone(), s.editor_themes.iter().map(|t| (t.id.clone(), t.name.clone(), t.source.clone())).collect::<Vec<_>>())
         };
         let mut items: Vec<(SharedString, SharedString)> = vec![("auto".into(), i.t("ap.editor2.auto").into())];
+        if !installed.iter().any(|(id, _, _)| id == crate::core::editor_theme::DEFAULT_EDITOR_THEME) {
+            items.push((crate::core::editor_theme::DEFAULT_EDITOR_THEME.into(), i.tp("ap.editor2.bundled", &[("name", &crate::core::editor_theme::bundled_theme().name)]).into()));
+        }
         items.extend(BUILTIN_EDITOR_THEMES.iter().map(|b| (SharedString::from(*b), SharedString::from(i.tp("ap.editor2.builtin", &[("name", b)])))));
         items.extend(installed.iter().map(|(id, n, _)| (SharedString::from(id.clone()), SharedString::from(n.clone()))));
         let store = self.store.clone();

@@ -9,6 +9,7 @@ use gpui::{canvas, div, prelude::*, Bounds, Context, Entity, IntoElement, Pixels
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::sync::Arc;
 
 pub const MAX_BROWSER_TABS: usize = 8;
 /// Di bawah ukuran ini (px) webview disembunyikan (mis. panel dilipat).
@@ -61,9 +62,20 @@ pub fn tab_label(url: &str) -> String {
     host.strip_prefix("www.").unwrap_or(host).to_string()
 }
 
+/// Lama (ms) webview tetap disembunyikan setelah overlay terakhir terdeteksi.
+const OVERLAY_HOLD_MS: u64 = 250;
+static LAST_OVERLAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
 fn big_ok_and(settled: bool, big: bool) -> bool {
     settled && big
+}
+
+fn decode_snapshot(bytes: &[u8]) -> Option<gpui::RenderImage> {
+    let mut rgba = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?.to_rgba8();
+    for px in rgba.chunks_exact_mut(4) {
+        px.swap(0, 2); // GPUI memakai BGRA
+    }
+    Some(gpui::RenderImage::new(vec![image::Frame::new(rgba)]))
 }
 
 /// Halaman awal tab baru.
@@ -74,12 +86,32 @@ fn next_id(tabs: &[Tab]) -> String {
 }
 
 type Views = Rc<RefCell<HashMap<String, wry::WebView>>>;
+/// Id tab yang webview-nya sedang di level memori Low (hanya panggil WebView2 saat status berubah).
+type LowSet = Rc<RefCell<std::collections::HashSet<String>>>;
+
+/// Turunkan (`low`) / pulihkan level memori webview. WebView2 boleh membuang cache / men-swap memori webview yang
+/// tidak aktif; skrip dan koneksi tetap jalan, jadi tidak ada state yang hilang. Hanya Windows; tempat lain no-op.
+fn set_mem_level(low_set: &LowSet, id: &str, v: &wry::WebView, low: bool) {
+    let changed = if low { low_set.borrow_mut().insert(id.to_string()) } else { low_set.borrow_mut().remove(id) };
+    if !changed {
+        return;
+    }
+    #[cfg(windows)]
+    {
+        use wry::WebViewExtWindows;
+        let lvl = if low { wry::MemoryUsageLevel::Low } else { wry::MemoryUsageLevel::Normal };
+        let _ = v.set_memory_usage_level(lvl);
+    }
+    #[cfg(not(windows))]
+    let _ = v;
+}
 
 pub struct BrowserPanel {
     pub tabs: Vec<Tab>,
     pub active: String,
     address: Entity<TextInput>,
     views: Views,
+    low: LowSet,
     loading: HashMap<String, bool>,
     tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>,
     error: Option<String>,
@@ -87,7 +119,22 @@ pub struct BrowserPanel {
     system_fallback: bool,
     /// true saat panel Browser sedang ditampilkan (diatur ToolsHost).
     pub shown: bool,
+    /// Tangkapan terakhir halaman aktif (JPEG -> gambar GPUI). Digambar DI BAWAH webview: tertutup webview saat tampil,
+    /// terlihat saat webview disembunyikan oleh menu/dialog (airspace), jadi panel tidak tampak kosong.
+    snap: Rc<RefCell<Option<(String, Arc<gpui::RenderImage>)>>>,
+    /// Gambar lama yang harus dilepas dari atlas GPU (dilakukan di canvas yang punya Window).
+    trash: Rc<RefCell<Vec<Arc<gpui::RenderImage>>>>,
+    /// Hasil mentah (id tab, JPEG) dari callback CDP, didekode di tick berikutnya.
+    snap_raw: Rc<RefCell<Option<(String, Vec<u8>)>>>,
+    snap_busy: Rc<std::cell::Cell<Option<std::time::Instant>>>,
+    /// true bila webview tab aktif sedang benar-benar tampil (hanya saat itu CDP screenshot aman).
+    visible_now: Rc<std::cell::Cell<bool>>,
+    /// Sejak kapan panel disembunyikan (None saat tampil). Lewat `IDLE_DROP` webview dibuang (lihat `drop_idle_views`).
+    hidden_at: Option<std::time::Instant>,
 }
+
+/// Lama panel Browser disembunyikan sebelum webview-nya (dan proses WebView2 yang menyertainya) dibuang.
+const IDLE_DROP: std::time::Duration = std::time::Duration::from_secs(180);
 
 impl BrowserPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
@@ -119,6 +166,9 @@ impl BrowserPanel {
                 if this
                     .update(cx, |s, cx| {
                         s.loading.insert(id.clone(), !done);
+                        if !done {
+                            s.clear_snap();
+                        }
                         if let Some(t) = s.tabs.iter_mut().find(|t| t.id == id) {
                             t.url = url.clone();
                         }
@@ -134,14 +184,78 @@ impl BrowserPanel {
             }
         })
         .detach();
-        Self { tabs: vec![Tab { id: "b1".into(), url: HOME_URL.into(), agent: false }], active: "b1".into(), address, views: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false }
+        // Pemeriksa idle: tiap 30 dtk, buang webview bila panel lama disembunyikan.
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_secs(30)).await;
+            if this.update(cx, |s, cx| s.drop_idle_views(cx)).is_err() {
+                break;
+            }
+        })
+        .detach();
+        Self { tabs: vec![Tab { id: "b1".into(), url: HOME_URL.into(), agent: false }], active: "b1".into(), address, views: Default::default(), low: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false, snap: Default::default(), trash: Default::default(), snap_raw: Default::default(), snap_busy: Default::default(), visible_now: Default::default(), hidden_at: None }
+    }
+
+    /// Buang semua webview bila panel sudah lama disembunyikan. Tab, URL, dan tangkapan terakhir tetap ada; saat panel
+    /// dibuka lagi, canvas membuat ulang webview tab aktif dari URL tersimpan (yang hilang hanya state halaman).
+    fn drop_idle_views(&mut self, cx: &mut Context<Self>) {
+        if self.shown || !self.hidden_at.is_some_and(|t| t.elapsed() >= IDLE_DROP) || self.views.borrow().is_empty() {
+            return;
+        }
+        self.views.borrow_mut().clear();
+        self.low.borrow_mut().clear();
+        self.loading.clear();
+        self.visible_now.set(false);
+        cx.notify();
     }
 
     /// Sembunyikan semua webview (panel lain dipilih / panel ditutup).
     pub fn hide_all(&mut self) {
         self.shown = false;
-        for v in self.views.borrow().values() {
+        self.hidden_at.get_or_insert_with(std::time::Instant::now);
+        for (k, v) in self.views.borrow().iter() {
             let _ = v.set_visible(false);
+            set_mem_level(&self.low, k, v, true);
+        }
+    }
+
+    fn clear_snap(&mut self) {
+        if let Some((_, old)) = self.snap.borrow_mut().take() {
+            self.trash.borrow_mut().push(old);
+        }
+    }
+
+    /// Dipanggil berkala oleh Root (~2 dtk): terapkan hasil capture sebelumnya, lalu minta yang baru bila webview tampil.
+    pub fn capture_snapshot(&mut self, cx: &mut Context<Self>) {
+        if let Some((id, bytes)) = self.snap_raw.borrow_mut().take() {
+            if let Some(img) = decode_snapshot(&bytes) {
+                if let Some((_, old)) = self.snap.borrow_mut().replace((id, Arc::new(img))) {
+                    self.trash.borrow_mut().push(old);
+                }
+                cx.notify();
+            }
+            self.snap_busy.set(None);
+        }
+        if !self.shown || !self.visible_now.get() || self.loading.get(&self.active).copied().unwrap_or(false) {
+            return;
+        }
+        if self.snap_busy.get().is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(5)) {
+            return;
+        }
+        let (id, raw) = (self.active.clone(), self.snap_raw.clone());
+        let id2 = id.clone();
+        self.snap_busy.set(Some(std::time::Instant::now()));
+        let r = self.cdp_call(&id, "Page.captureScreenshot", r#"{"format":"jpeg","quality":55}"#, move |s| {
+            use base64::Engine;
+            if s.starts_with("ERR") {
+                return;
+            }
+            let b64 = serde_json::from_str::<serde_json::Value>(&s).ok().and_then(|v| v["data"].as_str().map(str::to_string));
+            if let Some(bytes) = b64.and_then(|b| base64::engine::general_purpose::STANDARD.decode(b).ok()) {
+                *raw.borrow_mut() = Some((id2, bytes));
+            }
+        });
+        if r.is_err() {
+            self.snap_busy.set(None);
         }
     }
 
@@ -150,6 +264,7 @@ impl BrowserPanel {
         match normalize_browser_url(&raw) {
             Ok(url) => {
                 self.error = None;
+                self.clear_snap();
                 let id = self.active.clone();
                 if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
                     t.url = url.clone();
@@ -173,6 +288,7 @@ impl BrowserPanel {
         for (k, v) in self.views.borrow().iter() {
             if *k != id {
                 let _ = v.set_visible(false);
+                set_mem_level(&self.low, k, v, true);
             }
         }
         cx.notify();
@@ -191,6 +307,7 @@ impl BrowserPanel {
         let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
         self.tabs.remove(i);
         self.views.borrow_mut().remove(&id);
+        self.low.borrow_mut().remove(&id);
         if self.tabs.is_empty() {
             let fresh = if id == "b1" { "b2" } else { "b1" };
             self.tabs.push(Tab { id: fresh.into(), url: HOME_URL.into(), agent: false });
@@ -234,6 +351,7 @@ impl BrowserPanel {
         };
         self.select(id.clone(), cx);
         self.error = None;
+        self.clear_snap();
         self.loading.insert(id.clone(), true);
         if let Some(t) = self.tabs.iter_mut().find(|t| t.id == id) {
             t.url = url.clone();
@@ -287,28 +405,48 @@ impl BrowserPanel {
     }
 }
 
+/// Permintaan mengembalikan fokus keyboard Win32 dari webview ke jendela GPUI (dipakai sekali oleh canvas berikutnya).
+static RELEASE_FOCUS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Panggil saat input GPUI (mis. composer) difokuskan: webview anak memegang fokus Win32 sehingga ketikan masuk ke
+/// halaman (mis. kotak cari Google), bukan ke GPUI.
+pub fn release_webview_focus() {
+    RELEASE_FOCUS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Buat webview tab sebagai anak jendela GPUI.
 fn create_view(window: &Window, id: &str, url: &str, agent: bool, tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>) -> Result<wry::WebView, String> {
     let (id1, tx1) = (id.to_string(), tx.clone());
-    let b = if agent {
-        // Profil terpisah dari tab pengguna (tanpa login pengguna); WebContext hidup selama proses (jarang dibuat).
-        let dir = crate::core::services::app_data_dir().join("browser-agent").join("profile");
-        let ctx: &'static mut wry::WebContext = Box::leak(Box::new(wry::WebContext::new(Some(dir))));
-        wry::WebViewBuilder::new_with_web_context(ctx)
-            .with_initialization_script(super::browser_agent::SNAPSHOT_JS)
-            .with_navigation_handler(|u| super::browser_agent::nav_ok(&u))
-            .with_download_started_handler(|_, _| false)
-    } else {
-        wry::WebViewBuilder::new()
-    };
-    let b = b
-        .with_url(url)
-        .with_on_page_load_handler(move |ev, u| {
-            let done = matches!(ev, wry::PageLoadEvent::Finished);
-            let _ = tx1.unbounded_send((id1.clone(), u, done));
+    // Profil agen terpisah dari tab pengguna (tanpa login pengguna). WebContext dibuat SEKALI per proses (sebelumnya
+    // di-leak tiap view agen dibuat) dan hanya dipinjam selama build di thread UI.
+    thread_local! {
+        static AGENT_CTX: RefCell<Option<wry::WebContext>> = const { RefCell::new(None) };
+    }
+    fn finish<'a>(b: wry::WebViewBuilder<'a>, url: &str, id1: String, tx1: futures::channel::mpsc::UnboundedSender<(String, String, bool)>) -> wry::WebViewBuilder<'a> {
+        b.with_url(url)
+            .with_focused(false)
+            .with_on_page_load_handler(move |ev, u| {
+                let done = matches!(ev, wry::PageLoadEvent::Finished);
+                let _ = tx1.unbounded_send((id1.clone(), u, done));
+            })
+            .with_new_window_req_handler(|_u, _features| wry::NewWindowResponse::Deny)
+    }
+    if agent {
+        AGENT_CTX.with(|c| {
+            let mut c = c.borrow_mut();
+            let ctx = c.get_or_insert_with(|| {
+                let dir = crate::core::services::app_data_dir().join("browser-agent").join("profile");
+                wry::WebContext::new(Some(dir))
+            });
+            let b = wry::WebViewBuilder::new_with_web_context(ctx)
+                .with_initialization_script(super::browser_agent::SNAPSHOT_JS)
+                .with_navigation_handler(|u| super::browser_agent::nav_ok(&u))
+                .with_download_started_handler(|_, _| false);
+            finish(b, url, id1, tx1).build_as_child(window).map_err(|e| e.to_string())
         })
-        .with_new_window_req_handler(|_u, _features| wry::NewWindowResponse::Deny);
-    b.build_as_child(window).map_err(|e| e.to_string())
+    } else {
+        finish(wry::WebViewBuilder::new(), url, id1, tx1).build_as_child(window).map_err(|e| e.to_string())
+    }
 }
 
 impl Render for BrowserPanel {
@@ -316,7 +454,8 @@ impl Render for BrowserPanel {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
         self.shown = true;
-        let mut tabs = div().flex().items_center().gap(t.space(1)).px(t.space(2)).pt(t.space(2)).overflow_hidden();
+        self.hidden_at = None;
+        let mut tabs = div().flex().items_center().gap(t.space(1)).px(t.space(2)).py(t.space(1)).overflow_hidden().border_b_1().border_color(t.colors.border_soft);
         for tab in &self.tabs {
             let title = Some(tab_label(&tab.url)).filter(|s| !s.is_empty()).unwrap_or_else(|| i.t("br.newTab"));
             let title = if tab.agent { format!("{} · {title}", i.t("br.agentTab")) } else { title };
@@ -356,6 +495,9 @@ impl Render for BrowserPanel {
             .items_center()
             .gap(t.space(1))
             .px(t.space(2))
+            .py(t.space(1))
+            .border_b_1()
+            .border_color(t.colors.border_soft)
             .child(icon_button("br-back", "arrow_left", i.t("br.back")).size(ControlSize::Sm).on_click(cx.listener(|s, _, _, _| s.script("history.back()"))))
             .child(icon_button("br-fwd", "arrow_right", i.t("br.forward")).size(ControlSize::Sm).on_click(cx.listener(|s, _, _, _| s.script("history.forward()"))))
             .child(icon_button("br-reload", "refresh", i.t("br.reload")).size(ControlSize::Sm).on_click(cx.listener(|s, _, _, _| s.script("location.reload()"))))
@@ -374,6 +516,9 @@ impl Render for BrowserPanel {
                 .items_center()
                 .gap(t.space(2))
                 .px(t.space(2))
+                .py(t.space(1))
+                .border_b_1()
+                .border_color(t.colors.border_soft)
                 .small(&t)
                 .text_color(if halted { t.colors.danger } else { t.colors.accent })
                 .child(div().flex_1().min_w_0().truncate().child(if halted { i.t("br.agentStopped") } else { i.t("br.agentActive") }))
@@ -387,22 +532,36 @@ impl Render for BrowserPanel {
                         })),
                 )
         });
+        let snap_el = self
+            .snap
+            .borrow()
+            .as_ref()
+            .filter(|(id, _)| *id == self.active && !cur_url.is_empty())
+            .map(|(_, img)| div().absolute().inset_0().child(gpui::img(img.clone()).size_full()));
         let loading = self.loading.get(&self.active).copied().unwrap_or(false);
         let progress = div().h(gpui::px(2.)).w_full().when(loading, |d| d.bg(t.colors.accent));
 
         // Host webview: canvas mengukur area tiap frame lalu menempatkan/membuat webview tab aktif.
         let (views, active, url, tx) = (self.views.clone(), self.active.clone(), cur_url.clone(), self.tx.clone());
     let active_agent = self.tabs.iter().find(|t| t.id == self.active).is_some_and(|t| t.agent);
+        let (trash2, vis2, low2) = (self.trash.clone(), self.visible_now.clone(), self.low.clone());
         let err_slot: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let err2 = err_slot.clone();
         let host = canvas(
             move |bounds: Bounds<Pixels>, window, _cx| {
-                let overlay = crate::ui::take_overlay();
+                // Penanda overlay hanya menyala di frame saat menu/dialog ikut digambar. Saat hover item menu, sebagian frame
+                // tidak menggambarnya → webview sempat tampil menutupi menu (kedip). Jadi overlay dianggap tetap aktif
+                // OVERLAY_HOLD_MS sejak terakhir terdeteksi.
+                let now_ms = START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64;
+                if crate::ui::take_overlay() {
+                    LAST_OVERLAY_MS.store(now_ms + 1, std::sync::atomic::Ordering::Relaxed);
+                }
+                let last = LAST_OVERLAY_MS.load(std::sync::atomic::Ordering::Relaxed);
+                let overlay = last != 0 && now_ms < last - 1 + OVERLAY_HOLD_MS;
                 if overlay {
                     // periksa lagi tiap frame sampai overlay tertutup (view bisa di-cache)
                     window.request_animation_frame();
                 }
-                let big = !overlay && f32::from(bounds.size.width) >= MIN_SIZE && f32::from(bounds.size.height) >= MIN_SIZE;
                 // Membuat WebView2 memompa pesan; saat startup tugas async lain (engine, dll.) bisa berjalan ulang di tengahnya
                 // dan panik ("already borrowed"). Tunda pembuatan webview pertama sampai startup tenang.
                 let settled = START.get_or_init(std::time::Instant::now).elapsed() >= std::time::Duration::from_secs(4);
@@ -410,6 +569,9 @@ impl Render for BrowserPanel {
                     window.request_animation_frame();
                 }
                 let big = big_ok_and(settled, !overlay && f32::from(bounds.size.width) >= MIN_SIZE && f32::from(bounds.size.height) >= MIN_SIZE);
+                for old in trash2.borrow_mut().drain(..) {
+                    let _ = window.drop_image(old);
+                }
                 let mut map = views.borrow_mut();
                 if big && !url.is_empty() && !map.contains_key(&active) {
                     match create_view(window, &active, &url, active_agent, tx.clone()) {
@@ -421,6 +583,9 @@ impl Render for BrowserPanel {
                 }
                 for (k, v) in map.iter() {
                     let show = big && *k == active;
+                    if *k == active && big {
+                        set_mem_level(&low2, k, v, false);
+                    }
                     if show {
                         let rect = wry::Rect {
                             position: wry::dpi::LogicalPosition::new(f32::from(bounds.origin.x) as f64, f32::from(bounds.origin.y) as f64).into(),
@@ -430,6 +595,12 @@ impl Render for BrowserPanel {
                     }
                     let _ = v.set_visible(show);
                 }
+                if RELEASE_FOCUS.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                    if let Some(v) = map.get(&active) {
+                        let _ = v.focus_parent();
+                    }
+                }
+                vis2.set(big && map.contains_key(&active));
             },
             |_, _, _, _| {},
         )
@@ -447,7 +618,6 @@ impl Render for BrowserPanel {
             .size_full()
             .flex()
             .flex_col()
-            .gap(t.space(1))
             .child(tabs)
             .child(bar)
             .children(agent_row)
@@ -462,6 +632,7 @@ impl Render for BrowserPanel {
                     .when(cur_url.is_empty(), |d| {
                         d.child(div().absolute().inset_0().flex().items_center().justify_center().gap(t.space(2)).text_color(t.colors.fg_subtle).child(icon("globe").size(IconSize::Md)).child(i.t("br.address")))
                     })
+                    .children(snap_el)
                     .child(host),
             )
     }

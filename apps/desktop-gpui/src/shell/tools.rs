@@ -14,7 +14,7 @@ pub struct ToolsHost {
     pub tool: ToolId,
     session_files: Option<Entity<super::session_tools::SessionFiles>>,
     session_activity: Option<Entity<super::session_tools::SessionActivity>>,
-    info_panel: Option<Entity<super::session_tools::InfoPanel>>,
+    info_panel: Option<Entity<super::overview_panel::OverviewPanel>>,
     git_panel: Option<Entity<super::git_panel::GitPanel>>,
     changes: Option<Result<Vec<SessionFileDiff>, String>>,
     changes_for: Option<String>,
@@ -170,13 +170,16 @@ impl ToolsHost {
         } else {
             div().small(t).text_color(t.colors.fg_muted).child(i.tp("chg.summary", &[("n", &list.len().to_string()), ("add", &add.to_string()), ("del", &del.to_string())])).into_any_element()
         };
-        let mut col = div().flex().flex_col().gap(t.space(1)).p(t.space(2)).child(
-            div()
+        let mut col = div().flex().flex_col().gap(t.space(1)).p(t.space(2));
+        let header = div()
                 .flex()
                 .items_center()
+                .px(t.space(3))
+                .py(t.space(1))
+                .border_b_1()
+                .border_color(t.colors.border_soft)
                 .child(div().flex_1().child(summary))
-                .child(icon_button("ch-refresh", "refresh", i.t("git.refresh")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.refresh_changes(cx)))),
-        );
+                .child(icon_button("ch-refresh", "refresh", i.t("git.refresh")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(|s, _, _, cx| s.refresh_changes(cx))));
         if matches!(self.changes, Some(Ok(ref l)) if l.is_empty()) {
             col = col.child(super::widgets::tool_notice_inline(t, i.t("chg.empty")));
         }
@@ -235,7 +238,7 @@ impl ToolsHost {
                 col = col.child(if d.patch.is_empty() { div().small(t).text_color(t.colors.fg_muted).child(i.t("chg.noPatch")).into_any_element() } else { diff_view(t, &d.patch) });
             }
         }
-        col.into_any_element()
+        div().flex().flex_col().child(header).child(col).into_any_element()
     }
 
     fn render_jobs(&mut self, cx: &mut Context<Self>) -> AnyElement {
@@ -342,7 +345,10 @@ impl ToolsHost {
             .flex()
             .items_center()
             .gap(t.space(2))
-            .p(t.space(2))
+            .px(t.space(3))
+            .py(t.space(2))
+            .border_b_1()
+            .border_color(t.colors.border_soft)
             .child(crate::ui::select("act-filter", items, filter).on_change(move |v, _, cx| {
                 me.update(cx, |s, cx| {
                     s.log_filter = v.to_string();
@@ -454,7 +460,7 @@ impl Render for ToolsHost {
             ToolId::Files => self.render_files(cx),
             ToolId::Changes => self.render_changes(&t, &i, cx),
             ToolId::Jobs => self.render_jobs(cx),
-            ToolId::Info => self.info_panel.get_or_insert_with(|| cx.new(super::session_tools::InfoPanel::new)).clone().into_any_element(),
+            ToolId::Info => self.info_panel.get_or_insert_with(|| cx.new(super::overview_panel::OverviewPanel::new)).clone().into_any_element(),
             ToolId::Session => self.session_activity.get_or_insert_with(|| cx.new(super::session_tools::SessionActivity::new)).clone().into_any_element(),
             ToolId::Trajectory => self.render_trajectory(&t, &i, cx),
             ToolId::Log => self.render_log(&t, &i, cx),

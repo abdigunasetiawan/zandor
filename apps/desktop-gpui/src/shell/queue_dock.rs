@@ -138,6 +138,7 @@ impl ChatPanel {
                                 let ed = cx.new(|cx| {
                                     let mut ti = TextInput::new(cx, "");
                                     ti.multiline = true;
+                                    ti.wrap = true;
                                     ti.size = ControlSize::Sm;
                                     ti.set_text(e_text.clone(), cx);
                                     ti

@@ -104,6 +104,7 @@ impl GitPanel {
         let message = cx.new(|cx| {
             let mut t = TextInput::new(cx, i.t("git.commitMsg"));
             t.multiline = true;
+            t.wrap = true;
             t.enter_newline = true;
             t
         });
@@ -400,7 +401,7 @@ impl Render for GitPanel {
         let me = cx.entity().downgrade();
 
         // ---- bilah atas: repo, cabang, cabang baru, muat ulang ----
-        let mut bar = div().flex().items_center().gap(t.space(2));
+        let mut bar = div().flex().items_center().gap(t.space(2)).px(t.space(3)).py(t.space(2)).border_b_1().border_color(t.colors.border_soft);
         if !self.repos.is_empty() {
             let base = self.project_root.clone().unwrap_or_default().trim_end_matches(['\\', '/']).to_string();
             let items: Vec<(SharedString, SharedString)> = self
@@ -453,7 +454,7 @@ impl Render for GitPanel {
             .child(button("git-stash").size(ControlSize::Sm).disabled(busy || st.files.is_empty()).child(icon("archive").size(IconSize::Sm)).label(i.t("git.stash")).on_click(cx.listener(|s, _, _, cx| s.act(|d| crate::git::stash_push(d, ""), |_, _, _| {}, cx))))
             .child(button("git-pop").size(ControlSize::Sm).disabled(busy || self.stashes == 0).label(if self.stashes > 0 { format!("{} ({})", i.t("git.stashPop"), self.stashes) } else { i.t("git.stashPop") }).on_click(cx.listener(|s, _, _, cx| s.act(crate::git::stash_pop, |_, _, _| {}, cx))));
 
-        let mut col = div().flex().flex_col().gap(t.space(2)).p(t.space(3)).child(bar).child(sync);
+        let mut col = div().flex().flex_col().gap(t.space(2)).p(t.space(3)).child(sync);
         if let Some(nb) = self.new_branch.clone() {
             let empty = nb.read(cx).text().trim().is_empty();
             col = col.child(div().flex().gap(t.space(2)).child(div().flex_1().child(nb)).child(button("git-create").variant(ButtonVariant::Solid).disabled(empty || busy).label(i.t("git.create")).on_click(cx.listener(|s, _, _, cx| s.create_branch(cx)))));
@@ -575,7 +576,7 @@ impl Render for GitPanel {
                         }))),
                 )
         });
-        wrap(div().child(col).children(dlg).into_any_element())
+        wrap(div().child(bar).child(col).children(dlg).into_any_element())
     }
 }
 

@@ -40,6 +40,18 @@ pub struct ChatStore {
     /// Penamaan ulang judul (lihat `autotitle`): jumlah giliran pengguna yang sudah dinilai per sesi, supaya event
     /// `session.updated` yang beruntun tidak memicu panggilan model berulang untuk keadaan yang sama.
     retitled_at: HashMap<String, usize>,
+    /// Kesimpulan + saran aksi per sesi (lihat `next_steps`); `ns_for` = id pesan pengguna yang sudah/sedang diringkas.
+    pub next_steps: HashMap<String, Vec<super::next_steps::NextSteps>>,
+    ns_for: HashMap<String, String>,
+    /// Konteks: batas jendela asli per model (kunci provider/model) dan sesi yang idle berikutnya tidak boleh memicu
+    /// auto compact (idle setelah ringkasan: token terakhir = permintaan ringkasan, bukan percakapan sebenarnya).
+    ctx: ContextState,
+}
+
+#[derive(Default)]
+struct ContextState {
+    limits: HashMap<String, u64>,
+    skip_idle: std::collections::HashSet<String>,
 }
 
 pub const MAX_QUEUE: usize = 50;
@@ -102,13 +114,21 @@ pub fn parse_pinned(raw: Option<&str>) -> HashMap<String, Vec<String>> {
         .unwrap_or_default()
 }
 
+fn model_key(m: &ModelRef) -> String {
+    format!("{}/{}", m.provider_id, m.model_id)
+}
+
+fn notify(cx: &mut App, title: String, tone: crate::ui::ToastTone) {
+    crate::ui::Toasts::show(crate::ui::ToastInput { title: title.into(), description: None, tone, timeout_ms: None, action: None }, cx);
+}
+
 struct ChatHandle(Entity<ChatStore>);
 impl Global for ChatHandle {}
 
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect(), retitled_at: HashMap::new() });
+        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect(), retitled_at: HashMap::new(), next_steps: HashMap::new(), ns_for: HashMap::new(), ctx: ContextState::default() });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -171,6 +191,10 @@ impl ChatStore {
                                 EngineEvent::SessionStatus { status: super::types::SessionRunStatus::Idle, .. } | EngineEvent::SessionUpdated { title: Some(_), .. }
                             ) {
                                 s.maybe_retitle(&sid, cx);
+                            }
+                            if matches!(ev, EngineEvent::SessionStatus { status: super::types::SessionRunStatus::Idle, .. }) {
+                                s.maybe_next_steps(&sid, cx);
+                                s.maybe_auto_compact(&sid, cx);
                             }
                         }
                         Msg::Reconnected(dir) => {
@@ -237,6 +261,76 @@ impl ChatStore {
         .detach();
     }
 
+    /// Buat kesimpulan + saran aksi untuk jawaban yang baru selesai (lihat `next_steps`). Model kecil (atau model sesi)
+    /// yang menulisnya, bukan model yang menjawab, supaya hasilnya seragam di model apa pun.
+    fn maybe_next_steps(&mut self, sid: &str, cx: &mut Context<Self>) {
+        use super::next_steps as ns;
+        if !super::settings::SettingsStore::global(cx).read(cx).bool("nextSteps") {
+            return;
+        }
+        let (Some(st), Some(dir), Some(api)) = (self.sessions.get(sid), self.dirs.get(sid).cloned(), self.api.clone()) else { return };
+        if st.busy() || !st.loaded || !st.permissions.is_empty() || !st.questions.is_empty() || self.queues.get(sid).is_some_and(|q| !q.is_empty()) {
+            return;
+        }
+        let Some((user_id, request, answer, worked)) = ns::last_exchange(&st.messages) else { return };
+        if !ns::worth_asking(&answer, worked) || self.ns_for.get(sid) == Some(&user_id) {
+            return;
+        }
+        self.ns_for.insert(sid.to_string(), user_id.clone());
+        let small = crate::engine::read_small_model(&super::services::app_data_dir().join("model-roles.json"))
+            .and_then(|m| m.split_once('/').map(|(p, m)| ModelRef { provider_id: p.to_string(), model_id: m.to_string() }));
+        let model = small.or_else(|| self.model.clone());
+        let prompt = ns::prompt(&request, &answer);
+        let uid = user_id.clone();
+        let req = request.clone();
+        let work = cx.background_spawn(async move {
+            match api.complete_once(&dir, &prompt, model.as_ref()) {
+                Ok(r) if ns::is_skip(&r) => None, // model menilai tak perlu kartu: hormati, tanpa cadangan
+                Ok(r) => ns::parse_reply(&r, &uid).map(|n| ns::ground(n, &req, &answer)).filter(|n| !n.recap.is_empty() || !n.actions.is_empty()).or_else(|| ns::fallback(&answer, &uid)),
+                Err(_) => ns::fallback(&answer, &uid),
+            }
+        });
+        let sid = sid.to_string();
+        cx.spawn(async move |this, cx| {
+            let r = work.await;
+            this.update(cx, |s, cx| {
+                // kartu menetap di bawah jawabannya (juga bila pengguna sudah lanjut: tampil sebagai catatan, tanpa tombol)
+                if let Some(n) = r {
+                    let list = s.next_steps.entry(sid.clone()).or_default();
+                    list.retain(|x| x.for_msg != n.for_msg);
+                    list.push(n);
+                    if list.len() > 50 {
+                        list.remove(0);
+                    }
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Pengguna mengklik satu aksi di kartu: tandai sebagai terpilih (kartu tetap tampil sebagai catatan) lalu kirim pesannya.
+    pub fn choose_next_step(&mut self, sid: &str, for_msg: &str, idx: usize, cx: &mut Context<Self>) {
+        let msg = self.next_steps.get_mut(sid).and_then(|v| v.iter_mut().find(|n| n.for_msg == for_msg)).and_then(|n| {
+            let m = n.actions.get(idx).map(|a| a.message.clone());
+            if m.is_some() {
+                n.chosen = Some(idx);
+            }
+            m
+        });
+        if let Some(m) = msg {
+            self.send(sid, m, cx);
+        }
+    }
+
+    pub fn dismiss_next_step(&mut self, sid: &str, for_msg: &str, cx: &mut Context<Self>) {
+        if let Some(v) = self.next_steps.get_mut(sid) {
+            v.retain(|n| n.for_msg != for_msg);
+        }
+        cx.notify();
+    }
+
     pub fn global(cx: &App) -> Entity<ChatStore> {
         cx.global::<ChatHandle>().0.clone()
     }
@@ -296,7 +390,8 @@ impl ChatStore {
                 let qs = api.list_questions(&dir).unwrap_or_default();
                 let todos = api.list_todos(&dir, &id).ok();
                 let revert = api.get_revert(&dir, &id).unwrap_or(None);
-                Ok::<_, super::engine::EngineError>((msgs, perms, qs, todos, revert))
+                let live = api.session_status(&dir, &id).ok();
+                Ok::<_, super::engine::EngineError>((msgs, perms, qs, todos, revert, live))
             }
         });
         cx.spawn(async move |this, cx| {
@@ -304,10 +399,10 @@ impl ChatStore {
             this.update(cx, |s, cx| {
                 let st = s.sessions.entry(id.clone()).or_insert_with(|| ChatState::new(&id));
                 match r {
-                    Ok((msgs, perms, qs, todos, revert)) => {
+                    Ok((msgs, perms, qs, todos, revert, live)) => {
                         let perms = perms.into_iter().filter(|p| p.session_id == id).collect();
                         let qs = qs.into_iter().filter(|q| q.session_id == id).collect();
-                        st.load(msgs, perms, revert, Some(qs), todos);
+                        st.load(msgs, perms, revert, Some(qs), todos, live);
                     }
                     Err(e) => {
                         st.loaded = true;
@@ -401,6 +496,73 @@ impl ChatStore {
         cx.notify();
     }
 
+    /// Ganti model di tengah sesi `sid` dengan pengecekan konteks: bila riwayat sesi tidak muat (atau mepet ambang)
+    /// di jendela model baru, riwayat diringkas lebih dulu dengan model LAMA (yang masih muat), lalu model diganti.
+    /// Auto compact mati = hanya peringatan. Mengembalikan hasil pengecekan agar pemanggil bisa memberi tahu pengguna.
+    pub fn switch_model(&mut self, sid: Option<&str>, m: ModelRef, cx: &mut Context<Self>) -> super::context_policy::SwitchFit {
+        use super::context_policy::{switch_fit, SwitchFit};
+        let (max, auto, thr) = Self::context_settings(cx);
+        let used = sid.and_then(|s| self.context_used(s));
+        let new_limit = super::context_policy::effective_limit(self.ctx.limits.get(&model_key(&m)).copied(), max);
+        let same = self.model.as_ref().is_some_and(|c| c.provider_id == m.provider_id && c.model_id == m.model_id);
+        let fit = if same { SwitchFit::Unknown } else { switch_fit(used, new_limit, thr) };
+        if let (SwitchFit::NeedsCompact, Some(sid)) = (fit, sid) {
+            let busy = self.sessions.get(sid).is_some_and(|s| s.busy());
+            if auto && !busy {
+                // compact() menangkap self.model (lama) sebelum diganti di bawah.
+                self.compact(sid, cx);
+                let i = cx.global::<crate::i18n::I18n>().clone();
+                let (u, l) = (used.unwrap_or(0.), new_limit.unwrap_or(0));
+                notify(cx, i.tp("context.switchCompact", &[("used", &super::usage::format_tokens(u, false)), ("limit", &super::usage::format_tokens(l as f64, false))]), crate::ui::ToastTone::Warning);
+            } else {
+                let i = cx.global::<crate::i18n::I18n>().clone();
+                let (u, l) = (used.unwrap_or(0.), new_limit.unwrap_or(0));
+                notify(cx, i.tp("context.switchTight", &[("used", &super::usage::format_tokens(u, false)), ("limit", &super::usage::format_tokens(l as f64, false))]), crate::ui::ToastTone::Warning);
+            }
+        }
+        self.select_model(m, cx);
+        fit
+    }
+
+    /// Daftar batas jendela asli per model, dari daftar model engine.
+    pub fn set_context_limits(&mut self, limits: HashMap<String, u64>) {
+        self.ctx.limits = limits;
+    }
+
+    /// (batas maksimum buatan pengguna, auto compact aktif, ambang %) dari Pengaturan.
+    fn context_settings(cx: &App) -> (u64, bool, f64) {
+        let st = super::settings::SettingsStore::global(cx);
+        let st = st.read(cx);
+        (st.num("contextMax").max(0.) as u64, st.bool("autoCompact"), st.num("autoCompactAt").clamp(1., 100.))
+    }
+
+    /// Token konteks terakhir yang dilaporkan sesi (permintaan model terakhir).
+    fn context_used(&self, sid: &str) -> Option<f64> {
+        super::usage::session_usage(&self.sessions.get(sid)?.messages, None, None).context_tokens
+    }
+
+    /// Dipanggil saat sesi idle: ringkas otomatis bila konteks (terhadap batas model aktif + batas buatan pengguna)
+    /// melewati ambang. Idle sesudah ringkasan dilewati satu kali agar tidak berulang.
+    fn maybe_auto_compact(&mut self, sid: &str, cx: &mut Context<Self>) {
+        if self.ctx.skip_idle.remove(sid) {
+            return;
+        }
+        let (max, auto, thr) = Self::context_settings(cx);
+        let (Some(model), true) = (self.model.clone(), auto) else { return };
+        if self.sessions.get(sid).is_none_or(|s| s.busy() || !s.loaded) {
+            return;
+        }
+        let limit = super::context_policy::effective_limit(self.ctx.limits.get(&model_key(&model)).copied(), max);
+        let used = self.context_used(sid);
+        if !super::context_policy::should_auto_compact(used, limit, thr) {
+            return;
+        }
+        let pct = used.zip(limit).map(|(u, l)| u / l as f64 * 100.).unwrap_or(thr);
+        self.compact(sid, cx);
+        let i = cx.global::<crate::i18n::I18n>().clone();
+        notify(cx, i.tp("context.autoCompacted", &[("pct", &format!("{pct:.0}"))]), crate::ui::ToastTone::Info);
+    }
+
     pub fn set_permission_mode(&mut self, mode: &str, cx: &mut Context<Self>) {
         if mode == self.permission_mode {
             return;
@@ -470,6 +632,8 @@ impl ChatStore {
             return;
         };
         let sid = id.to_string();
+        // idle setelah ringkasan jangan memicu auto compact lagi (lihat ContextState)
+        self.ctx.skip_idle.insert(sid.clone());
         self.bg(id, cx, move |api, dir| api.summarize(dir, &sid, &model));
     }
 
@@ -512,6 +676,26 @@ impl ChatStore {
             api.revert(dir, &sid, &mid)?;
             api.send_prompt(dir, &sid, &text, model.as_ref(), variant.as_deref(), &files)
         });
+        cx.notify();
+        Ok(())
+    }
+
+    /// Lanjutkan giliran yang terputus (lihat `resume`): kirim pesan pendek `visible` + catatan sintetis berisi
+    /// permintaan awal dan ringkasan progres, supaya model melanjutkan alih-alih mengulang dari nol.
+    pub fn resume(&mut self, id: &str, visible: String, cx: &mut Context<Self>) -> Result<(), String> {
+        let Some(st) = self.sessions.get(id) else { return Err("engine belum siap".into()) };
+        if st.busy() {
+            return Err("sesi sedang berjalan".into());
+        }
+        let msgs: Vec<_> = st.visible().cloned().collect();
+        let (request, progress) = super::resume::gather(&msgs).ok_or("tidak ada permintaan pengguna untuk dilanjutkan")?;
+        let note = super::resume::build_note(&request, &progress, &st.todos);
+        if let Some(st) = self.sessions.get_mut(id) {
+            st.error = None;
+            st.status = super::types::SessionRunStatus::Busy;
+        }
+        let (sid, model, variant) = (id.to_string(), self.model.clone(), self.variant.clone());
+        self.bg(id, cx, move |api, dir| api.send_prompt_with(dir, &sid, &visible, model.as_ref(), variant.as_deref(), &[], &[note]));
         cx.notify();
         Ok(())
     }

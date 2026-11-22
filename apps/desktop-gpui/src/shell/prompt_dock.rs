@@ -57,7 +57,6 @@ fn dock_card(t: &Theme) -> gpui::Div {
         .border_color(t.colors.border_soft)
         .rounded(t.rem(rem::RADIUS_LG * 1.5))
         .bg(t.colors.composer)
-        .shadow(t.shadow_1())
 }
 
 impl ChatPanel {
@@ -115,6 +114,8 @@ impl ChatPanel {
                 let ti = cx.new(|cx| {
                     let mut ti = TextInput::new(cx, ph);
                     ti.multiline = true;
+                    ti.wrap = true;
+                    ti.bare = true; // satu permukaan saja (dibungkus di kartu pertanyaan), tanpa kartu di dalam kartu
                     ti
                 });
                 let (r2, multiple) = (rid.clone(), q.multiple);
@@ -136,10 +137,15 @@ impl ChatPanel {
         let ans = answers(req, qs, |n| qs.custom.get(&n).map(|e| e.read(cx).text().to_string()).unwrap_or_default());
         let complete = ans.iter().all(|a| !a.is_empty());
         let last = step + 1 >= total;
-        let mut card = dock_card(t).child(
+        // Header (tetap) · body (menggulir) · footer (tetap)
+        let mut card = dock_card(t).p_0().gap_0().max_h(t.rem(26.)).overflow_hidden().child(
             div()
                 .flex()
+                .flex_none()
                 .items_baseline()
+                .px(t.space(3))
+                .pt(t.space(3))
+                .pb(t.space(2))
                 .justify_between()
                 .gap(t.space(2))
                 .typo(t, crate::theme::P)
@@ -149,7 +155,7 @@ impl ChatPanel {
         );
         if let Some(q) = req.questions.get(step) {
             let qi = step;
-            let mut fs = div().flex().flex_col().gap(t.space(2)).min_w_0().child(
+            let mut fs = div().id(SharedString::from(format!("qbody-{rid}-{qi}"))).flex().flex_col().flex_1().min_h_0().overflow_y_scroll().px(t.space(3)).pb(t.space(2)).gap(t.space(2)).child(
                 div()
                     .flex()
                     .flex_col()
@@ -165,31 +171,27 @@ impl ChatPanel {
             for (oi, o) in q.options.iter().enumerate() {
                 let checked = picked.contains(&o.label);
                 let (r2, label, multiple) = (rid.clone(), o.label.clone(), q.multiple);
+                // Indikator terpilih ada di kartu opsi: latar `active` + centang di kanan (tanpa radio/checkbox)
                 let mark = div()
                     .flex()
                     .flex_none()
                     .items_center()
                     .justify_center()
                     .size(t.rem(rem::ICON_MD))
-                    .mt(t.space(1) / 2.)
-                    .border_1()
-                    .border_color(if checked { t.colors.accent } else { t.colors.border_strong })
-                    .when(checked, |d| d.bg(t.colors.accent))
-                    .text_color(t.colors.on_accent)
-                    .rounded(if multiple { t.rem(rem::RADIUS_MD / 2.) } else { t.rem(rem::RADIUS_FULL) })
-                    .when(multiple && checked, |d| d.child(icon("check").size(IconSize::Sm)))
-                    .when(!multiple, |d| d.child(radio_dot(t, &format!("qd-{rid}-{qi}-{oi}"), checked)));
+                    .text_color(t.colors.fg)
+                    .when(checked, |d| d.child(icon("check").size(IconSize::Md).color(t.colors.fg)));
                 opts = opts.child(
                     div()
                         .id(SharedString::from(format!("qo-{rid}-{qi}-{oi}")))
                         .flex()
-                        .items_start()
+                        .items_center()
+                        .justify_between()
                         .gap(t.space(3))
                         .px(t.space(3))
                         .py(t.space(2))
                         .rounded(t.rem(rem::RADIUS_MD))
-                        .bg(if checked { t.colors.active } else { t.colors.hover })
-                        .hover(|s| s.bg(t.colors.active))
+                        .bg(if checked { t.colors.fg.opacity(0.16) } else { t.colors.fg.opacity(0.09) })
+                        .hover(|s| s.bg(t.colors.fg.opacity(0.16)))
                         .cursor_pointer()
                         .on_click(cx.listener(move |s, _, _, cx| {
                             let qs = s.dock.q.entry(r2.clone()).or_default();
@@ -208,15 +210,16 @@ impl ChatPanel {
                             }
                             cx.notify();
                         }))
-                        .child(mark)
                         .child(
                             div()
                                 .flex()
                                 .flex_col()
+                                .flex_1()
                                 .min_w_0()
                                 .child(div().font_weight(FontWeight(t.ty(crate::theme::LABEL).weight)).child(o.label.clone()))
                                 .when(!o.description.is_empty(), |d| d.child(div().small(t).text_color(t.colors.fg_muted).child(o.description.clone()))),
-                        ),
+                        )
+                        .child(mark),
                 );
             }
             fs = fs.child(opts);
@@ -225,19 +228,31 @@ impl ChatPanel {
                 fs = fs.child(
                     div()
                         .min_h(t.rem(rows * 1.5 + 1.))
-                        .px(t.space(2))
-                        .py(t.space(1))
-                        .border_1()
-                        .border_color(t.colors.border)
+                        .px(t.space(3))
+                        .py(t.space(2))
                         .rounded(t.rem(rem::RADIUS_MD))
-                        .bg(t.colors.bg)
+                        .bg(t.colors.hover)
                         .child(ti.clone()),
                 );
             }
             card = card.child(fs);
         }
         let step_ok = ans.get(step).is_some_and(|a| !a.is_empty());
-        let mut actions = div().flex().flex_wrap().gap(t.space(2));
+        let mut actions = div().flex().flex_none().items_center().justify_end().gap(t.space(2)).px(t.space(3)).pt(t.space(2)).pb(t.space(3));
+        {
+            let (r2, sid2) = (rid.clone(), sid.to_string());
+            actions = actions.child(
+                button(SharedString::from(format!("qs-{rid}")))
+                    .label(i.t("q.skip"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ControlSize::Sm)
+                    .on_click(cx.listener(move |s, _, _, cx| {
+                        if !s.demo_reply(&sid2, &r2, None, None, cx) {
+                            s.chat.update(cx, |c, cx| c.reply_question(&sid2, &r2, None, cx))
+                        }
+                    })),
+            );
+        }
         if step > 0 {
             let r2 = rid.clone();
             actions = actions.child(button(SharedString::from(format!("qb-{rid}"))).label(i.t("q.back")).size(ControlSize::Sm).on_click(cx.listener(move |s, _, _, cx| {
@@ -281,18 +296,6 @@ impl ChatPanel {
                     })),
             );
         }
-        let (r2, sid2) = (rid.clone(), sid.to_string());
-        actions = actions.child(
-            button(SharedString::from(format!("qs-{rid}")))
-                .label(i.t("q.skip"))
-                .variant(ButtonVariant::Ghost)
-                .size(ControlSize::Sm)
-                .on_click(cx.listener(move |s, _, _, cx| {
-                    if !s.demo_reply(&sid2, &r2, None, None, cx) {
-                        s.chat.update(cx, |c, cx| c.reply_question(&sid2, &r2, None, cx))
-                    }
-                })),
-        );
         card.child(actions).into_any_element()
     }
 
@@ -360,6 +363,8 @@ impl ChatPanel {
             .px(t.space(3))
             .py(t.space(2))
             .cursor_pointer()
+            .rounded_t(t.rem(rem::RADIUS_LG))
+            .when(!open, |d| d.rounded_b(t.rem(rem::RADIUS_LG)))
             .hover(|s| s.bg(t.colors.hover))
             .on_click(cx.listener(|s, _, _, cx| {
                 s.dock.todos_closed = !s.dock.todos_closed;
@@ -371,7 +376,7 @@ impl ChatPanel {
             .child(div().flex_1().min_w_0().truncate().small(t).text_color(t.colors.fg_muted).when(open, |d| d.invisible()).child(current))
             .child(div().flex_none().text_color(t.colors.fg_muted).child(icon(if open { "chevron_up" } else { "chevron_down" }).size(IconSize::Sm)));
         let frac = if todos.is_empty() { 0. } else { done as f32 / todos.len() as f32 };
-        let bar = div().h(t.space(1) / 2.).bg(t.colors.hover).child(div().h_full().w(gpui::relative(frac)).bg(t.colors.fg_muted));
+        let bar = div().mx(t.space(3)).mb(t.space(1)).h(t.space(1) / 2.).rounded_full().overflow_hidden().bg(t.colors.hover).child(div().h_full().w(gpui::relative(frac)).rounded_full().bg(t.colors.fg_muted));
         let mut card = div()
             .flex()
             .flex_col()
@@ -380,7 +385,6 @@ impl ChatPanel {
             .border_color(t.colors.border_soft)
             .rounded(t.rem(rem::RADIUS_LG))
             .bg(t.colors.composer)
-            .shadow(t.shadow_1())
             .child(head)
             .child(bar);
         if open {
@@ -407,7 +411,7 @@ impl ChatPanel {
                     .child(match st {
                         TodoStatus::Completed => icon("check").size(IconSize::Sm).into_any_element(),
                         TodoStatus::Cancelled => icon("x").size(IconSize::Sm).into_any_element(),
-                        TodoStatus::InProgress => working(SharedString::from(format!("todo-w-{n}"))).variant(WorkingVariant::Grid).size(WorkingSize::Dot).into_any_element(),
+                        TodoStatus::InProgress => working(SharedString::from(format!("todo-w-{n}"))).variant(WorkingVariant::Ripple).size(WorkingSize::Dot).into_any_element(),
                         TodoStatus::Pending => div().into_any_element(),
                     });
                 let struck = matches!(st, TodoStatus::Completed | TodoStatus::Cancelled);
@@ -419,7 +423,7 @@ impl ChatPanel {
                         .px(t.space(2))
                         .py(t.space(1))
                         .rounded(t.rem(rem::RADIUS_MD))
-                        .when(ip, |d| d.bg(t.colors.hover))
+                        .when(ip, |d| d.bg(t.colors.fg.opacity(0.09)))
                         .text_size(t.rem(t.ty(crate::theme::SMALL).size))
                         .text_color(if ip { t.colors.fg } else { t.colors.fg_muted })
                         .child(mark)
@@ -430,23 +434,6 @@ impl ChatPanel {
         }
         card.into_any_element()
     }
-}
-
-/// Titik radio: CSS memakai transform scale(0→1); GPUI tidak punya transform skala pada div, jadi ukurannya
-/// dianimasikan dari 0 ke 1/3 ikon dengan durasi --z-duration-fast (hasil visual sama: titik tumbuh dari tengah).
-fn radio_dot(t: &Theme, id: &str, on: bool) -> AnyElement {
-    use gpui::{Animation, AnimationExt};
-    let full = t.rem(rem::ICON_MD / 3.);
-    let c = t.colors.on_accent;
-    if !on {
-        return div().into_any_element();
-    }
-    div()
-        .rounded_full()
-        .bg(c)
-        .size(full)
-        .with_animation(SharedString::from(id.to_string()), Animation::new(crate::theme::dur_ms(120)), move |d, k| d.size(full * k))
-        .into_any_element()
 }
 
 /// Letter-spacing: GPUI tidak punya properti jarak huruf; untuk label pendek (mis. .qcard__topic 0.04em) setiap huruf

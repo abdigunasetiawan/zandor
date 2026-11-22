@@ -9,7 +9,7 @@ use std::borrow::Cow;
 #[include = "fonts/**/*"]
 pub struct Assets;
 
-/// Daftarkan font bundel (Plus Jakarta Sans & JetBrains Mono, OFL) ke sistem teks GPUI.
+/// Daftarkan font bundel (Inter, Fira Code, Plus Jakarta Sans, JetBrains Mono; OFL) ke sistem teks GPUI.
 pub fn load_fonts(cx: &mut gpui::App) {
     let fonts: Vec<Cow<'static, [u8]>> = Assets::iter()
         .filter(|p| p.starts_with("fonts/") && p.ends_with(".ttf"))
