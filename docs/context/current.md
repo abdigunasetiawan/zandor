@@ -37,6 +37,32 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
 - **Menunggu keputusan pemilik:** push/PR `zandor/rewrite-gpui` (belum di-push). Perubahan `syscheck.rs` (sidecar opencode
   bawaan lebih dulu) sudah dikomit di branch `zandor/background-jobs-dan-lainnya` (a42a1ef).
 
+- **Desain ulang halaman "Memori dan skill" GPUI (22-11-2026, belum di-commit):** `src/shell/memory_page.rs` + i18n ID/EN.
+  Kartu `raised` tanpa border, tab beri ikon; Settings dengan header kolom per project; Memory dengan hitung karakter dan
+  penanda "belum disimpan" (dibandingkan ke `note_base`, bug penanda palsu saat load diperbaiki); Skill queue: draf pending
+  di atas sebagai kartu, sisanya baris ringkas + "Bersihkan"; Installed skills dengan deskripsi dari SKILL.md dan ikon
+  edit/hapus. Terverifikasi visual di jendela (lebar penuh, 4 tab); lebar sempit dan tema terang belum dicek.
+- **Mode "Pasang skill otomatis" ala Hermes (22-11-2026, belum di-commit, bawaan MATI):** sakelar baru di Pengaturan > Memori dan skill (`skillAutoInstall` di `settings.json`). Bila aktif, `skill_propose` memvalidasi (nama, panjang, pemindai secret) lalu langsung menulis `SKILL.md` (project: `<project>/.opencode/skills`, sesi Chat: skill global), tidak menimpa skill yang sudah ada, dan mencatat entri `approved` di antrean. Ikon tab/skill diganti `file_text`; kartu dalam kartu di tab Memory dihapus. Tes plugin 50 lulus, cargo test 295 lulus; belum diuji di sesi nyata (perlu restart engine agar bundel plugin baru dimuat).
+- **Pembuatan skill otomatis (22-11-2026, belum di-commit):** saat sakelar pasang otomatis aktif, plugin menyuntik `AUTO_SKILL_HINT` tiap giliran (tanpa menunggu pemicu koreksi/`/reflect`/5 tool call) agar model sendiri menilai dan memanggil `skill_propose` setelah tugas yang layak; dibatasi `AUTO_SKILL_LIMIT`=3 skill per sesi. Pemicu lama tetap jadi dorongan tambahan. Tes plugin 51 lulus. **Diuji di sesi nyata (DeepSeek Flash):** instruksi awal terlalu lemah (2 tugas, tidak ada skill); setelah diganti kriteria konkret + "WAJIB panggil skill_propose", skill global `ringkasan-rapat` terbuat sendiri dan terpasang (antrean `approved`, memberi tahu user di balasan). Tugas sepele (CSV) tidak diuji ulang. Skill uji itu masih terpasang.
+- **Uji Memory + Skill Creator, sesi nyata (22-11-2026, build debug, DeepSeek V4.1 Flash Free via OpenCode, kontrol desktop):**
+  - Lulus: `memory_write` (scope project) menulis `- Kode uji memori project: JERUK-4417` (terlihat di Pengaturan > Memory);
+    pemanggilan lintas sesi dalam project yang sama menjawab benar tanpa langkah tool; isolasi: chat tanpa project menjawab
+    "tidak tahu"; koreksi pengguna memicu `skill_propose`, draf muncul "Awaiting approval", kartu "Setujui skill / Cek draf"
+    tampil di chat, "Approve & install" ke Project: tes memasang `jawaban-kode-tolong`, tampil di Installed skills, dan
+    Delete skill menghapusnya. Data uji (skill, berkas memori project, entri antrean, sesi chat tanpa project) sudah dibersihkan.
+  - **Diperbaiki (22-11-2026, belum di-commit, tes plugin 26 lulus; terverifikasi di app setelah restart + build ulang `zandor-plugin.js`: satu koreksi menghasilkan tepat satu entri, draf diringkas di balasan tanpa baca folder data/izin; entri uji sudah dihapus):**
+    `packages/plugin/src/skills.ts` `INTERNAL_PROMPT` + `index.ts` `chat.message` melewati prompt judul/ringkasan; `skillHint`
+    menyuruh model meringkas draf di balasan dan tidak membaca folder data. Tombol "Cek draf" ternyata dibuat model
+    (bukan kode aplikasi). Entri lama 21-11 di antrean harus dihapus manual.
+  - **Temuan awal (bug kandidat):** antrean skill terisi entri "Your correction / Waiting for a draft" yang
+    excerpt-nya adalah prompt judul otomatis ("Anda memberi judul pada sebuah percakapan...") dan prompt ringkasan
+    ("Anda membantu pengguna melanjutkan percakapan..."), padahal pengguna tidak mengoreksi apa pun (juga pada entri lama
+    21-11). Deteksi pemicu koreksi kemungkinan ikut memproses sesi internal judul/ringkasan.
+  - **Temuan:** tombol "Cek draf" hanya mengirim pesan biasa; model lalu mencari berkas antrean di folder data aplikasi
+    (di luar project) dan memicu permintaan izin `external_directory` (ditolak). Perlu jalur tampilkan-draf tanpa membaca berkas.
+  - Catatan: draf komposer bersama sempat tertimpa saat uji; sesi uji di project `tes` ("Menyimpan kode...", "Kode uji
+    memori...") belum dihapus.
+
 ## Terbaru (21-11-2026, GPUI)
 
 - **Gaya permukaan Solid/Kaca** (pengaturan `surface`, Pengaturan > Tampilan). Kaca (hanya Windows): jendela memakai

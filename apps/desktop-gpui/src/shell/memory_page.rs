@@ -94,6 +94,8 @@ pub struct MemoryPage {
     note_rel: String,
     note: Entity<TextInput>,
     note_dirty: bool,
+    /// Teks terakhir yang dimuat/disimpan; pembanding agar set_text tidak dianggap suntingan.
+    note_base: String,
     note_error: Option<String>,
     drafts: HashMap<String, Draft>,
     skill_edits: HashMap<String, SkillEdit>,
@@ -127,7 +129,8 @@ impl MemoryPage {
     pub fn new(app: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let note = multiline(cx, String::new());
         cx.subscribe(&note, |s, _, _: &InputChanged, cx| {
-            s.note_dirty = true;
+            let now = s.note.read(cx).text().to_string();
+            s.note_dirty = now != s.note_base;
             cx.notify();
         })
         .detach();
@@ -146,6 +149,7 @@ impl MemoryPage {
             note_rel: mem::FILE_GLOBAL.into(),
             note,
             note_dirty: false,
+            note_base: String::new(),
             note_error: None,
             drafts: HashMap::new(),
             skill_edits: HashMap::new(),
@@ -184,6 +188,7 @@ impl MemoryPage {
 
     fn load_note(&mut self, cx: &mut Context<Self>) {
         let text = read(&self.note_rel);
+        self.note_base = text.clone();
         self.note.update(cx, |n, cx| n.set_text(text, cx));
         self.note_dirty = false;
         self.note_error = None;
@@ -326,6 +331,7 @@ impl MemoryPage {
         self.note_error = None;
         match write(&self.note_rel, &text) {
             Ok(()) => {
+                self.note_base = text;
                 self.note_dirty = false;
                 self.files = crate::memory::list_memory(&mem_dir()).into_iter().map(|f| f.rel).collect();
                 let title = cx.global::<I18n>().t("mem.notes.saved");
@@ -340,6 +346,7 @@ impl MemoryPage {
         match self.confirm.take() {
             Some(Confirm::Note(rel)) => match crate::memory::delete_memory(&mem_dir(), &rel) {
                 Ok(()) => {
+                    self.note_base = String::new();
                     self.note.update(cx, |n, cx| n.set_text("", cx));
                     self.note_dirty = false;
                     self.files = crate::memory::list_memory(&mem_dir()).into_iter().map(|f| f.rel).collect();
@@ -394,7 +401,15 @@ fn field(t: &Theme, label: String, el: impl IntoElement) -> gpui::Div {
     div().flex().flex_col().gap(t.space(1)).child(div().small(t).font_weight(FontWeight::MEDIUM).child(label)).child(el)
 }
 fn card(t: &Theme) -> gpui::Div {
-    div().flex().flex_col().gap(t.space(2)).p(t.space(3)).rounded(t.rem(rem::RADIUS_MD)).border_1().border_color(t.colors.border_soft)
+    div().flex().flex_col().gap(t.space(2)).p(t.space(3)).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.raised)
+}
+/// Judul bagian + keterangan singkat (dipakai di semua tab agar ritmenya sama).
+fn heading(t: &Theme, title: String, hint: Option<String>) -> gpui::Div {
+    div().flex().flex_col().gap(t.space(1)).child(div().typo(t, H4).child(title)).children(hint.map(|h| muted(t, h)))
+}
+/// Satu baris satu baris ringkas: kutipan satu baris saja (isi mentah prompt tidak ditumpahkan ke kartu).
+fn first_line(s: &str) -> String {
+    s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string()
 }
 fn tri(on: Option<bool>) -> &'static str {
     match on {
@@ -421,10 +436,10 @@ impl MemoryPage {
                 me.update(cx, |s, cx| {
                     s.patch_settings(
                         |x| {
-                            if which == 0 {
-                                x.default_enabled = v
-                            } else {
-                                x.skill_creator = v
+                            match which {
+                                0 => x.default_enabled = v,
+                                1 => x.skill_creator = v,
+                                _ => x.skill_auto_install = v,
                             }
                         },
                         cx,
@@ -433,30 +448,39 @@ impl MemoryPage {
                 .ok();
             })
         };
-        let mut col = div()
+        let col = div()
             .flex()
             .flex_col()
             .gap(t.space(3))
             .child(muted(t, i.t("mem.settings.intro")))
-            .child(sw("mem-def", i.t("mem.settings.default"), s.default_enabled, 0))
-            .child(muted(t, i.t("mem.settings.defaultHint")))
-            .child(sw("mem-sc", i.t("mem.settings.skillCreator"), s.skill_creator, 1))
-            .child(muted(t, i.t("mem.settings.skillCreatorHint")))
-            .child(div().typo(t, H4).child(i.t("mem.settings.projects")));
+            .child(card(t).child(sw("mem-def", i.t("mem.settings.default"), s.default_enabled, 0)).child(muted(t, i.t("mem.settings.defaultHint"))))
+            .child(card(t).child(sw("mem-sc", i.t("mem.settings.skillCreator"), s.skill_creator, 1)).child(muted(t, i.t("mem.settings.skillCreatorHint"))))
+            .child(card(t).child(sw("mem-auto", i.t("mem.settings.autoInstall"), s.skill_auto_install, 2)).child(muted(t, i.t("mem.settings.autoInstallHint"))));
+        let mut proj = card(t).gap(t.space(3)).child(heading(t, i.t("mem.settings.projects"), Some(i.t("mem.settings.projectsHint"))));
         if refs.is_empty() {
-            col = col.child(muted(t, i.t("mem.settings.projectsEmpty")));
+            proj = proj.child(muted(t, i.t("mem.settings.projectsEmpty")));
+        } else {
+            proj = proj.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(t.space(2))
+                    .child(div().flex_1())
+                    .child(div().w(t.rem(11.)).child(muted(t, i.t("mem.settings.colMemory"))))
+                    .child(div().w(t.rem(11.)).child(muted(t, i.t("mem.settings.colSkill")))),
+            );
         }
         for r in refs {
             let mem_items: Vec<(SharedString, SharedString)> = [("follow", "mem.settings.follow"), ("on", "mem.settings.on"), ("off", "mem.settings.off")].iter().map(|(v, k)| ((*v).into(), i.t(k).into())).collect();
             let sk_items: Vec<(SharedString, SharedString)> = [("follow", "mem.settings.skillFollow"), ("on", "mem.settings.skillOn"), ("off", "mem.settings.skillOff")].iter().map(|(v, k)| ((*v).into(), i.t(k).into())).collect();
             let (k1, k2, m1, m2) = (r.key.clone(), r.key.clone(), me.clone(), me.clone());
-            col = col.child(
+            proj = proj.child(
                 div()
                     .flex()
                     .items_center()
                     .gap(t.space(2))
-                    .child(div().flex_1().min_w_0().truncate().child(r.name.clone()))
-                    .child(select(SharedString::from(format!("mem-p-{}", r.id)), mem_items, tri(s.projects.get(&r.key).copied())).on_change(move |v, _, cx| {
+                    .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(r.name.clone()))
+                    .child(div().w(t.rem(11.)).child(select(SharedString::from(format!("mem-p-{}", r.id)), mem_items, tri(s.projects.get(&r.key).copied())).on_change(move |v, _, cx| {
                         let (k, on) = (k1.clone(), untri(v.as_ref()));
                         m1.update(cx, |s, cx| {
                             s.patch_settings(
@@ -472,8 +496,8 @@ impl MemoryPage {
                             )
                         })
                         .ok();
-                    }))
-                    .child(select(SharedString::from(format!("mem-s-{}", r.id)), sk_items, tri(s.skill_creator_projects.get(&r.key).copied())).on_change(move |v, _, cx| {
+                    })))
+                    .child(div().w(t.rem(11.)).child(select(SharedString::from(format!("mem-s-{}", r.id)), sk_items, tri(s.skill_creator_projects.get(&r.key).copied())).on_change(move |v, _, cx| {
                         let (k, on) = (k2.clone(), untri(v.as_ref()));
                         m2.update(cx, |s, cx| {
                             s.patch_settings(
@@ -489,10 +513,10 @@ impl MemoryPage {
                             )
                         })
                         .ok();
-                    })),
+                    }))),
             );
         }
-        col.child(muted(t, i.t("mem.settings.sessionHint"))).into_any_element()
+        col.child(proj).child(muted(t, i.t("mem.settings.sessionHint"))).into_any_element()
     }
 
     fn notes_tab(&mut self, t: &Theme, i: &I18n, refs: &[ProjectRef], cx: &mut Context<Self>) -> AnyElement {
@@ -526,9 +550,9 @@ impl MemoryPage {
         let me = cx.entity().downgrade();
         let empty = self.note.read(cx).text().is_empty();
         let rel = self.note_rel.clone();
-        div()
-            .flex()
-            .flex_col()
+        let chars = self.note.read(cx).text().chars().count();
+        let dirty = self.note_dirty;
+        card(t)
             .gap(t.space(3))
             .child(field(
                 t,
@@ -548,10 +572,10 @@ impl MemoryPage {
                     .min_h(t.rem(14.))
                     .max_h(t.rem(32.))
                     .overflow_y_scroll()
-                    .p(t.space(2))
-                    .rounded(t.rem(rem::RADIUS_MD))
-                    .border_1()
-                    .border_color(if self.note_error.is_some() { t.colors.danger } else { t.colors.border })
+                    .py(t.space(1))
+                    .border_t_1()
+                    .border_b_1()
+                    .border_color(if self.note_error.is_some() { t.colors.danger } else { t.colors.border_soft })
                     .code(t)
                     .child(self.note.clone()),
             )
@@ -559,8 +583,10 @@ impl MemoryPage {
             .child(
                 div()
                     .flex()
+                    .items_center()
                     .gap(t.space(2))
                     .child(button("mem-save").variant(ButtonVariant::Solid).disabled(!self.note_dirty).label(i.t("mem.notes.save")).on_click(cx.listener(|s, _, _, cx| s.save_note(cx))))
+                    .child(div().flex_1().child(muted(t, if dirty { i.t("mem.notes.unsaved") } else { i.tp("mem.notes.count", &[("n", &chars.to_string())]) })))
                     .child(button("mem-del").variant(ButtonVariant::Danger).disabled(rel == mem::FILE_GLOBAL && empty).label(i.t("mem.notes.delete")).on_click(cx.listener(move |s, _, _, cx| {
                         s.confirm = Some(Confirm::Note(rel.clone()));
                         cx.notify();
@@ -575,7 +601,15 @@ impl MemoryPage {
         if entries.is_empty() {
             return muted(t, i.t("mem.queue.empty")).into_any_element();
         }
+        let n_pending = entries.iter().filter(|e| e["status"] == "pending").count();
+        let n_other = entries.len() - n_pending;
+        // Draf yang menunggu persetujuan paling atas; sisanya (menunggu draf/riwayat) ringkas di bawahnya.
+        entries.sort_by_key(|e| e["status"] != "pending");
         let mut col = div().flex().flex_col().gap(t.space(2));
+        let mut shown_other = false;
+        if n_pending > 0 {
+            col = col.child(heading(t, i.tp("mem.queue.groupPending", &[("n", &n_pending.to_string())]), None));
+        }
         for e in entries {
             let id = e["id"].as_str().unwrap_or("").to_string();
             let status = e["status"].as_str().unwrap_or("candidate").to_string();
@@ -584,54 +618,89 @@ impl MemoryPage {
             let tone = match status.as_str() {
                 "pending" => BadgeTone::Warning,
                 "approved" => BadgeTone::Success,
+                "rejected" => BadgeTone::Danger,
                 _ => BadgeTone::Neutral,
             };
-            let when = e["t"].as_f64().and_then(|ms| chrono::DateTime::from_timestamp_millis(ms as i64)).map(|d| d.with_timezone(&chrono::Local).format("%-d/%-m/%Y %H.%M.%S").to_string()).unwrap_or_default();
-            let mut c = card(t).child(
+            let when = e["t"].as_f64().and_then(|ms| chrono::DateTime::from_timestamp_millis(ms as i64)).map(|d| d.with_timezone(&chrono::Local).format("%-d/%-m %H.%M").to_string()).unwrap_or_default();
+            if !pending && !shown_other {
+                shown_other = true;
+                let mut head = div().flex().items_center().gap(t.space(2)).mt(t.space(if n_pending > 0 { 3 } else { 0 })).child(div().flex_1().child(heading(t, i.tp("mem.queue.groupOther", &[("n", &n_other.to_string())]), None)));
+                head = head.child(button("mq-clear").size(ControlSize::Sm).variant(ButtonVariant::Ghost).label(i.tp("mem.queue.clear", &[("n", &n_other.to_string())])).on_click(cx.listener(|s, _, _, cx| {
+                    s.drafts.retain(|_, _| false);
+                    s.mutate_queue(|q| q.into_iter().filter(|e| e["status"] == "pending").collect(), cx);
+                })));
+                col = col.child(head);
+            }
+            let rm = id.clone();
+            let trash = icon_button(SharedString::from(format!("mq-rm-{id}")), "trash", i.t("mem.queue.removeTip")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |s, _, _, cx| {
+                let rm = rm.clone();
+                s.drafts.remove(&rm);
+                s.mutate_queue(move |q| q.into_iter().filter(|e| e["id"] != rm.as_str()).collect(), cx);
+            }));
+            let excerpt = e["excerpt"].as_str().map(first_line).unwrap_or_default();
+            let meta = div()
+                .flex()
+                .items_center()
+                .gap(t.space(2))
+                .child(badge(i.t(&format!("mem.queue.status.{status}"))).tone(tone))
+                .child(div().small(t).font_weight(FontWeight::MEDIUM).child(i.t(&format!("mem.queue.trigger.{trigger}"))))
+                .child(muted(t, when));
+            if !pending {
+                // Baris ringkas: satu baris, tanpa form.
+                let summary = match e["name"].as_str() {
+                    Some(n) => format!("{n} — {}", e["description"].as_str().unwrap_or("")),
+                    None => excerpt,
+                };
+                col = col.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(t.space(3))
+                        .px(t.space(3))
+                        .py(t.space(1))
+                        .rounded(t.rem(rem::RADIUS_MD))
+                        .bg(t.colors.raised)
+                        .child(meta)
+                        .child(div().flex_1().min_w_0().truncate().small(t).text_color(t.colors.fg_muted).child(summary))
+                        .child(trash),
+                );
+                continue;
+            }
+            let mut c = card(t).gap(t.space(3)).child(div().flex().items_center().gap(t.space(2)).child(div().flex_1().child(meta)).child(trash));
+            if !excerpt.is_empty() {
+                c = c.child(div().truncate().child(muted(t, i.tp("mem.queue.excerpt", &[("text", &excerpt)]))));
+            }
+            self.draft_of(&e, refs, cx);
+            let d = &self.drafts[&id];
+            let mut scope_items: Vec<(SharedString, SharedString)> = vec![("global".into(), i.t("mem.queue.scopeGlobal").into())];
+            scope_items.extend(refs.iter().map(|r| (format!("project:{}", r.path).into(), i.tp("mem.notes.project", &[("name", &r.name)]).into())));
+            let (me, id2) = (cx.entity().downgrade(), id.clone());
+            let boxed = |el: Entity<TextInput>, tall: bool| div().p(t.space(1)).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.surface).when(tall, |d| d.min_h(t.rem(10.)).code(t)).child(el);
+            c = c
+                .child(field(t, i.t("mem.queue.name"), boxed(d.name.clone(), false)))
+                .child(field(t, i.t("mem.queue.description"), boxed(d.desc.clone(), false)))
+                .child(field(t, i.t("mem.queue.body"), boxed(d.body.clone(), true)))
+                .child(field(
+                    t,
+                    i.t("mem.queue.scope"),
+                    select(SharedString::from(format!("mq-scope-{id}")), scope_items, d.target.clone()).on_change(move |v, _, cx| {
+                        let v = v.to_string();
+                        me.update(cx, |s, cx| {
+                            if let Some(d) = s.drafts.get_mut(&id2) {
+                                d.target = v;
+                            }
+                            cx.notify();
+                        })
+                        .ok();
+                    }),
+                ))
+                .children(d.error.clone().map(|x| err_note(t, x)));
+            let (a, b, r) = (id.clone(), id.clone(), id.clone());
+            c = c.child(
                 div()
                     .flex()
-                    .items_center()
+                    .flex_wrap()
                     .gap(t.space(2))
-                    .child(badge(i.t(&format!("mem.queue.status.{status}"))).tone(tone))
-                    .child(div().small(t).font_weight(FontWeight::MEDIUM).child(i.t(&format!("mem.queue.trigger.{trigger}"))))
-                    .child(muted(t, when)),
-            );
-            if let Some(x) = e["excerpt"].as_str().filter(|x| !x.is_empty()) {
-                c = c.child(muted(t, i.tp("mem.queue.excerpt", &[("text", x)])));
-            }
-            if pending {
-                self.draft_of(&e, refs, cx);
-                let d = &self.drafts[&id];
-                let mut scope_items: Vec<(SharedString, SharedString)> = vec![("global".into(), i.t("mem.queue.scopeGlobal").into())];
-                scope_items.extend(refs.iter().map(|r| (format!("project:{}", r.path).into(), i.tp("mem.notes.project", &[("name", &r.name)]).into())));
-                let (me, id2) = (cx.entity().downgrade(), id.clone());
-                let boxed = |el: Entity<TextInput>, tall: bool| div().p(t.space(1)).rounded(t.rem(rem::RADIUS_MD)).border_1().border_color(t.colors.border).when(tall, |d| d.min_h(t.rem(10.)).code(t)).child(el);
-                c = c
-                    .child(field(t, i.t("mem.queue.name"), boxed(d.name.clone(), false)))
-                    .child(field(t, i.t("mem.queue.description"), boxed(d.desc.clone(), false)))
-                    .child(field(t, i.t("mem.queue.body"), boxed(d.body.clone(), true)))
-                    .child(field(
-                        t,
-                        i.t("mem.queue.scope"),
-                        select(SharedString::from(format!("mq-scope-{id}")), scope_items, d.target.clone()).on_change(move |v, _, cx| {
-                            let v = v.to_string();
-                            me.update(cx, |s, cx| {
-                                if let Some(d) = s.drafts.get_mut(&id2) {
-                                    d.target = v;
-                                }
-                                cx.notify();
-                            })
-                            .ok();
-                        }),
-                    ))
-                    .children(d.error.clone().map(|x| err_note(t, x)));
-            } else if let Some(n) = e["name"].as_str() {
-                c = c.child(div().small(t).child(div().flex().gap(t.space(1)).child(div().font_weight(FontWeight::SEMIBOLD).child(n.to_string())).child(format!("— {}", e["description"].as_str().unwrap_or("")))));
-            }
-            let mut actions = div().flex().flex_wrap().gap(t.space(2));
-            if pending {
-                let (a, b, r) = (id.clone(), id.clone(), id.clone());
-                actions = actions
                     .child(button(SharedString::from(format!("mq-ok-{id}"))).variant(ButtonVariant::Solid).label(i.t("mem.queue.approve")).on_click(cx.listener(move |s, _, _, cx| s.approve(&a, cx))))
                     .child(button(SharedString::from(format!("mq-ed-{id}"))).variant(ButtonVariant::Ghost).label(i.t("mem.queue.saveEdit")).on_click(cx.listener(move |s, _, _, cx| {
                         if let Some(d) = s.draft_values(&b, cx) {
@@ -642,15 +711,9 @@ impl MemoryPage {
                             cx.notify();
                         }
                     })))
-                    .child(button(SharedString::from(format!("mq-no-{id}"))).variant(ButtonVariant::Ghost).label(i.t("mem.queue.reject")).on_click(cx.listener(move |s, _, _, cx| s.set_status(&r, "rejected", cx))));
-            }
-            let rm = id.clone();
-            actions = actions.child(button(SharedString::from(format!("mq-rm-{id}"))).variant(ButtonVariant::Danger).label(i.t("mem.queue.remove")).on_click(cx.listener(move |s, _, _, cx| {
-                let rm = rm.clone();
-                s.drafts.remove(&rm);
-                s.mutate_queue(move |q| q.into_iter().filter(|e| e["id"] != rm.as_str()).collect(), cx);
-            })));
-            col = col.child(c.child(actions));
+                    .child(button(SharedString::from(format!("mq-no-{id}"))).variant(ButtonVariant::Ghost).label(i.t("mem.queue.reject")).on_click(cx.listener(move |s, _, _, cx| s.set_status(&r, "rejected", cx)))),
+            );
+            col = col.child(c);
         }
         col.into_any_element()
     }
@@ -665,15 +728,18 @@ impl MemoryPage {
         }
         let mut col = div().flex().flex_col().gap(t.space(4));
         for (scope, title, project, skills) in groups.into_iter().filter(|g| !g.3.is_empty()) {
-            let mut sec = div().flex().flex_col().gap(t.space(2)).child(div().typo(t, H4).child(title));
+            let mut sec = div().flex().flex_col().gap(t.space(2)).child(heading(t, format!("{title} ({})", skills.len()), None));
             for s in skills {
                 let k = format!("{scope}|{}|{}", project.clone().unwrap_or_default(), s.name);
                 let editing = self.skill_edits.contains_key(&k);
                 let mut c = card(t);
-                let mut head = div().flex().items_center().gap(t.space(2)).child(div().flex_1().font_weight(FontWeight::MEDIUM).child(s.name.clone()));
+                let desc = crate::memory::read_skill(&skills_root(&scope, project.as_deref()), &s.name).ok().and_then(|md| mem::parse_skill_markdown(&md)).map(|p| p.description).filter(|d| !d.trim().is_empty()).unwrap_or_else(|| i.t("mem.skills.noDesc"));
+                let mut head = div().flex().items_center().gap(t.space(3)).child(crate::ui::icon("file_text").color(t.colors.fg_muted)).child(
+                    div().flex_1().min_w_0().flex().flex_col().child(div().truncate().font_weight(FontWeight::MEDIUM).child(s.name.clone())).child(div().truncate().child(muted(t, desc))),
+                );
                 if !editing {
                     let (k2, sc, pj, nm) = (k.clone(), scope.clone(), project.clone(), s.name.clone());
-                    head = head.child(button(SharedString::from(format!("sk-ed-{k}"))).size(ControlSize::Sm).variant(ButtonVariant::Ghost).label(i.t("mem.skills.edit")).on_click(cx.listener(move |me, _, _, cx| {
+                    head = head.child(icon_button(SharedString::from(format!("sk-ed-{k}")), "edit", i.t("mem.skills.editTip")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |me, _, _, cx| {
                         match crate::memory::read_skill(&skills_root(&sc, pj.as_deref()), &nm) {
                             Ok(text) => {
                                 let editor = multiline(cx, text);
@@ -685,7 +751,7 @@ impl MemoryPage {
                     })));
                 }
                 let (sc, pj, nm) = (scope.clone(), project.clone(), s.name.clone());
-                head = head.child(button(SharedString::from(format!("sk-del-{k}"))).size(ControlSize::Sm).variant(ButtonVariant::Danger).label(i.t("mem.skills.delete")).on_click(cx.listener(move |me, _, _, cx| {
+                head = head.child(icon_button(SharedString::from(format!("sk-del-{k}")), "trash", i.t("mem.skills.deleteTip")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(cx.listener(move |me, _, _, cx| {
                     me.confirm = Some(Confirm::Skill { scope: sc.clone(), project: pj.clone(), name: nm.clone() });
                     cx.notify();
                 })));
@@ -693,14 +759,14 @@ impl MemoryPage {
                 if let Some(ed) = self.skill_edits.get(&k) {
                     let (k1, k2, sc, pj, nm) = (k.clone(), k.clone(), scope.clone(), project.clone(), s.name.clone());
                     c = c
-                        .child(div().id(SharedString::from(format!("sk-tx-{k}"))).min_h(t.rem(14.)).max_h(t.rem(32.)).overflow_y_scroll().p(t.space(2)).rounded(t.rem(rem::RADIUS_MD)).border_1().border_color(t.colors.border).code(t).child(ed.editor.clone()))
+                        .child(div().id(SharedString::from(format!("sk-tx-{k}"))).min_h(t.rem(14.)).max_h(t.rem(32.)).overflow_y_scroll().p(t.space(2)).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.surface).code(t).child(ed.editor.clone()))
                         .children(ed.error.clone().map(|e| err_note(t, e)))
                         .child(
                             div()
                                 .flex()
                                 .gap(t.space(2))
                                 .child(button(SharedString::from(format!("sk-sv-{k}"))).variant(ButtonVariant::Solid).label(i.t("mem.skills.save")).on_click(cx.listener(move |me, _, _, cx| me.skill_save(&k1, &sc, pj.as_deref(), &nm, cx))))
-                                .child(button(SharedString::from(format!("sk-x-{k}"))).variant(ButtonVariant::Ghost).label("✕").on_click(cx.listener(move |me, _, _, cx| {
+                                .child(button(SharedString::from(format!("sk-x-{k}"))).variant(ButtonVariant::Ghost).label(i.t("ui.cancel")).on_click(cx.listener(move |me, _, _, cx| {
                                     me.skill_edits.remove(&k2);
                                     cx.notify();
                                 }))),
@@ -776,7 +842,13 @@ impl Render for MemoryPage {
                                     if *v == "queue" && pending > 0 {
                                         label.push_str(&format!(" ({pending})"));
                                     }
-                                    TabItem { value: (*v).into(), label: label.into(), icon: None, disabled: false }
+                                    let icon = match *v {
+                                        "settings" => "settings",
+                                        "notes" => "brain",
+                                        "queue" => "list_checks",
+                                        _ => "file_text",
+                                    };
+                                    TabItem { value: (*v).into(), label: label.into(), icon: Some(icon), disabled: false }
                                 })
                                 .collect(),
                             self.tab.clone(),

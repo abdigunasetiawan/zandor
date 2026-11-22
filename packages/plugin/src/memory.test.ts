@@ -8,6 +8,7 @@ import { createMemoryStore, memoryEnabled, readSettings, scanIndexer } from "./m
 import { scanSecrets } from "./secrets";
 import {
   addCandidate,
+  INTERNAL_PROMPT,
   readQueue,
   skillMarkdown,
   submitDraft,
@@ -131,6 +132,12 @@ describe("MemoryStore", () => {
 
 describe("antrean skill", () => {
   const q = () => join(dir, "q.jsonl");
+
+  test("prompt internal (judul otomatis, langkah berikutnya) dikenali dan bukan pemicu", () => {
+    expect(INTERNAL_PROMPT.test("Anda memberi judul pada sebuah percakapan. Berikut awal percakapannya:")).toBe(true);
+    expect(INTERNAL_PROMPT.test("Anda membantu pengguna melanjutkan percakapan dengan asisten AI.")).toBe(true);
+    expect(INTERNAL_PROMPT.test("Salah, bukan begitu. Awali dengan TOLONG")).toBe(false);
+  });
 
   test("validateDraft: nama, panjang, secret", () => {
     const ok = {
@@ -302,4 +309,28 @@ describe("plugin (hook)", () => {
     expect(await h.tool.skill_propose.execute(draft, ctx)).toMatch(/menunggu persetujuan/);
     expect(readQueue(join(dir, "skill-queue.jsonl"))[0]?.status).toBe("pending");
   });
+});
+
+describe("skill otomatis (mode Hermes)", () => {
+  test("installSkill menulis SKILL.md dan menolak menimpa", async () => {
+    const { mkdtempSync, readFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { installSkill } = await import("./skills");
+    const root = mkdtempSync(join(tmpdir(), "zsk-"));
+    const d = {
+      name: "tulis-changelog",
+      description: "Dipakai saat menulis changelog rilis",
+      body: "1. Kumpulkan commit\n2. Kelompokkan per jenis",
+    };
+    const r = installSkill(root, d);
+    expect("path" in r && readFileSync(r.path, "utf8")).toContain("name: tulis-changelog");
+    expect(installSkill(root, d)).toHaveProperty("error");
+  });
+});
+
+test("AUTO_SKILL_HINT meminta penilaian mandiri tanpa pemicu", async () => {
+  const { AUTO_SKILL_HINT, AUTO_SKILL_LIMIT } = await import("./skills");
+  expect(AUTO_SKILL_HINT).toContain("skill_propose");
+  expect(AUTO_SKILL_LIMIT).toBeGreaterThan(0);
 });

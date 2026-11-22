@@ -54,6 +54,8 @@ pub struct MemorySettings {
     pub skill_creator: bool,
     pub skill_creator_projects: BTreeMap<String, bool>,
     pub skill_creator_sessions: BTreeMap<String, bool>,
+    /// Mode ala Hermes: skill dipasang langsung tanpa persetujuan per skill.
+    pub skill_auto_install: bool,
 }
 
 fn bool_map(v: Option<&Value>) -> BTreeMap<String, bool> {
@@ -69,6 +71,7 @@ pub fn parse_settings(text: &str) -> MemorySettings {
         skill_creator: v.get("skillCreator") == Some(&Value::Bool(true)),
         skill_creator_projects: bool_map(v.get("skillCreatorProjects")),
         skill_creator_sessions: bool_map(v.get("skillCreatorSessions")),
+        skill_auto_install: v.get("skillAutoInstall") == Some(&Value::Bool(true)),
     }
 }
 
@@ -80,6 +83,7 @@ pub fn serialize_settings(s: &MemorySettings) -> String {
         "skillCreator": s.skill_creator,
         "skillCreatorProjects": s.skill_creator_projects,
         "skillCreatorSessions": s.skill_creator_sessions,
+        "skillAutoInstall": s.skill_auto_install,
     }))
     .unwrap_or_default()
 }

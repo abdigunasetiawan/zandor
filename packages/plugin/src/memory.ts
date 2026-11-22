@@ -16,6 +16,8 @@ export type MemorySettings = {
   skillCreator: boolean;
   skillCreatorProjects: Record<string, boolean>;
   skillCreatorSessions: Record<string, boolean>;
+  /** Mode ala Hermes: draf yang lolos validasi langsung dipasang (tanpa persetujuan per skill). */
+  skillAutoInstall: boolean;
 };
 
 export const DEFAULT_SETTINGS: MemorySettings = {
@@ -25,6 +27,7 @@ export const DEFAULT_SETTINGS: MemorySettings = {
   skillCreator: false,
   skillCreatorProjects: {},
   skillCreatorSessions: {},
+  skillAutoInstall: false,
 };
 
 export type SearchHit = { scope: "global" | "project"; text: string };
@@ -68,6 +71,7 @@ export function readSettings(dir: string): MemorySettings {
         typeof raw.skillCreatorProjects === "object" && raw.skillCreatorProjects ? raw.skillCreatorProjects : {},
       skillCreatorSessions:
         typeof raw.skillCreatorSessions === "object" && raw.skillCreatorSessions ? raw.skillCreatorSessions : {},
+      skillAutoInstall: raw.skillAutoInstall === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS, projects: {}, sessions: {}, skillCreatorProjects: {}, skillCreatorSessions: {} };
@@ -112,6 +116,7 @@ export function createMemoryStore(dir: string, worktree: string, indexer: Indexe
     paths,
     enabled,
     skillCreatorOn: (sessionID?: string) => skillCreatorEnabled(readSettings(dir), key, sessionID),
+    skillAutoInstall: () => readSettings(dir).skillAutoInstall,
 
     /** Blok `<zandor-memory>` untuk system prompt, atau "" bila tidak ada isi. */
     block(): string {
