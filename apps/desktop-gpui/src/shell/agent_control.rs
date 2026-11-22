@@ -253,14 +253,14 @@ pub fn execute(req: &ControlRequest, window: &mut Window, cx: &mut App, run: &mu
                 return fail(format!("tool harus salah satu: {}", TOOL_IDS.iter().map(|t| t.key()).collect::<Vec<_>>().join(", ")));
             };
             cx.set_global(super::layout::OpenToolRequest(Some(t)));
-            ok(format!("Alat {name} dibuka di Panel 4."))
+            ok(format!("Alat {name} dibuka di panel Alat."))
         }
         "open_url" => {
             let url = str_arg(a, "url");
             match check_url(&url) {
                 Ok(u) => {
                     super::layout::open_in_zandor_browser(u.clone(), cx);
-                    ok(format!("Membuka {u} di browser Panel 4."))
+                    ok(format!("Membuka {u} di panel Browser."))
                 }
                 Err(e) => fail(e),
             }
@@ -271,7 +271,7 @@ pub fn execute(req: &ControlRequest, window: &mut Window, cx: &mut App, run: &mu
                 return fail("path wajib.");
             }
             if open_file(&path, &req.directory, cx) {
-                ok(format!("{path} dibuka di Panel 3."))
+                ok(format!("{path} dibuka di panel Dokumen."))
             } else {
                 fail(format!("{path} berada di luar folder project/Chat yang dikenal Zandor."))
             }
@@ -356,7 +356,7 @@ pub fn execute(req: &ControlRequest, window: &mut Window, cx: &mut App, run: &mu
         }
         other if other.starts_with("browser_") => {
             if !settings.read(cx).bool("browserAgent") {
-                return fail("Kendali browser oleh agent dimatikan pengguna (Pengaturan → Umum → Agent boleh mengendalikan browser Panel 4).");
+                return fail("Kendali browser oleh agent dimatikan pengguna (Pengaturan → Umum → Agent boleh mengendalikan panel Browser).");
             }
             Outcome::Browser(super::browser_agent::Job { action: other["browser_".len()..].to_string(), args: a.clone(), directory: req.directory.clone() })
         }

@@ -37,7 +37,7 @@
     "agentControl": {
       "type": "boolean",
       "title": "Agent boleh mengoperasikan Zandor",
-      "description": "Izinkan agent memakai tool `zandor_app` dan `zandor_image`: membuka/menutup panel dan alat, membuka URL di browser Panel 4 dan berkas di Panel 3, menutup terminal, mengubah pengaturan (kecuali pengaturan ini), dan membuat gambar dengan model gambar bawaan. Agent tidak bisa mengubah pengaturan ini sendiri.",
+      "description": "Izinkan agent memakai tool `zandor_app` dan `zandor_image`: membuka/menutup panel dan alat, membuka URL di panel Browser dan berkas di panel Dokumen, menutup terminal, mengubah pengaturan (kecuali pengaturan ini), dan membuat gambar dengan model gambar bawaan. Agent tidak bisa mengubah pengaturan ini sendiri.",
       "default": true,
       "x-zandor": {
         "titleKey": "settings.agentControl",
@@ -46,8 +46,8 @@
     },
     "browserAgent": {
       "type": "boolean",
-      "title": "Agent boleh mengendalikan browser Panel 4",
-      "description": "Izinkan agent memakai tool `zandor_browser`: membuka halaman, membaca isi halaman (snapshot), dan mengambil screenshot di tab Agent browser Panel 4 (profil terpisah, tanpa login Anda). Tiap domain butuh izin Anda saat pertama dibuka; situs keuangan/pembayaran diblokir. Mati secara bawaan; agent tidak bisa mengubah pengaturan ini sendiri.",
+      "title": "Agent boleh mengendalikan panel Browser",
+      "description": "Izinkan agent memakai tool `zandor_browser`: membuka halaman, membaca isi halaman (snapshot), dan mengambil screenshot di tab Agent panel Browser (profil terpisah, tanpa login Anda). Tiap domain butuh izin Anda saat pertama dibuka; situs keuangan/pembayaran diblokir. Mati secara bawaan; agent tidak bisa mengubah pengaturan ini sendiri.",
       "default": false,
       "x-zandor": {
         "titleKey": "settings.browserAgent",

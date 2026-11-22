@@ -157,7 +157,7 @@ impl Root {
                                     let res = r.map(|(written, root)| {
                                         let full = std::path::Path::new(&root).join(written.replace('/', "\\")).to_string_lossy().into_owned();
                                         super::docs_panel::DocsState::global(cx).update(cx, |d, cx| d.open_file(full, cx));
-                                        serde_json::Value::String(format!("Gambar disimpan: {written} (dibuka di Panel 3)."))
+                                        serde_json::Value::String(format!("Gambar disimpan: {written} (dibuka di panel Dokumen)."))
                                     });
                                     super::agent_control::finish(&req, res, cx);
                                 })

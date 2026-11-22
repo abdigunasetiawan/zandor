@@ -32,6 +32,8 @@ secara eksplisit.
   jalankan inventaris (`bun .claude/skills/zandor-ui/scripts/inventory.ts <kata kunci>`) untuk memeriksa apakah elemen/token/kelas
   sudah ada di desain sistem, lalu ikuti langkah token, aksesibilitas, i18n, dan verifikasinya. Agent lain tanpa skill
   mekanisme: baca berkas SKILL.md itu dan ikuti isinya.
+- **Jangan menyebut nomor panel ("Panel 4") di teks untuk pengguna atau model** (i18n, deskripsi tool/skill, hasil tool): nomor tidak tampil di UI dan bergeser
+  saat panel dibuka/ditutup. Pakai nama: panel Sidebar, Chat, Dokumen, Alat, Browser. Dijaga tes `i18n::tests::tanpa_nomor_panel_di_teks_pengguna_dan_model`.
 - **Windows dulu** (ADR-027). Kode khusus Windows boleh; padanan unix ditandai `TODO(port)`.
 - Kode di `spikes/` hanya referensi: pindahkan polanya, jangan mengimpornya.
 - Bawaan wajib dari Fase 0 (lihat roadmap): plugin guard env, reset Ctrl+C, test kontrak saat upgrade

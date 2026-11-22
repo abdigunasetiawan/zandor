@@ -118,7 +118,7 @@ export function createControlTools(dir: string) {
         "status (panel terbuka, alat aktif, project aktif); list_commands (semua perintah palet + id);",
         "run_command {id}; panel {panel: sidebar|chat|docs|tools|rail, state: open|close|toggle};",
         "open_tool {tool: terminal|jobs|git|changes|files|browser|info|session|trajectory|log};",
-        "open_url {url} (http/https di browser Panel 4); open_file {path} (Panel 3, relatif ke folder project);",
+        "open_url {url} (http/https di panel Browser); open_file {path} (panel Dokumen, relatif ke folder project);",
         "navigate {page: home|settings|settings/<bagian>|memory|automation|appearance};",
         "list_terminals; close_terminal {id}; get_settings; set_setting {key, value}.",
         "Pakai hanya bila pengguna meminta sesuatu dari tampilan/aplikasi Zandor.",
@@ -128,7 +128,7 @@ export function createControlTools(dir: string) {
         id: tool.schema.string().optional().describe("id perintah (run_command) atau id terminal (close_terminal)"),
         panel: tool.schema.enum(["sidebar", "chat", "docs", "tools", "rail"]).optional(),
         state: tool.schema.enum(["open", "close", "toggle"]).optional(),
-        tool: tool.schema.string().optional().describe("Alat Panel 4 untuk open_tool"),
+        tool: tool.schema.string().optional().describe("Alat di panel Alat untuk open_tool"),
         url: tool.schema.string().optional(),
         path: tool.schema.string().optional(),
         page: tool.schema.string().optional(),
@@ -147,7 +147,7 @@ export function createControlTools(dir: string) {
     }),
     zandor_browser: tool({
       description: [
-        "Kendalikan tab Agent di browser Panel 4 Zandor (profil terpisah, tidak login sebagai pengguna). Hanya aktif bila pengguna menyalakan",
+        "Kendalikan tab Agent di panel Browser Zandor (profil terpisah, tidak login sebagai pengguna). Hanya aktif bila pengguna menyalakan",
         "Pengaturan → Agent boleh mengendalikan browser; tiap domain butuh izin pengguna (kartu izin muncul saat navigate), situs keuangan diblokir.",
         "Aksi: navigate {url}; snapshot (pohon elemen interaktif + teks halaman); screenshot (PNG disimpan di folder project, mengembalikan path);",
         "tabs; back; forward; reload.",
@@ -209,7 +209,7 @@ export function createControlTools(dir: string) {
     }),
     zandor_image: tool({
       description:
-        "Buat gambar dari teks dengan model gambar bawaan pengguna (Pengaturan → Provider dan model → Model gambar bawaan). Gambar disimpan sebagai PNG di folder project lalu dibuka di Panel 3. Mengembalikan path berkas.",
+        "Buat gambar dari teks dengan model gambar bawaan pengguna (Pengaturan → Provider dan model → Model gambar bawaan). Gambar disimpan sebagai PNG di folder project lalu dibuka di panel Dokumen. Mengembalikan path berkas.",
       args: {
         prompt: tool.schema.string().min(1).max(4000).describe("Deskripsi gambar"),
         path: tool.schema

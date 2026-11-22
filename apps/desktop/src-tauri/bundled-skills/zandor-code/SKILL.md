@@ -31,7 +31,7 @@ Skill bawaan Zandor. Instruksi dari user selalu lebih tinggi daripada skill ini.
 7. **pnpm belum terpasang:** bila `pnpm` tidak ditemukan, coba `corepack enable pnpm`; bila gagal, tanya user
    (`npm i -g pnpm` atau pakai npm). Jangan diam-diam pindah ke npm.
 8. **Uji otomatis: tanya sekali.** Untuk project yang bisa dijalankan (web atau program), tanya user satu kali di awal:
-   "Perlu uji otomatis (jalankan, periksa, screenshot di browser Panel 4)?" Bila ya, ikuti **Alur uji otomatis**
+   "Perlu uji otomatis (jalankan, periksa, screenshot di panel Browser)?" Bila ya, ikuti **Alur uji otomatis**
    di bawah setiap selesai satu bagian pekerjaan. Bila tidak, cukup lakukan pemeriksaan dasar di Alur. Ingat jawabannya
    di sesi yang sama dan jangan tanya lagi. Lewati pertanyaan bila user sudah menyatakan pilihannya.
 
@@ -40,7 +40,7 @@ Skill bawaan Zandor. Instruksi dari user selalu lebih tinggi daripada skill ini.
 1. Pahami permintaan; lihat berkas proyek bila ada.
 2. Untuk project web baru, inisiasi dengan pnpm (lihat prinsip 5). Tulis kode secukupnya, kecil dan bisa dijalankan.
 3. Dev server atau proses panjang dijalankan dengan `job_start` (bukan `bash` yang menahan), lalu tampilkan lewat
-   browser Panel 4 (skill `zandor-app`) bila user ingin melihatnya.
+   panel Browser (skill `zandor-app`) bila user ingin melihatnya.
 4. Periksa: build/lint/tes yang tersedia, dan buka halaman bila web. Laporkan jujur bila ada yang gagal.
 5. Tutup dengan ringkasan singkat: apa yang dibuat, berkas yang berubah, cara menjalankan.
 
@@ -53,7 +53,7 @@ jangan menyatakan "sudah diuji" untuk langkah yang tidak benar-benar kamu jalank
    package manager project. Lewati yang tidak ada; jangan menambah tool baru tanpa diminta.
 2. **Jalankan:** mulai dev server dengan `job_start`, tunggu siap lewat `job_output` (cari baris URL/port), jangan
    menebak port.
-3. **Buka di browser Panel 4:** `zandor_browser {action: "navigate", url}` (butuh sakelar `browserAgent` aktif; bila
+3. **Buka di panel Browser:** `zandor_browser {action: "navigate", url}` (butuh sakelar `browserAgent` aktif; bila
    ditolak, pakai `zandor_app open_url` agar user bisa melihat sendiri dan sampaikan bahwa uji otomatis di browser tidak
    tersedia).
 4. **Baca halaman:** `zandor_browser {action: "snapshot"}`; cocokkan dengan permintaan (judul, bagian, tautan, teks

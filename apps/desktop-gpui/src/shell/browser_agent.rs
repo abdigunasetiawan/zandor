@@ -257,11 +257,11 @@ fn arg_str(a: &Map<String, Value>, k: &str) -> String {
 /// Jalankan satu aksi `browser_*` (tanpa memblokir thread UI). Tidak pernah mem-panic: kegagalan = Err jujur.
 pub async fn run(job: Job, cx: &mut AsyncWindowContext) -> Result<Value, String> {
     if !retry!(cx, cx.update(|_, app| crate::core::settings::SettingsStore::global(app).read(app).bool("browserAgent"))).unwrap_or(false) {
-        return Err("Kendali browser oleh agent dimatikan pengguna (Pengaturan → Umum → Agent boleh mengendalikan browser Panel 4).".into());
+        return Err("Kendali browser oleh agent dimatikan pengguna (Pengaturan → Umum → Agent boleh mengendalikan panel Browser).".into());
     }
     set_enabled(true);
     if HALTED.load(Ordering::SeqCst) {
-        return Err("Pengguna menghentikan agent di Panel 4. Jangan coba lagi sampai pengguna mengizinkan kembali.".into());
+        return Err("Pengguna menghentikan agent di panel Browser. Jangan coba lagi sampai pengguna mengizinkan kembali.".into());
     }
     if BUSY.swap(true, Ordering::SeqCst) {
         return Err("Aksi browser lain masih berjalan; tunggu selesai lalu ulangi.".into());
@@ -299,7 +299,7 @@ async fn ensure_panel(cx: &mut AsyncWindowContext) -> Result<Entity<BrowserPanel
         }
         wait_ms(cx, 100).await;
     }
-    Err("Panel Browser tidak tampil (panel 4 tertutup atau tertimpa dialog/menu). Minta pengguna membukanya.".into())
+    Err("Panel Browser tidak tampil (panel Browser tertutup atau tertimpa dialog/menu). Minta pengguna membukanya.".into())
 }
 
 async fn ask(host: &str, cx: &mut AsyncWindowContext) -> Decision {
@@ -460,7 +460,7 @@ async fn screenshot(job: &Job, cx: &mut AsyncWindowContext) -> Result<Value, Str
     })
     .map_err(|e| e.to_string())??;
     // webview tersembunyi: CDP screenshot menggantung (ADR-079) → batas waktu pendek, pesan jelas
-    let raw = recv_timeout(cx, rx, SHOT_TIMEOUT_MS).await.ok_or("Screenshot gagal: tab Agent tidak tampil (panel Browser tertutup/tertimpa). Buka Panel 4 lalu ulangi.")?;
+    let raw = recv_timeout(cx, rx, SHOT_TIMEOUT_MS).await.ok_or("Screenshot gagal: tab Agent tidak tampil (panel Browser tertutup/tertimpa). Buka panel Browser lalu ulangi.")?;
     if raw.starts_with("ERR") {
         return Err(format!("Screenshot gagal: {raw}"));
     }

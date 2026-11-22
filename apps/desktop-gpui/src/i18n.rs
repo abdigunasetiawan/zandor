@@ -55,6 +55,31 @@ impl I18n {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Nomor panel itu internal (tidak tampil di UI dan bergeser saat panel dibuka/ditutup): teks untuk pengguna dan model
+    /// harus memakai nama panel (Sidebar, Chat, Dokumen, Alat, Browser). Pintasan Ctrl+1..5 dikecualikan (memang bernomor).
+    #[test]
+    fn tanpa_nomor_panel_di_teks_pengguna_dan_model() {
+        let nomor = |t: &str| {
+            let l = t.to_lowercase();
+            l.match_indices("panel ").any(|(i, m)| l[i + m.len()..].chars().next().is_some_and(|c| c.is_ascii_digit()))
+        };
+        for (nama, src) in [("id.json", include_str!("../assets/i18n/id.json")), ("en.json", include_str!("../assets/i18n/en.json"))] {
+            let v: std::collections::BTreeMap<String, String> = serde_json::from_str(src).unwrap();
+            for (k, t) in v {
+                assert!(k == "tour.keys.panels" || !nomor(&t), "{nama}:{k} menyebut nomor panel: {t}");
+            }
+        }
+        assert!(!nomor(include_str!("../assets/settings.schema.json")), "settings.schema.json menyebut nomor panel");
+        // Hasil tool yang dibaca model lalu diulang ke pengguna: abaikan komentar (// ///).
+        for (nama, src) in [("agent_control.rs", include_str!("shell/agent_control.rs")), ("browser_agent.rs", include_str!("shell/browser_agent.rs")), ("root.rs", include_str!("shell/root.rs"))] {
+            for (n, line) in src.lines().enumerate() {
+                if !line.trim_start().starts_with("//") {
+                    assert!(!nomor(line), "{nama}:{} menyebut nomor panel: {line}", n + 1);
+                }
+            }
+        }
+    }
+
     #[test]
     fn katalog_sama() {
         let (id, en) = (I18n::new(Locale::Id), I18n::new(Locale::En));
