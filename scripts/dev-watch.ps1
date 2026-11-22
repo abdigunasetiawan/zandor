@@ -27,6 +27,8 @@ function Stop-App {
 function Invoke-Build {
   Write-Stamp 'Membangun...' Cyan
   Push-Location $app
+  # Tanpa incremental: artefak incremental rusak berulang kali memicu LNK1120 di Windows.
+  $env:CARGO_INCREMENTAL = '0'
   try { cargo build } finally { Pop-Location }
   if ($LASTEXITCODE -ne 0) {
     Write-Host 'Build gagal. Perbaiki lalu simpan lagi.' -ForegroundColor Red

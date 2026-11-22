@@ -31,7 +31,7 @@ pub const FALLBACK_MIN_CHARS: usize = 600;
 pub const MAX_ACTIONS: usize = 3;
 const MAX_RECAP: usize = 280;
 const MAX_ASK: usize = 120;
-const MAX_LABEL: usize = 24;
+const MAX_LABEL: usize = 32;
 const MAX_MESSAGE: usize = 300;
 const CLIP_REQUEST: usize = 600;
 const CLIP_ANSWER: usize = 2500;
@@ -110,19 +110,25 @@ pub fn prompt(request: &str, answer: &str) -> String {
         "Anda membantu pengguna melanjutkan percakapan dengan asisten AI.\n\n\
          Permintaan pengguna:\n{}\n\n\
          Jawaban asisten:\n{}\n\n\
-         Tulis kesimpulan dan saran langkah lanjut dengan FORMAT BARIS PERSIS ini, dalam bahasa yang sama dengan pengguna, \
-         tanpa markdown dan tanpa teks lain:\n\
-         RINGKAS: <kesimpulan 1-2 kalimat: apa hasilnya atau apa yang sudah dilakukan>\n\
-         TANYA: <satu pertanyaan pendek tentang langkah berikutnya, atau tanda ->\n\
-         AKSI: <label 1-3 kata> | <kalimat lengkap yang akan dikirim pengguna sebagai pesan berikutnya>\n\
-         AKSI: <label> | <pesan>\n\n\
-         ATURAN AKSI (wajib):\n\
-         - Setiap aksi harus langsung berlanjut dari jawaban asisten di atas dan tujuan pengguna di permintaannya.\n\
-         - Jangan membuka topik baru, jangan menebak keinginan pengguna, dan jangan menyebut nama/hal yang tidak tertulis \
-         di percakapan ini.\n\
-         - Lebih baik 1-2 aksi yang pasti nyambung daripada {MAX_ACTIONS} yang menebak.\n\
-         - Pesan aksi ditulis sebagai pengguna berbicara kepada asisten dan harus bisa dikerjakan di percakapan ini.\n\
-         - Bila jawaban berupa daftar/rekap banyak hal, hanya boleh menyebut item yang benar-benar ada di daftar itu.\n\
+         Tulis kartu langkah berikutnya dengan FORMAT BARIS PERSIS ini, tanpa markdown dan tanpa teks lain:
+         RINGKAS: <1 kalimat pendek: inti hasilnya, atau hal yang perlu pengguna cek/isi>
+         TANYA: <satu pertanyaan pendek, atau tanda ->
+         AKSI: <label 2-4 kata> | <pesan lengkap yang akan dikirim pengguna>
+         AKSI: <label> | <pesan>
+
+         GAYA BAHASA (wajib): tulis seperti teman yang membantu, bukan laporan. Ikuti bahasa pengguna; bila ragu pakai          \"kamu\", jangan \"Anda\". Kalimat aktif dan sehari-hari. Hindari kata kaku seperti \"telah\", \"sudah dibuat\",          \"berhasil disusun\", \"beserta\", \"tersebut\". Jangan mengulang isi jawaban yang baru dibaca pengguna; ringkasan          hanya menambah nilai (inti, hal yang harus dicek, atau peringatan).
+         - RINGKAS: contoh bagus \"Kolom dalam [ ] masih perlu kamu isi sendiri.\" Contoh buruk \"Draf email sudah ditulis          dengan nada sopan.\"
+         - Kamu hanya melihat bagian akhir jawaban (awalnya mungkin terpotong). Jangan pernah berkomentar bahwa jawaban \n         kepotong, kurang lengkap, atau mulai di tengah.
+\n         - TANYA: jangan menyalin pertanyaan yang sudah ada di akhir jawaban asisten (bila ada, tulis -). Jangan          menyebut pilihan yang sama dengan tombol; cukup pertanyaan umum seperti \"Mau lanjut apa?\". Bila tombolnya sudah          jelas, tulis -.
+         - LABEL: mulai dengan kata kerja dan sebut objeknya supaya pengguna tahu apa yang terjadi bila diklik. Contoh          bagus: \"Persingkat emailnya\", \"Buat jadwal mingguan\", \"Simpan sebagai Word\". Contoh buruk: \"Versi singkat\",          \"Versi Word\", \"Lanjutkan\", \"Opsi 1\".
+         - PESAN: kalimat yang wajar diketik orang, mis. \"Tolong buatkan versi yang lebih singkat, maksimal 3 paragraf.\"
+
+         ATURAN AKSI (wajib):
+         - Setiap aksi harus langsung berlanjut dari jawaban asisten di atas dan tujuan pengguna di permintaannya.
+         - Jangan membuka topik baru, jangan menebak keinginan pengguna, dan jangan menyebut nama/hal yang tidak tertulis          di percakapan ini.
+         - Lebih baik 1-2 aksi yang pasti nyambung daripada {MAX_ACTIONS} yang menebak.
+         - Pesan aksi ditulis sebagai pengguna berbicara kepada asisten dan harus bisa dikerjakan di percakapan ini.
+         - Bila jawaban berupa daftar/rekap banyak hal, hanya boleh menyebut item yang benar-benar ada di daftar itu.
          Jika tidak ada langkah lanjut yang berguna, tulis satu baris: AKSI: -\n\
          Jika jawaban hanya penjelasan, obrolan, atau jawaban lengkap yang tidak butuh tindak lanjut (misalnya pertanyaan \
          pengetahuan atau sapaan), jangan tulis format di atas; balas persis: {SKIP}",
