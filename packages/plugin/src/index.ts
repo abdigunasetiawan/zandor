@@ -34,6 +34,12 @@ const SKILL_POLICY =
   "Package manager project web: untuk project baru pakai pnpm (pnpm create, pnpm install, pnpm add, pnpm dev). Bila project sudah ada dan memakai npm (package-lock.json), yarn atau bun, lanjutkan dengan yang sama; jangan mengganti dan jangan membuat lockfile kedua. Bila pnpm belum terpasang, coba `corepack enable pnpm`, lalu tanya user, jangan diam-diam pindah ke npm.\n" +
   "</zandor-skill-policy>";
 
+/** Daftar tugas (todowrite): engine tidak memintanya, jadi model sering hanya membuat di giliran pertama. */
+const TASK_HINT =
+  "<zandor-tasks>\n" +
+  "Untuk tiap permintaan user yang butuh beberapa langkah (membuat, mengubah, atau memperbaiki sesuatu, termasuk permintaan lanjutan di sesi yang sama), awali giliran dengan memanggil `todowrite` berisi daftar tugas lengkap untuk permintaan ITU, bukan sisa daftar lama. Jaga satu tugas `in_progress` sekaligus, perbarui statusnya begitu selesai, dan jangan menutup giliran sebelum semua tugas `completed` atau `cancelled`. Lewati untuk permintaan satu langkah atau sekadar tanya jawab.\n" +
+  "</zandor-tasks>";
+
 /** Bagian `bun:sqlite` yang dipakai (tipe Bun tidak dimuat di paket ini). */
 type SqliteDb = {
   run(sql: string): unknown;
@@ -146,7 +152,7 @@ const buildHooks: Plugin = async (input, options) => {
       return {
         ...guard,
         "experimental.chat.system.transform": async (_i, output) => {
-          output.system.push(SKILL_POLICY);
+          output.system.push(SKILL_POLICY, TASK_HINT);
           if (chatHint) output.system.push(chatHint);
         },
         tool: controlTools,
@@ -156,7 +162,7 @@ const buildHooks: Plugin = async (input, options) => {
       ...guard,
       "experimental.chat.system.transform": async (i, output) => {
         jobHooks.system(i.sessionID, output.system);
-        output.system.push(SKILL_POLICY);
+        output.system.push(SKILL_POLICY, TASK_HINT);
         if (chatHint) output.system.push(chatHint);
       },
       tool: { ...jobHooks.tool, ...controlTools },
@@ -179,7 +185,7 @@ const buildHooks: Plugin = async (input, options) => {
     // Blok memori + sematan + petunjuk skill disuntik tiap giliran (dibaca ulang → edit UI langsung berlaku).
     "experimental.chat.system.transform": async (i, output) => {
       jobHooks?.system(i.sessionID, output.system);
-      output.system.push(SKILL_POLICY);
+      output.system.push(SKILL_POLICY, TASK_HINT);
       if (chatHint) output.system.push(chatHint);
       if (store.enabled(i.sessionID)) {
         const b = store.block();

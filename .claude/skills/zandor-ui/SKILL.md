@@ -194,6 +194,7 @@ pada Langkah 1 dan pada daftar periksa akhir.
 
 | 19-11-2026 | Pemilih Reasoning (Select variant) di composer: item terpilih berlatar padahal tidak dihover; ring fokus muncul | **Latar item Select hanya saat dihover atau fokus keyboard** (`:hover`/`:focus-visible`), bukan sekadar `data-highlighted` bawaan Base UI saat popup dibuka. **Tanpa ring/border fokus** pada pemicu Select di composer dan item popup Select | `.z-select__popup .z-item` di `atoms.css`, `.composer__model .z-select:focus-visible` di `styles.css` |
 
+| 22-11-2026 | Daftar tugas berjudul "Rencana"/"Plan" dan tetap terbuka setelah semua selesai | Pakai **"Tugas"/"Tasks"** (bukan Rencana); kartu tugas **terlipat otomatis** saat semua selesai dan terbuka lagi saat ada daftar baru | `prompt_dock.rs`, i18n `todo.*` |
 | 22-11-2026 | AI menjawab "browser dibuka di Panel 4" padahal pengguna tidak melihat nomor panel (nomor juga bergeser saat panel Dokumen dibuka/tutup) | Teks untuk pengguna dan model **memakai nama panel** (Sidebar, Chat, Dokumen, Alat, Browser), tidak pernah nomor; hasil tool yang dibaca model diulang ke pengguna, jadi kata-katanya harus ramah pengguna | `agent_control.rs`, `browser_agent.rs`, i18n, `control.ts`, skill `zandor-app`/`zandor-code`; tes `i18n::tests` |
 
 Pelajaran teknis: `.z-scope` adalah `display: contents`, jadi selektor `:has(> .anak)` pada `.shell-panel__inner` **tidak

@@ -22,6 +22,14 @@ struct QState {
 pub(super) struct DockState {
     q: HashMap<String, QState>,
     todos_closed: bool,
+    /// Status "semua tugas selesai" pada render sebelumnya; perubahannya memicu lipat/buka otomatis.
+    todos_all_done: Option<bool>,
+}
+
+/// Perubahan lipatan otomatis: `Some(terlipat)` bila status "semua selesai" berubah dari render sebelumnya (atau pertama kali
+/// terlihat), selain itu `None` (biarkan pilihan pengguna).
+fn auto_closed(prev: Option<bool>, all_done: bool) -> Option<bool> {
+    (prev != Some(all_done)).then_some(all_done)
 }
 
 /// Jawaban per pertanyaan (port `answers` QuestionCard).
@@ -349,8 +357,15 @@ impl ChatPanel {
     }
 
     fn todo_list(&mut self, t: &Theme, i: &I18n, todos: &[Todo], cx: &mut Context<Self>) -> AnyElement {
-        let open = !self.dock.todos_closed;
         let done = todos.iter().filter(|x| matches!(x.status, TodoStatus::Completed | TodoStatus::Cancelled)).count();
+        // Selesai semua → daftar terlipat sendiri; tugas baru (ada yang belum selesai) → terbuka lagi. Di antaranya pilihan
+        // pengguna (klik kepala) dihormati.
+        let all_done = done == todos.len();
+        if let Some(closed) = auto_closed(self.dock.todos_all_done, all_done) {
+            self.dock.todos_closed = closed;
+        }
+        self.dock.todos_all_done = Some(all_done);
+        let open = !self.dock.todos_closed;
         let active = todos.iter().position(|x| x.status == TodoStatus::InProgress);
         let current = active.map(|a| todos[a].content.clone()).unwrap_or_else(|| if done == todos.len() { i.t("todo.allDone") } else { String::new() });
         let head = div()
@@ -458,6 +473,19 @@ mod tests {
     fn q(multiple: bool, custom: bool, opts: &[&str]) -> QuestionItem {
         QuestionItem { question: "?".into(), header: String::new(), options: opts.iter().map(|o| QuestionOption { label: o.to_string(), description: String::new() }).collect(), multiple, custom }
     }
+    #[test]
+    fn lipat_otomatis_saat_selesai_dan_buka_saat_tugas_baru() {
+        // pertama kali terlihat: daftar yang sudah selesai langsung terlipat, yang berjalan terbuka
+        assert_eq!(auto_closed(None, true), Some(true));
+        assert_eq!(auto_closed(None, false), Some(false));
+        // selesai di tengah sesi → lipat; tugas baru sesudahnya → buka lagi
+        assert_eq!(auto_closed(Some(false), true), Some(true));
+        assert_eq!(auto_closed(Some(true), false), Some(false));
+        // tanpa perubahan status: pilihan pengguna dibiarkan
+        assert_eq!(auto_closed(Some(true), true), None);
+        assert_eq!(auto_closed(Some(false), false), None);
+    }
+
     #[test]
     fn jawaban() {
         let req = QuestionRequest { id: "r".into(), session_id: "s".into(), questions: vec![q(false, true, &["a", "b"]), q(true, true, &["x", "y"]), q(false, false, &[])], tool: None };

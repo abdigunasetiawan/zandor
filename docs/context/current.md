@@ -67,6 +67,17 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
   - Catatan: draf komposer bersama sempat tertimpa saat uji; sesi uji di project `tes` ("Menyimpan kode...", "Kode uji
     memori...") belum dihapus.
 
+## Terbaru (22-11-2026, GPUI)
+
+- **Daftar tugas (todowrite)**: (1) Copy "Rencana" diganti **"Tugas"/"Tasks"** di i18n (`todo.*`, `dock.label`, `step.plan`, dll)
+  dan teks resume. (2) Kartu tugas di dock **terlipat otomatis** saat semua tugas selesai/batal dan **terbuka lagi** saat ada
+  daftar baru yang belum selesai (`prompt_dock.rs::auto_closed`; tes `lipat_otomatis_...`). Pengguna tetap bisa melipat/membuka manual.
+  (3) Akar masalah "agent hanya membuat plan di awal": system prompt engine tidak punya panduan `todowrite`. Plugin kini menyuntik
+  blok `<zandor-tasks>` (`packages/plugin/src/index.ts`, `TASK_HINT`) yang meminta daftar baru tiap permintaan multi-langkah,
+  termasuk permintaan lanjutan. **Bundel plugin harus dibangun ulang** (`bun scripts/prepare-engine.ts --plugin`).
+  Diuji di app GPUI (release, sesi Chat, gpt-6-luna): giliran 1 dan giliran "Perbaiki..." sama-sama membuat daftar baru, lalu
+  terlipat saat selesai. Belum diuji: sesi Project nyata; perilaku model bersifat probabilistik (hint bukan jaminan).
+
 ## Terbaru (21-11-2026, GPUI)
 
 - **Gaya permukaan Solid/Kaca** (pengaturan `surface`, Pengaturan > Tampilan). Kaca (hanya Windows): jendela memakai

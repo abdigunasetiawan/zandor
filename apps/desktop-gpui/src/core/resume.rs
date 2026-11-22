@@ -94,7 +94,7 @@ pub fn build_note(request: &str, progress: &[&ChatMessage], todos: &[Todo]) -> S
     }
     if !todos.is_empty() {
         out.push(String::new());
-        out.push("Rencana saat terputus:".into());
+        out.push("Daftar tugas saat terputus:".into());
         out.extend(todos.iter().map(|t| {
             let mark = match t.status {
                 TodoStatus::Completed => "[x]",

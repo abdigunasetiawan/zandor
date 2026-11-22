@@ -205,9 +205,21 @@ describe("plugin (hook)", () => {
   ) => {
     const out = { system: [] as string[] };
     await (h["experimental.chat.system.transform"] as (i: unknown, o: unknown) => Promise<void>)({ sessionID }, out);
-    // Aturan skill (zandor-skill-policy) selalu disuntik; tes memori memeriksa sisanya.
-    return out.system.filter((x) => !x.startsWith("<zandor-skill-policy>")).join("\n");
+    // Aturan skill (zandor-skill-policy) dan petunjuk tugas (zandor-tasks) selalu disuntik; tes memori memeriksa sisanya.
+    return out.system.filter((x) => !x.startsWith("<zandor-skill-policy>") && !x.startsWith("<zandor-tasks>")).join("\n");
   };
+
+  test("petunjuk tugas (todowrite) disuntik tiap giliran, juga di permintaan lanjutan", async () => {
+    const h = await load();
+    for (const sid of ["ses_t1", "ses_t1"]) {
+      const out = { system: [] as string[] };
+      await h["experimental.chat.system.transform"]({ sessionID: sid }, out);
+      const hint = out.system.find((x) => x.startsWith("<zandor-tasks>"));
+      expect(hint).toContain("todowrite");
+      expect(hint).toContain("lanjutan");
+      expect(hint).toContain("completed");
+    }
+  });
 
   test("tanpa memoryDir hanya guard (tidak ada hook memori/tool)", async () => {
     const h = await ZandorPlugin(input, {});
