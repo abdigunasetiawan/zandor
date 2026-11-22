@@ -10,6 +10,8 @@ pub struct ChatState {
     pub messages: Vec<ChatMessage>,
     /// Jumlah pesan sebenarnya; hanya diisi pada salinan `render_view` (di sana `messages` kosong).
     pub n_messages: usize,
+    /// Naik tiap `apply`/`load` (semua perubahan `messages` lewat dua jalur ini): kunci cache turn tampilan.
+    pub rev: u64,
     pub status: SessionRunStatus,
     pub revert: Option<String>,
     pub permissions: Vec<PermissionRequest>,
@@ -26,6 +28,7 @@ impl ChatState {
             loaded: false,
             messages: vec![],
             n_messages: 0,
+            rev: 0,
             status: SessionRunStatus::Idle,
             revert: None,
             permissions: vec![],
@@ -38,13 +41,13 @@ impl ChatState {
 
     /// Salinan ringan untuk render: semua field kecuali `messages` (dikosongkan; jumlahnya di `n_messages`), plus giliran
     /// tampilan yang sudah digabung. Menghindari dua kali clone seluruh riwayat pesan di tiap frame.
-    pub fn render_view(&self) -> (ChatState, Vec<Turn>) {
-        let turns = merge_assistant_turns(self.visible());
+    pub fn render_view(&self) -> ChatState {
         let slim = ChatState {
             session_id: self.session_id.clone(),
             loaded: self.loaded,
             messages: vec![],
             n_messages: self.messages.len(),
+            rev: self.rev,
             status: self.status.clone(),
             revert: self.revert.clone(),
             permissions: self.permissions.clone(),
@@ -53,7 +56,12 @@ impl ChatState {
             error: self.error.clone(),
             pending: HashMap::new(),
         };
-        (slim, turns)
+        slim
+    }
+
+    /// Giliran tampilan (asisten berurutan digabung) dari pesan yang terlihat.
+    pub fn turns(&self) -> Vec<Turn> {
+        merge_assistant_turns(self.visible())
     }
 
     pub fn busy(&self) -> bool {
@@ -72,6 +80,7 @@ impl ChatState {
         todos: Option<Vec<Todo>>,
         live: Option<SessionRunStatus>,
     ) {
+        self.rev += 1;
         messages.sort_by(|a, b| a.info.id.cmp(&b.info.id));
         let running = messages.last().is_some_and(|m| m.info.role == Role::Assistant && m.info.completed.is_none());
         self.loaded = true;
@@ -103,6 +112,7 @@ impl ChatState {
 
     /// Terapkan event; kembalikan true bila state berubah.
     pub fn apply(&mut self, ev: &EngineEvent) -> bool {
+        self.rev += 1;
         let sid = self.session_id.clone();
         match ev {
             EngineEvent::MessageUpdated(info) => {

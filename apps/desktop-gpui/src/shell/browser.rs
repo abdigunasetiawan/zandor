@@ -521,9 +521,17 @@ static RELEASE_FOCUS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 
 /// Panggil saat input GPUI (mis. composer) difokuskan: webview anak memegang fokus Win32 sehingga ketikan masuk ke
 /// halaman (mis. kotak cari Google), bukan ke GPUI.
-pub fn release_webview_focus() {
-    RELEASE_FOCUS.store(true, std::sync::atomic::Ordering::Relaxed);
+/// Mengembalikan `true` bila ada webview yang sedang tampil (hanya itu yang perlu frame baru untuk melepas fokus);
+/// tanpa webview, pemanggil tidak perlu `window.refresh()` (yang membatalkan cache view).
+pub fn release_webview_focus() -> bool {
+    let shown = WEBVIEW_SHOWN.load(std::sync::atomic::Ordering::Relaxed);
+    if shown {
+        RELEASE_FOCUS.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    shown
 }
+/// Diperbarui tiap paint panel Browser; basi `true` saat panel tersembunyi = aman (hanya refresh ekstra).
+static WEBVIEW_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 /// Bulatkan sudut jendela anak webview (SetWindowRgn); `radius` logis, 0 = hapus region (persegi). Hanya Windows.
 #[cfg(windows)]
@@ -820,7 +828,9 @@ impl Render for BrowserPanel {
                         let _ = v.focus_parent();
                     }
                 }
-                vis2.set(big && map.contains_key(&active));
+                let shown = big && map.contains_key(&active);
+                WEBVIEW_SHOWN.store(shown, std::sync::atomic::Ordering::Relaxed);
+                vis2.set(shown);
             },
             move |bounds: Bounds<Pixels>, _, window, _| {
                 if let (Some((x, y, w, h)), Some((bz, r))) = (geo_get.get(), frame) {

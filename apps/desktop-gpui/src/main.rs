@@ -2,6 +2,7 @@
 mod assets;
 mod core;
 mod i18n;
+mod perf;
 mod shell;
 mod theme;
 mod ui;

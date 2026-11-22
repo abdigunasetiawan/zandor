@@ -366,8 +366,9 @@ impl Render for Root {
             .overflow_hidden()
             // Klik di area GPUI (klik di webview tidak sampai ke sini) → kembalikan fokus keyboard dari webview ke GPUI.
             .on_mouse_down(gpui::MouseButton::Left, |_, window, _| {
-                super::browser::release_webview_focus();
-                window.refresh();
+                if super::browser::release_webview_focus() {
+                    window.refresh();
+                }
             })
             .bg(if t.colors.frame.a == 0. { t.colors.frame } else { t.colors.bg }) // Kaca: latar jendela buram menembus
             .text_color(t.colors.fg)

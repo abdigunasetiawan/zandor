@@ -69,6 +69,7 @@ pub struct ChatPanel {
     expanded: HashSet<String>,
     last_count: usize,
     measure_key: u64,
+    turns_cache: Option<((String, u64, Option<String>), std::rc::Rc<Vec<crate::core::chat::Turn>>)>,
     msg_list: gpui::ListState,
     msg_list_sid: Option<String>,
     /// Salinan hidup sesi demo terbuka (izin/pertanyaan dijawab lokal; di-reset lewat tombol).
@@ -245,6 +246,7 @@ impl ChatPanel {
             expanded: HashSet::new(),
             last_count: 0,
             measure_key: 0,
+            turns_cache: None,
             busy_sid: None,
             msg_list: {
                 let l = gpui::ListState::new(0, gpui::ListAlignment::Top, gpui::px(600.));
@@ -672,7 +674,7 @@ fn chat_width(t: &Theme, cx: &App) -> f32 {
 /// Pesan pengguna: chip lampiran, gelembung teks, dan baris bawah (waktu + aksi) yang muncul saat hover.
 /// Data satu render untuk daftar pesan virtual.
 struct ChatItems {
-    turns: Vec<crate::core::chat::Turn>,
+    turns: std::rc::Rc<Vec<crate::core::chat::Turn>>,
     sid: String,
     key: String,
     has_pinned: bool,
@@ -690,6 +692,7 @@ struct ChatItems {
 impl ChatPanel {
     /// Satu item daftar pesan: [bar pin] + giliran + trailer (memuat/kosong/retry/bekerja/galat).
     fn chat_item(&mut self, ix: usize, c: &ChatItems, cx: &mut Context<Self>) -> AnyElement {
+        let _perf = crate::perf::Scope::with_budget("chat.item", std::time::Duration::from_millis(4));
         let t = cx.global::<Theme>().clone();
         let i_owned = cx.global::<I18n>().clone();
         let i = &i_owned;
@@ -860,6 +863,7 @@ fn user_msg(t: &Theme, m: &ChatMessage, id: SharedString, toolbar: AnyElement) -
 
 impl Render for ChatPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let _perf = crate::perf::Scope::new("chat.render");
         let t = cx.global::<Theme>().clone();
         let i_owned = cx.global::<I18n>().clone();
         let i = &i_owned;
@@ -885,11 +889,21 @@ impl Render for ChatPanel {
             }
         }
         // Salinan ringan (tanpa riwayat pesan) + giliran yang sudah digabung: satu kali clone pesan per frame, bukan dua.
-        let (state, turns): (Option<ChatState>, Vec<crate::core::chat::Turn>) = {
+        // Giliran tergabung di-cache per (sesi, rev, revert): ketikan di composer dan notify lain tidak lagi meng-clone riwayat.
+        let (state, turns): (Option<ChatState>, std::rc::Rc<Vec<crate::core::chat::Turn>>) = {
             let src = if is_demo { self.demo_state.as_ref() } else { cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id)) };
-            match src.map(|s| s.render_view()) {
-                Some((s, t)) => (Some(s), t),
-                None => (None, vec![]),
+            match src {
+                Some(s) => {
+                    let key = (s.session_id.clone(), s.rev, s.revert.clone());
+                    let hit = self.turns_cache.as_ref().filter(|(k, _)| *k == key).map(|(_, t)| t.clone());
+                    let turns = hit.unwrap_or_else(|| {
+                        let t = std::rc::Rc::new(s.turns());
+                        self.turns_cache = Some((key, t.clone()));
+                        t
+                    });
+                    (Some(s.render_view()), turns)
+                }
+                None => (None, std::rc::Rc::new(vec![])),
             }
         };
 

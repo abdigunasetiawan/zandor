@@ -72,7 +72,9 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
 - Streaming chat: render digabung ~30 Hz (`delta_pending` di `ChatStore`), part dicari dari belakang, log aktivitas pakai `EngineEvent::name()`.
 - Render chat: `ChatState::render_view` (salinan tanpa riwayat pesan + turn tergabung, satu clone per frame), `ml.remeasure()` hanya saat streaming/kunci ukuran berubah, `has_pinned` murah.
 - `mtime` dokumen aktif dicek di thread latar; `prefs.json` di-cache di memori dan ditulis atomik di thread latar; profil `dist` (fat LTO) untuk rilis.
-- Belum dikerjakan (perlu ukur dulu / refaktor besar): cache parse markdown, `Arc<Theme>`, pisah composer dari daftar pesan, virtualisasi file tree, polling Mermaid/agent berbasis event.
+- Cache turn tampilan per (sesi, `ChatState::rev`, revert): ketikan composer tidak lagi meng-clone/menggabung riwayat. `window.refresh()` di mouse-down root hanya bila webview tampil.
+- Pengukuran: `ZANDOR_PERF=1` mencetak `[perf] chat.render`/`chat.item` yang melewati anggaran (`src/perf.rs`).
+- Sengaja belum: cache parse markdown (butuh desain ulang, ukur dulu dengan `ZANDOR_PERF`), `Arc<Theme>` (clone ≈ <2 KB, dampak kecil), virtualisasi file tree (sudah dibatasi MAX_EXPAND=150), polling Mermaid/agent (murah saat idle; interval lebih panjang menambah latensi perintah agent).
 
 ## Terbaru (22-11-2026, GPUI)
 
