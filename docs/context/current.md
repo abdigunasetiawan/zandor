@@ -78,6 +78,11 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
   Diuji di app GPUI (release, sesi Chat, gpt-6-luna): giliran 1 dan giliran "Perbaiki..." sama-sama membuat daftar baru, lalu
   terlipat saat selesai. Belum diuji: sesi Project nyata; perilaku model bersifat probabilistik (hint bukan jaminan).
 
+- **Auto-refresh panel Dokumen**: `DocsPanel` memeriksa mtime berkas aktif tiap 0,8 dtk dan memuat ulang bila berubah di disk
+  (mis. diedit agent). Dilewati saat berkas sedang diedit (mode edit) atau menampilkan diff, agar perubahan pengguna tidak hilang.
+  Hanya tab aktif yang dipantau. Diuji di app: file `.txt` diubah dari luar, panel berganti isi dalam ≤3 dtk. Belum diuji untuk
+  PDF/gambar/spreadsheet (memakai jalur muat ulang yang sama).
+
 ## Terbaru (21-11-2026, GPUI)
 
 - **Gaya permukaan Solid/Kaca** (pengaturan `surface`, Pengaturan > Tampilan). Kaca (hanya Windows): jendela memakai

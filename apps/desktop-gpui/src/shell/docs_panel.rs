@@ -211,6 +211,28 @@ enum DiscardThen {
 impl DocsPanel {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let state = DocsState::global(cx);
+        // Muat ulang otomatis berkas aktif bila berubah di disk (mis. diedit agent) dan tidak sedang diedit.
+        cx.spawn(async move |this, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(800)).await;
+            let ok = this
+                .update(cx, |s, cx| {
+                    let Some(path) = s.state.read(cx).active.clone() else { return };
+                    if s.preview || s.editors.contains_key(&path) || s.state.read(cx).diffs.contains_key(&path) {
+                        return;
+                    }
+                    let (Some(known), Some(now)) = (s.mtimes.get(&path).cloned().flatten(), mtime(&path)) else { return };
+                    if now != known {
+                        s.cache.remove(&path);
+                        s.pdfs.remove(&path);
+                        cx.notify(); // render memuat ulang dan memperbarui mtimes
+                    }
+                })
+                .is_ok();
+            if !ok {
+                break;
+            }
+        })
+        .detach();
         cx.observe_global::<crate::theme::Theme>(|_, cx| cx.notify()).detach();
         cx.observe_global::<crate::i18n::I18n>(|_, cx| cx.notify()).detach();
         cx.observe(&crate::core::appearance::AppearanceStore::global(cx), |_, _, cx| cx.notify()).detach();
