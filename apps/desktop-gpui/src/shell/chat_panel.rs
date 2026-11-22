@@ -19,6 +19,8 @@ use std::collections::HashSet;
 
 #[path = "composer_assist.rs"]
 mod composer_assist;
+#[path = "rewind_dialog.rs"]
+mod rewind_dialog;
 #[path = "queue_dock.rs"]
 mod queue_dock;
 #[path = "project_suggest.rs"]
@@ -100,8 +102,8 @@ pub struct ChatPanel {
     /// Sesi yang sibuk pada render sebelumnya (mendeteksi peralihan sibuk → selesai).
     busy_sid: Option<String>,
     msg_menu: Option<(String, u8)>,
-    /// Konfirmasi revert: (sesi, pesan).
-    revert_confirm: Option<(String, String)>,
+    /// Dialog Rewind yang terbuka.
+    rewind: Option<rewind_dialog::RewindDialog>,
     pins_open: bool,
     picker: model_picker::PickerState,
     info_open: bool,
@@ -272,7 +274,7 @@ impl ChatPanel {
             voice_menu: false,
             ticking: false,
             msg_menu: None,
-            revert_confirm: None,
+            rewind: None,
             pins_open: false,
             picker: model_picker::PickerState { tab: "models".into(), sort: "status".into(), group: "provider".into(), ..Default::default() },
             mp_search,
@@ -1263,26 +1265,7 @@ impl Render for ChatPanel {
         };
         // Popup pratinjau lampiran (dipakai di halaman sesi baru maupun sesi berjalan)
         let pv_h = window.viewport_size().height * 0.62;
-        let revert_dialog = self.revert_confirm.clone().map(|(rsid, rmid)| {
-            crate::ui::dialog(i.t("chat.revert.confirmTitle"))
-                .description(i.t("chat.revert.confirmBody"))
-                .on_dismiss(cx.listener(|s, _, _, cx| {
-                    s.revert_confirm = None;
-                    cx.notify();
-                }))
-                .footer(crate::ui::button("rev-cf-no").label(i.t("ui.cancel")).on_click(cx.listener(|s, _, _, cx| {
-                    s.revert_confirm = None;
-                    cx.notify();
-                })))
-                .footer(crate::ui::button("rev-cf-yes").variant(ButtonVariant::Danger).label(i.t("chat.revert.confirmYes")).on_click(cx.listener(move |s, _, _, cx| {
-                    s.revert_confirm = None;
-                    if s.chat.read(cx).sessions.get(&rsid).is_some_and(|x| x.busy()) {
-                        return chat_parts::fail(cx, "hentikan sesi sebelum revert");
-                    }
-                    s.chat.update(cx, |c, cx| c.revert_to(&rsid, &rmid, cx));
-                    cx.notify();
-                })))
-        });
+        let revert_dialog = self.rewind_dialog(&t, i, cx);
         let att_dialog = self.att_preview.clone().map(|(title, view)| {
             crate::ui::dialog(title)
                 .width_rem(rem::SPACE[7] * 20.)

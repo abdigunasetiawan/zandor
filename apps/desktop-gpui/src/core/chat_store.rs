@@ -758,6 +758,77 @@ impl ChatStore {
         cx.notify();
     }
 
+    /// Daftar berkas yang akan terpengaruh bila sesi diputar balik ke `message_id` (diff tiap giliran sejak pesan itu).
+    pub fn rewind_preview(&self, id: &str, message_id: &str, cx: &mut Context<Self>) -> gpui::Task<Result<Vec<super::rewind::FileChange>, String>> {
+        let (Some(api), Some(dir)) = (self.api.clone(), self.dirs.get(id).cloned()) else { return gpui::Task::ready(Err("engine belum siap".into())) };
+        let turns: Vec<String> = self
+            .sessions
+            .get(id)
+            .map(|st| super::rewind::ids_from(st.messages.iter().filter(|m| m.info.role == super::types::Role::User).map(|m| m.info.id.as_str()), message_id))
+            .unwrap_or_default();
+        let local = self.sessions.get(id).map(|st| super::rewind::changes_from_messages(&st.messages, message_id)).unwrap_or_default();
+        let sid = id.to_string();
+        cx.background_spawn(async move {
+            let mut all = vec![];
+            for mid in turns {
+                all.push(api.session_diff_for(&dir, &sid, Some(&mid)).map_err(|e| e.0)?);
+            }
+            // Engine tanpa snapshot (folder bukan git) mengembalikan diff kosong: pakai edit/write dari transkrip.
+            if all.iter().all(|d| d.is_empty()) {
+                all = vec![local];
+            }
+            Ok(super::rewind::merge_changes(all))
+        })
+    }
+
+    /// Putar balik sesi ke `message_id` sesuai `mode`. Hasil: teks pesan (untuk composer) bila percakapan dipotong.
+    pub fn rewind(&mut self, id: &str, message_id: &str, mode: super::rewind::RewindMode, changes: Vec<super::rewind::FileChange>, cx: &mut Context<Self>) -> gpui::Task<Result<Option<String>, String>> {
+        use super::rewind::RewindMode;
+        let (Some(api), Some(dir)) = (self.api.clone(), self.dirs.get(id).cloned()) else { return gpui::Task::ready(Err("engine belum siap".into())) };
+        let Some(st) = self.sessions.get(id) else { return gpui::Task::ready(Err("sesi tidak ditemukan".into())) };
+        if st.busy() {
+            return gpui::Task::ready(Err("hentikan sesi sebelum rewind".into()));
+        }
+        let text = st.messages.iter().find(|m| m.info.id == message_id).map(super::chat::message_text);
+        let cut: Vec<String> = super::rewind::ids_from(st.messages.iter().map(|m| m.info.id.as_str()), message_id);
+        if mode == RewindMode::Both && let Some(st) = self.sessions.get_mut(id) {
+            st.revert = Some(message_id.to_string());
+        }
+        let (sid, mid) = (id.to_string(), message_id.to_string());
+        let task = cx.background_spawn(async move {
+            match mode {
+                RewindMode::Both => {
+                    // Engine hanya memulihkan berkas bila ada snapshot git; di folder tanpa git revert cuma menyembunyikan pesan.
+                    // Pulihkan berkas sendiri lebih dulu (gagal = berhenti sebelum percakapan disentuh).
+                    // Berkas tanpa patch dilewati di sini: bila ada snapshot git, revert engine yang memulihkannya.
+                    let with_patch: Vec<_> = changes.iter().filter(|c| !c.patches.is_empty()).cloned().collect();
+                    restore_files(std::path::Path::new(&dir), &with_patch)?;
+                    api.revert(&dir, &sid, &mid).map_err(|e| e.0)?
+                }
+                RewindMode::ConversationOnly => {
+                    for m in cut.iter().rev() {
+                        api.delete_message(&dir, &sid, m).map_err(|e| e.0)?;
+                    }
+                }
+                RewindMode::CodeOnly => restore_files(std::path::Path::new(&dir), &changes)?,
+            }
+            Ok::<(), String>(())
+        });
+        let id = id.to_string();
+        cx.spawn(async move |this, cx| {
+            let r = task.await;
+            this.update(cx, |s, cx| {
+                // Gagal: bersihkan penanda revert lokal yang dipasang optimistis.
+                if r.is_err() && mode == RewindMode::Both && let Some(st) = s.sessions.get_mut(&id) {
+                    st.revert = None;
+                }
+                cx.notify();
+            })
+            .ok();
+            r.map(|()| if mode.touches_conversation() { text } else { None })
+        })
+    }
+
     pub fn unrevert(&mut self, id: &str, cx: &mut Context<Self>) {
         if let Some(st) = self.sessions.get_mut(id) {
             st.revert = None;
@@ -930,4 +1001,30 @@ mod keys_tests {
         assert!(super::parse_keys(Some("{rusak")).is_empty());
         assert!(super::parse_keys(None).is_empty());
     }
+}
+
+/// Pulihkan berkas dari patch (mode "Hanya kode"). Semua berkas dihitung dulu; bila ada yang gagal tidak ada yang ditulis.
+fn restore_files(dir: &std::path::Path, changes: &[super::rewind::FileChange]) -> Result<(), String> {
+    let mut plan: Vec<(std::path::PathBuf, Option<String>)> = vec![];
+    for c in changes {
+        let path = if std::path::Path::new(&c.file).is_absolute() { std::path::PathBuf::from(&c.file) } else { dir.join(&c.file) };
+        let cur = std::fs::read_to_string(&path).ok();
+        plan.push((path, super::rewind::restore_text(cur.as_deref(), c)?));
+    }
+    for (path, text) in plan {
+        match text {
+            Some(t) => {
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", path.display()))?;
+                }
+                std::fs::write(&path, t).map_err(|e| format!("{}: {e}", path.display()))?;
+            }
+            None => {
+                if path.exists() {
+                    std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+                }
+            }
+        }
+    }
+    Ok(())
 }

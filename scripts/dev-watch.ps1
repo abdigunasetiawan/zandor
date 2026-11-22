@@ -20,8 +20,23 @@ $procName = 'zandor-gpui'
 function Write-Stamp($msg, $color) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $msg" -ForegroundColor $color }
 
 function Stop-App {
-  Get-Process -Name $procName -ErrorAction SilentlyContinue | Stop-Process -Force
-  Start-Sleep -Milliseconds 300
+  # Cek dulu apakah Zandor benar-benar berjalan (dari mana pun: cargo run, target\debug, target\run).
+  # Bila ya, laporkan lalu matikan dan tunggu sampai benar-benar hilang (maks 10 dtk).
+  $running = @(Get-Process -Name $procName -ErrorAction SilentlyContinue)
+  if ($running.Count -eq 0) { return }
+  foreach ($p in $running) {
+    $where = try { $p.Path } catch { '?' }
+    Write-Stamp "Zandor masih berjalan (PID $($p.Id), $where). Mematikan..." Yellow
+  }
+  $running | Stop-Process -Force -ErrorAction SilentlyContinue
+  $deadline = (Get-Date).AddSeconds(10)
+  while ((Get-Process -Name $procName -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 200
+  }
+  if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
+    throw "Zandor tidak bisa dimatikan. Tutup manual lalu jalankan ulang skrip ini."
+  }
+  Write-Stamp 'Zandor lama sudah mati.' DarkGray
 }
 
 function Invoke-Build {
@@ -68,6 +83,7 @@ function Test-EnterPressed {
 }
 
 try {
+  Stop-App   # pastikan tidak ada instance lama (mis. cargo run) yang mengunci exe sebelum build pertama
   $stamp = Get-Stamp
   if (Invoke-Build) { Start-App }
   $pending = $false   # build baru siap tapi belum dijalankan (mode jeda)

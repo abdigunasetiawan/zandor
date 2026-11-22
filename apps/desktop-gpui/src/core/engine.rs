@@ -434,7 +434,12 @@ impl EngineApi {
         self.post(&format!("/session/{id}/prompt_async"), Some(dir), body).map(|_| ())
     }
     pub fn session_diff(&self, dir: &str, id: &str) -> Result<Vec<SessionFileDiff>> {
-        Ok(arr(self.get(&format!("/session/{id}/diff"), Some(dir), &[])?)
+        self.session_diff_for(dir, id, None)
+    }
+    /// Diff satu giliran (`message_id` = pesan pengguna pembuka giliran); None = seluruh sesi.
+    pub fn session_diff_for(&self, dir: &str, id: &str, message_id: Option<&str>) -> Result<Vec<SessionFileDiff>> {
+        let extra: Vec<(&str, String)> = message_id.map(|m| ("messageID", m.to_string())).into_iter().collect();
+        Ok(arr(self.get(&format!("/session/{id}/diff"), Some(dir), &extra)?)
             .iter()
             .map(|d| SessionFileDiff {
                 file: sv(d, "file"),
@@ -451,6 +456,9 @@ impl EngineApi {
     }
     pub fn revert(&self, dir: &str, id: &str, message_id: &str) -> Result<()> {
         self.post(&format!("/session/{id}/revert"), Some(dir), json!({ "messageID": message_id })).map(|_| ())
+    }
+    pub fn delete_message(&self, dir: &str, id: &str, message_id: &str) -> Result<()> {
+        self.call("DELETE", &self.url(&format!("/session/{id}/message/{message_id}"), Some(dir), &[]), None).map(|_| ())
     }
     pub fn unrevert(&self, dir: &str, id: &str) -> Result<()> {
         self.post(&format!("/session/{id}/unrevert"), Some(dir), json!({})).map(|_| ())

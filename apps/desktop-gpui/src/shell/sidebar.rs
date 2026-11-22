@@ -899,7 +899,7 @@ impl Render for Sidebar {
                         .child(menu_trigger(&ctx, format!("p:{}", p.id), entries, p_pinned, i.tp("sb.menuFor", &[("name", &p.name)])));
                     inner = inner.child(row);
                     if open {
-                        inner = inner.children(sessions_list(&ctx, &p.id, sessions.get(&p.id), engine_ready));
+                        inner = inner.child(div().flex().flex_col().gap(t.space(1)).children(sessions_list(&ctx, &p.id, sessions.get(&p.id), engine_ready)));
                     }
                 }
                 inner = inner.child(section_head(
@@ -931,7 +931,7 @@ impl Render for Sidebar {
                         );
                     }
                 }
-                inner = inner.children(sessions_list(&ctx, CHAT_KEY, sessions.get(CHAT_KEY), engine_ready));
+                inner = inner.child(div().flex().flex_col().gap(t.space(1)).children(sessions_list(&ctx, CHAT_KEY, sessions.get(CHAT_KEY), engine_ready)));
             }
             list = list.child(inner);
         }

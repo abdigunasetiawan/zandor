@@ -921,11 +921,12 @@ impl ChatPanel {
         }
         if m.info.role == Role::User {
             let (sid2, mid2) = (sid.to_string(), mid.clone());
-            row = row.child(ib("mrev", "undo", i.t("chat.revert")).on_click(cx.listener(move |s, _, _, cx| {
+            row = row.child(ib("mrev", "undo", i.t("chat.rewind")).on_click(cx.listener(move |s, _, _, cx| {
                 if s.chat.read(cx).sessions.get(&sid2).is_some_and(|x| x.busy()) {
-                    return fail(cx, "hentikan sesi sebelum revert");
+                    let m = cx.global::<I18n>().t("chat.rewind.busy");
+                    return fail(cx, m);
                 }
-                s.revert_confirm = Some((sid2.clone(), mid2.clone()));
+                s.open_rewind(sid2.clone(), mid2.clone(), cx);
                 cx.notify();
             })));
         }

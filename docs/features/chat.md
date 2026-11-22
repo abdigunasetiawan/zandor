@@ -128,3 +128,28 @@ dari engine per sesi (4 paralel) lewat `SessionSearch` (`packages/core/src/chat/
 judul cocok, jumlah kecocokan, terbaru. Klik hasil (atau Enter = hasil pertama) membuka sesi dan menggulir ke pesannya.
 Tes: core `session-search.test.ts`, e2e `global-search.spec.ts`. Batasan: tanpa indeks di disk (sesi banyak = pemuatan
 pertama lebih lama); daftar sesi project yang belum dibuka dimuat saat dialog dibuka.
+
+## Rewind (GPUI, 22-11-2026)
+
+Ikon undo di toolbar pesan pengguna membuka dialog "Rewind ke pesan ini?" (`shell/rewind_dialog.rs`): kutipan pesan, pemilih
+**Pulihkan** (Kode dan percakapan / Hanya percakapan / Hanya kode), kartu berkas (jumlah, `+/−` total dan per berkas, ikon
+jenis berkas, dari diff tiap giliran sejak pesan itu lewat `GET /session/:id/diff?messageID=`), catatan, Batal/Rewind.
+Logika murni + tes di `core/rewind.rs`.
+
+- **Kode dan percakapan:** `POST /session/:id/revert` (engine memulihkan berkas dan menyembunyikan pesan).
+- **Hanya percakapan:** pesan dari pesan tujuan dihapus lewat `DELETE /session/:id/message/:mid`; berkas tidak disentuh.
+- **Hanya kode:** engine tidak punya ini; Zandor membalik patch tiap giliran (terbaru dulu) pada berkas di disk. Bila isi
+  berkas sudah berubah sehingga patch tidak cocok, galat ditampilkan dan tidak ada berkas yang ditulis.
+- Teks pesan dikembalikan ke composer pada dua mode yang memotong percakapan. Toast hasil; galat nyata bila gagal.
+- **Sumber daftar berkas:** diff engine per giliran; bila kosong (engine tanpa snapshot git), jatuh ke bagian tool di
+  transkrip (`edit`, `write`, `apply_patch` lewat `metadata.files`). `write` yang membuat berkas baru disintesis menjadi patch
+  tambah-semua dari `input.content`.
+- **Kode dan percakapan** memulihkan berkas sendiri lewat patch lebih dulu (engine hanya memulihkan bila ada snapshot git),
+  baru memanggil revert engine; toast hanya mengklaim "berkas dipulihkan" bila itu benar-benar terjadi.
+- **Terverifikasi di aplikasi nyata (build 22:22:20, v 0.0.218), ketiga mode:** Kode dan percakapan (berkas hilang, percakapan terpotong, teks kembali), Hanya percakapan (berkas utuh, percakapan terpotong, teks kembali), Hanya kode (berkas hilang, percakapan utuh).
+- **Batasan:** perubahan lewat shell/bash tidak terlihat dari transkrip; `write` yang menimpa berkas lama tanpa patch tidak
+  bisa dipulihkan (galat jujur); panel Dokumen yang sedang membuka berkas terhapus belum menyegarkan diri.
+- **Tampilan dialog (diuji di app, build 22:35:33, v 0.0.218):** kutipan pesan berbingkai `border-soft` dan digulir di dalamnya
+  (bukan dipotong di tengah baris); daftar berkas tetap ber-tinggi tetap dan bisa digulir (14 berkas diuji), baris ringkasan
+  dan tombol tidak bergeser. Bila tidak ada berkas terdeteksi pada mode Kode dan percakapan, catatan dan toast hanya menyebut
+  pemotongan percakapan (`chat.rewind.noteNoFiles`), tidak mengaku berkas dipulihkan.
