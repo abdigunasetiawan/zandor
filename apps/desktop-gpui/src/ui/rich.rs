@@ -355,7 +355,11 @@ fn open_more(entries: Vec<MenuEntry>, window: &gpui::Window, cx: &mut App) {
 }
 
 fn more_button(id: String, i: &I18n, entries: Vec<MenuEntry>) -> impl IntoElement {
-    icon_button(ElementId::Name(id.into()), "more", i.t("rich.more")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_click(move |_, w, cx| open_more(entries.clone(), w, cx))
+    more_button_on(id, i, entries, None)
+}
+
+fn more_button_on(id: String, i: &I18n, entries: Vec<MenuEntry>, surface_fg: Option<gpui::Hsla>) -> impl IntoElement {
+    icon_button(ElementId::Name(id.into()), "more", i.t("rich.more")).size(ControlSize::Sm).variant(ButtonVariant::Ghost).on_surface(surface_fg).on_click(move |_, w, cx| open_more(entries.clone(), w, cx))
 }
 
 /// Blok kode (port CodeBlock).
@@ -373,6 +377,13 @@ pub fn code_block(t: &Theme, i: &I18n, lang: &str, raw: &str) -> AnyElement {
         entry(i.t("rich.copyFenced"), move |_, cx| copy_text(fenced(&l2, &r2), cx)).icon("file_text"),
         entry(i.tp("rich.saveFile", &[("ext", &if ext == "Dockerfile" { ext.to_string() } else { format!(".{ext}") })]), move |_, cx| save_text(stamped_name("kode", ext), r3.clone(), cx)).icon("download"),
     ]);
+    // Latar blok kode dari tema editor bisa gelap di tema aplikasi terang (atau sebaliknya): semua warna kepala
+    // diturunkan dari teks permukaan itu, bukan token tema aplikasi.
+    let surf = t.colors.code_bg.and(t.colors.code_fg);
+    let (head_fg, head_line) = match surf {
+        Some(f) => (f.opacity(0.7), f.opacity(0.14)),
+        None => (t.colors.fg_subtle, t.colors.border_soft),
+    };
     let head = div()
         .flex()
         .items_center()
@@ -381,18 +392,18 @@ pub fn code_block(t: &Theme, i: &I18n, lang: &str, raw: &str) -> AnyElement {
         .pr(t.space(1))
         .py(gpui::px(2.))
         .border_b_1()
-        .border_color(t.colors.border_soft)
+        .border_color(head_line)
         .small(t)
-        .text_color(t.colors.fg_subtle)
+        .text_color(head_fg)
         .child(div().flex_1().child(if lang.is_empty() { i.t("md.code").to_string() } else { lang.to_string() }))
         .child(
-            icon_button(ElementId::Name(format!("cb-wrap-{key:x}").into()), "wrap", i.t("rich.wrap")).size(ControlSize::Sm).pressed(wrap).on_click(move |_, _, cx| {
+            icon_button(ElementId::Name(format!("cb-wrap-{key:x}").into()), "wrap", i.t("rich.wrap")).size(ControlSize::Sm).pressed(wrap).on_surface(surf).on_click(move |_, _, cx| {
                 set_state(key, |s| s.0 = !s.0);
                 cx.refresh_windows();
             }),
         )
-        .child(icon_button(ElementId::Name(format!("cb-copy-{key:x}").into()), "copy", i.t("md.copyCode")).size(ControlSize::Sm).on_click(move |_, _, cx| copy_text(r1.clone(), cx)))
-        .child(more_button(format!("cb-more-{key:x}"), i, more));
+        .child(icon_button(ElementId::Name(format!("cb-copy-{key:x}").into()), "copy", i.t("md.copyCode")).size(ControlSize::Sm).on_surface(surf).on_click(move |_, _, cx| copy_text(r1.clone(), cx)))
+        .child(more_button_on(format!("cb-more-{key:x}"), i, more, surf));
     let body = div().px(t.space(3)).py(t.space(2)).font_family(t.font_code.clone()).code(t);
     let hl = super::highlight::highlight_text(lang, &shown, t);
     let styled = gpui::StyledText::new(shown).with_highlights(hl);
@@ -407,7 +418,7 @@ pub fn code_block(t: &Theme, i: &I18n, lang: &str, raw: &str) -> AnyElement {
         .flex_col()
         .rounded(t.rem(rem::RADIUS_MD))
         .border_1()
-        .border_color(t.colors.border_soft)
+        .border_color(surf.map_or(t.colors.border_soft, |f| f.opacity(0.14)))
         .bg(t.colors.code_bg.unwrap_or(t.colors.raised))
         .when_some(t.colors.code_fg, |d, c| d.text_color(c))
         .overflow_hidden()
@@ -421,11 +432,11 @@ pub fn code_block(t: &Theme, i: &I18n, lang: &str, raw: &str) -> AnyElement {
                     .px(t.space(3))
                     .py(t.space(1))
                     .border_t_1()
-                    .border_color(t.colors.border_soft)
+                    .border_color(head_line)
                     .small(t)
-                    .text_color(t.colors.accent)
+                    .text_color(surf.unwrap_or(t.colors.accent))
                     .cursor_pointer()
-                    .hover(|s| s.bg(t.colors.hover))
+                    .hover(|s| s.bg(surf.map_or(t.colors.hover, |f| f.opacity(0.1))))
                     .child(label)
                     .on_click(move |_, _, cx| {
                         set_state(key, |s| s.1 = !s.1);

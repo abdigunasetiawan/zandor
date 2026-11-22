@@ -988,7 +988,7 @@ impl Render for Sidebar {
                                     .gap(t.space(1))
                                     .small(&t)
                                     .text_color(c.fg_subtle)
-                                    .child(div().code(&t).child(i.tp("sb.versionShort", &[("version", env!("CARGO_PKG_VERSION"))])))
+                                    .child(div().code(&t).child(i.tp("sb.versionShort", &[("version", env!("ZANDOR_VERSION"))])))
                                     .when(est.status != "ready", |d| d.child(div().size(px(6.)).rounded_full().bg(dot)).child(i.t(&format!("engine.{}", est.status)))),
                             ),
                     )

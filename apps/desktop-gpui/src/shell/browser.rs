@@ -2,6 +2,7 @@
 //! di atas UI GPUI, satu webview per tab (maks 8). Hanya tab aktif yang tampil, diposisikan mengikuti area panel tiap
 //! frame; disembunyikan bila panel lain dipilih atau area terlalu kecil. Konten remote tidak punya IPC ke aplikasi.
 //! Webview anak digambar di atas UI ("airspace"), jadi disembunyikan selama ada menu/dialog/palet (penanda overlay_deferred).
+use super::browser_devices as dev;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{icon, icon_button, ButtonVariant, ControlSize, IconSize, InputSubmit, TextInput, TypeExt};
@@ -131,6 +132,20 @@ pub struct BrowserPanel {
     visible_now: Rc<std::cell::Cell<bool>>,
     /// Sejak kapan panel disembunyikan (None saat tampil). Lewat `IDLE_DROP` webview dibuang (lihat `drop_idle_views`).
     hidden_at: Option<std::time::Instant>,
+    /// Simulasi perangkat: kunci templat (`browser_devices`: RESPONSIVE / CUSTOM / id), ukuran viewport CSS, zoom.
+    dev: String,
+    vw: u32,
+    vh: u32,
+    zoom: String,
+    dev_w: Entity<TextInput>,
+    dev_h: Entity<TextInput>,
+    /// Per tab: kunci perangkat yang UA/sentuhannya sudah diterapkan, dan zoom WebView2 terakhir.
+    ua_applied: Rc<RefCell<HashMap<String, String>>>,
+    zoomed: Rc<RefCell<HashMap<String, f64>>>,
+    /// Per tab: parameter region sudut bulat terakhir yang dipasang pada jendela webview.
+    rgn: Rc<RefCell<HashMap<String, (i32, i32, i32, u32)>>>,
+    /// Persegi layar simulasi relatif ke area host (x, y, lebar, tinggi), diisi canvas tiap frame.
+    geo: Rc<std::cell::Cell<Option<(f32, f32, f32, f32)>>>,
 }
 
 /// Lama panel Browser disembunyikan sebelum webview-nya (dan proses WebView2 yang menyertainya) dibuang.
@@ -166,15 +181,15 @@ impl BrowserPanel {
                 if this
                     .update(cx, |s, cx| {
                         s.loading.insert(id.clone(), !done);
-                        if !done {
-                            s.clear_snap();
-                        }
                         if let Some(t) = s.tabs.iter_mut().find(|t| t.id == id) {
                             t.url = url.clone();
                         }
                         if s.active == id {
                             s.address.update(cx, |a, cx| a.set_text(url, cx));
+                            s.error = None; // halaman berhasil dimuat/berpindah: galat alamat lama tidak relevan lagi
                         }
+                        s.zoomed.borrow_mut().remove(&id); // WebView2 bisa mengembalikan zoom saat navigasi: pasang ulang
+                        s.rgn.borrow_mut().remove(&id);
                         cx.notify();
                     })
                     .is_err()
@@ -192,7 +207,86 @@ impl BrowserPanel {
             }
         })
         .detach();
-        Self { tabs: vec![Tab { id: "b1".into(), url: HOME_URL.into(), agent: false }], active: "b1".into(), address, views: Default::default(), low: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false, snap: Default::default(), trash: Default::default(), snap_raw: Default::default(), snap_busy: Default::default(), visible_now: Default::default(), hidden_at: None }
+        let mk_dim = |cx: &mut Context<Self>, key: &str| {
+            let ph = cx.global::<I18n>().t(key);
+            let e = cx.new(|cx| {
+                let mut ti = TextInput::new(cx, ph);
+                ti.size = ControlSize::Sm;
+                ti
+            });
+            cx.subscribe(&e, |s, _, _: &InputSubmit, cx| s.apply_dims(cx)).detach();
+            e
+        };
+        let (dev_w, dev_h) = (mk_dim(cx, "br.width"), mk_dim(cx, "br.height"));
+        Self { tabs: vec![Tab { id: "b1".into(), url: HOME_URL.into(), agent: false }], active: "b1".into(), address, views: Default::default(), low: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false, snap: Default::default(), trash: Default::default(), snap_raw: Default::default(), snap_busy: Default::default(), visible_now: Default::default(), hidden_at: None, dev: dev::RESPONSIVE.into(), vw: 0, vh: 0, zoom: "fit".into(), dev_w, dev_h, ua_applied: Default::default(), zoomed: Default::default(), rgn: Default::default(), geo: Default::default() }
+    }
+
+    /// Ukuran viewport simulasi (None = responsif).
+    fn emulated(&self) -> Option<(u32, u32)> {
+        (self.dev != dev::RESPONSIVE).then_some((self.vw, self.vh))
+    }
+
+    fn set_device(&mut self, key: &str, cx: &mut Context<Self>) {
+        self.dev = key.to_string();
+        if let Some(d) = dev::find(key) {
+            (self.vw, self.vh) = (d.w, d.h);
+        } else if key == dev::CUSTOM && self.vw == 0 {
+            (self.vw, self.vh) = (390, 844);
+        }
+        let (w, h) = (self.vw, self.vh);
+        self.dev_w.update(cx, |a, cx| a.set_text(if w > 0 { w.to_string() } else { String::new() }, cx));
+        self.dev_h.update(cx, |a, cx| a.set_text(if h > 0 { h.to_string() } else { String::new() }, cx));
+        self.sync_emulation();
+        cx.notify();
+    }
+
+    /// Enter pada kolom lebar/tinggi: ukuran bebas (menjadi templat "kustom").
+    fn apply_dims(&mut self, cx: &mut Context<Self>) {
+        let (Some(w), Some(h)) = (dev::parse_dim(&self.dev_w.read(cx).text()), dev::parse_dim(&self.dev_h.read(cx).text())) else { return };
+        (self.vw, self.vh) = (w, h);
+        // Mengubah ukuran templat menjadikannya "kustom" (UA templat tetap dipakai).
+        if self.dev == dev::RESPONSIVE {
+            self.dev = dev::CUSTOM.into();
+        }
+        self.dev_w.update(cx, |a, cx| a.set_text(w.to_string(), cx));
+        self.dev_h.update(cx, |a, cx| a.set_text(h.to_string(), cx));
+        cx.notify();
+    }
+
+    fn rotate(&mut self, cx: &mut Context<Self>) {
+        if self.emulated().is_none() {
+            return;
+        }
+        (self.vw, self.vh) = (self.vh, self.vw);
+        let (w, h) = (self.vw, self.vh);
+        self.dev_w.update(cx, |a, cx| a.set_text(w.to_string(), cx));
+        self.dev_h.update(cx, |a, cx| a.set_text(h.to_string(), cx));
+        cx.notify();
+    }
+
+    /// Terapkan UA + sentuhan perangkat ke webview yang UA-nya belum sama (dipanggil saat ganti perangkat dan berkala).
+    /// Halaman dimuat ulang setelah UA berubah agar server melayani versi seluler/desktop.
+    fn sync_emulation(&mut self) {
+        let ua = dev::find(&self.dev).and_then(dev::user_agent).unwrap_or("");
+        let ids: Vec<String> = self.views.borrow().keys().cloned().collect();
+        for id in ids {
+            let prev = self.ua_applied.borrow().get(&id).cloned();
+            if prev.as_deref().unwrap_or("") == ua {
+                self.ua_applied.borrow_mut().insert(id, ua.to_string()); // sama dengan bawaan/terakhir: tak perlu CDP
+                continue;
+            }
+            self.ua_applied.borrow_mut().insert(id.clone(), ua.to_string());
+            let params = serde_json::json!({ "userAgent": ua }).to_string();
+            let touch = serde_json::json!({ "enabled": !ua.is_empty() }).to_string();
+            let _ = self.cdp_call(&id, "Emulation.setTouchEmulationEnabled", &touch, |_| {});
+            let views = self.views.clone();
+            let id2 = id.clone();
+            let _ = self.cdp_call(&id, "Emulation.setUserAgentOverride", &params, move |_| {
+                if let Some(v) = views.borrow().get(&id2) {
+                    let _ = v.evaluate_script("location.reload()");
+                }
+            });
+        }
     }
 
     /// Buang semua webview bila panel sudah lama disembunyikan. Tab, URL, dan tangkapan terakhir tetap ada; saat panel
@@ -226,6 +320,7 @@ impl BrowserPanel {
 
     /// Dipanggil berkala oleh Root (~2 dtk): terapkan hasil capture sebelumnya, lalu minta yang baru bila webview tampil.
     pub fn capture_snapshot(&mut self, cx: &mut Context<Self>) {
+        self.sync_emulation();
         if let Some((id, bytes)) = self.snap_raw.borrow_mut().take() {
             if let Some(img) = decode_snapshot(&bytes) {
                 if let Some((_, old)) = self.snap.borrow_mut().replace((id, Arc::new(img))) {
@@ -244,7 +339,7 @@ impl BrowserPanel {
         let (id, raw) = (self.active.clone(), self.snap_raw.clone());
         let id2 = id.clone();
         self.snap_busy.set(Some(std::time::Instant::now()));
-        let r = self.cdp_call(&id, "Page.captureScreenshot", r#"{"format":"jpeg","quality":55}"#, move |s| {
+        let r = self.cdp_call(&id, "Page.captureScreenshot", r#"{"format":"jpeg","quality":85}"#, move |s| {
             use base64::Engine;
             if s.starts_with("ERR") {
                 return;
@@ -257,6 +352,18 @@ impl BrowserPanel {
         if r.is_err() {
             self.snap_busy.set(None);
         }
+    }
+
+    /// Ambil tangkapan segera (mis. sebelum dropdown menyembunyikan webview) dan terapkan hasilnya ~0,35 dtk kemudian,
+    /// tanpa menunggu tick 2 dtk; supaya layar perangkat tidak kosong selama menu terbuka.
+    fn capture_soon(&mut self, cx: &mut Context<Self>) {
+        self.snap_busy.set(None);
+        self.capture_snapshot(cx);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(350)).await;
+            let _ = this.update(cx, |s, cx| s.capture_snapshot(cx));
+        })
+        .detach();
     }
 
     pub fn go(&mut self, raw: String, cx: &mut Context<Self>) {
@@ -283,6 +390,7 @@ impl BrowserPanel {
 
     fn select(&mut self, id: String, cx: &mut Context<Self>) {
         self.active = id.clone();
+        self.error = None;
         let url = self.tabs.iter().find(|t| t.id == id).map(|t| t.url.clone()).unwrap_or_default();
         self.address.update(cx, |a, cx| a.set_text(url, cx));
         for (k, v) in self.views.borrow().iter() {
@@ -308,6 +416,9 @@ impl BrowserPanel {
         self.tabs.remove(i);
         self.views.borrow_mut().remove(&id);
         self.low.borrow_mut().remove(&id);
+        self.ua_applied.borrow_mut().remove(&id);
+        self.zoomed.borrow_mut().remove(&id);
+        self.rgn.borrow_mut().remove(&id);
         if self.tabs.is_empty() {
             let fresh = if id == "b1" { "b2" } else { "b1" };
             self.tabs.push(Tab { id: fresh.into(), url: HOME_URL.into(), agent: false });
@@ -414,6 +525,29 @@ pub fn release_webview_focus() {
     RELEASE_FOCUS.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Bulatkan sudut jendela anak webview (SetWindowRgn); `radius` logis, 0 = hapus region (persegi). Hanya Windows.
+#[cfg(windows)]
+fn round_view(v: &wry::WebView, w: f64, h: f64, radius: f32, sf: f32) {
+    use windows_sys::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+    use wry::WebViewExtWindows;
+    let mut parent = windows62::Win32::Foundation::HWND::default();
+    if unsafe { v.controller().ParentWindow(&mut parent) }.is_err() {
+        return;
+    }
+    let hwnd = parent.0 as *mut core::ffi::c_void;
+    unsafe {
+        if radius <= 0. {
+            SetWindowRgn(hwnd, core::ptr::null_mut(), 1);
+        } else {
+            let d = (radius * sf * 2.).round() as i32;
+            let rgn = CreateRoundRectRgn(0, 0, (w * sf as f64).round() as i32 + 1, (h * sf as f64).round() as i32 + 1, d, d);
+            SetWindowRgn(hwnd, rgn, 1); // jendela mengambil alih region
+        }
+    }
+}
+#[cfg(not(windows))]
+fn round_view(_: &wry::WebView, _: f64, _: f64, _: f32, _: f32) {}
+
 /// Buat webview tab sebagai anak jendela GPUI.
 fn create_view(window: &Window, id: &str, url: &str, agent: bool, tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>) -> Result<wry::WebView, String> {
     let (id1, tx1) = (id.to_string(), tx.clone());
@@ -509,6 +643,54 @@ impl Render for BrowserPanel {
                     .disabled(cur_url.is_empty())
                     .on_click(move |_, _, cx| cx.open_url(&ext)),
             );
+        let emu = self.emulated();
+        let dev_items: Vec<(SharedString, SharedString)> = std::iter::once((dev::RESPONSIVE.into(), SharedString::from(i.t("br.deviceResponsive"))))
+            .chain(dev::DEVICES.iter().map(|d| (d.id.into(), SharedString::from(format!("{} · {}", i.t(&format!("br.grp.{}", d.group)), d.name)))))
+            .chain(std::iter::once((dev::CUSTOM.into(), SharedString::from(i.t("br.deviceCustom")))))
+            .collect();
+        let zoom_items: Vec<(SharedString, SharedString)> = dev::ZOOMS.iter().map(|z| ((*z).into(), SharedString::from(if *z == "fit" { i.t("br.zoomFit") } else { format!("{z}%") }))).collect();
+        let lead = match dev::find(&self.dev).map(|d| d.group) {
+            Some("tablet") => "tablet",
+            Some("laptop") => "laptop",
+            Some("desktop") => "monitor",
+            Some(_) => "smartphone",
+            None => if emu.is_some() { "maximize" } else { "monitor" },
+        };
+        let this = cx.entity();
+        let dev_bar = div()
+            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|s, _, _, cx| s.capture_soon(cx)))
+            .flex()
+            .items_center()
+            .gap(t.space(1))
+            .px(t.space(2))
+            .py(t.space(1))
+            .border_b_1()
+            .border_color(t.colors.border_soft)
+            .child(
+                crate::ui::select("br-device", dev_items, self.dev.clone())
+                    .lead_icon(lead)
+                    .pill(true)
+                    .on_change({
+                        let this = this.clone();
+                        move |v, _, cx| this.update(cx, |s, cx| s.set_device(&v, cx))
+                    }),
+            )
+            .when(emu.is_some(), |d| {
+                d.child(div().w(t.rem(4.)).child(self.dev_w.clone()))
+                    .child(div().text_color(t.colors.fg_subtle).small(&t).child("×"))
+                    .child(div().w(t.rem(4.)).child(self.dev_h.clone()))
+                    .child(icon_button("br-rotate", "rotate_square", i.t("br.rotate")).size(ControlSize::Sm).on_click(cx.listener(|s, _, _, cx| s.rotate(cx))))
+            })
+            .child(div().flex_1())
+            .child(crate::ui::select("br-zoom", zoom_items, self.zoom.clone()).pill(true).lead_icon("search").on_change({
+                let this = this.clone();
+                move |v, _, cx| {
+                    this.update(cx, |s, cx| {
+                        s.zoom = v.to_string();
+                        cx.notify();
+                    })
+                }
+            }));
         let agent_row = (super::browser_agent::session_active() || super::browser_agent::halted()).then(|| {
             let halted = super::browser_agent::halted();
             div()
@@ -537,14 +719,26 @@ impl Render for BrowserPanel {
             .borrow()
             .as_ref()
             .filter(|(id, _)| *id == self.active && !cur_url.is_empty())
-            .map(|(_, img)| div().absolute().inset_0().child(gpui::img(img.clone()).size_full()));
+            .map(|(_, img)| match (emu, self.geo.get()) {
+                (Some(_), Some((x, y, w, h))) => {
+                    let r = dev::frame(&self.dev).map_or(0., |(b, r)| (r - b).max(0.));
+                    div().absolute().left(gpui::px(x)).top(gpui::px(y)).w(gpui::px(w)).h(gpui::px(h)).rounded(gpui::px(r)).overflow_hidden().child(gpui::img(img.clone()).size_full())
+                }
+                (Some(_), None) => div(),
+                (None, _) => div().absolute().inset_0().child(gpui::img(img.clone()).size_full()),
+            });
         let loading = self.loading.get(&self.active).copied().unwrap_or(false);
         let progress = div().h(gpui::px(2.)).w_full().when(loading, |d| d.bg(t.colors.accent));
 
         // Host webview: canvas mengukur area tiap frame lalu menempatkan/membuat webview tab aktif.
         let (views, active, url, tx) = (self.views.clone(), self.active.clone(), cur_url.clone(), self.tx.clone());
+        let emu_c = emu;
+        let frame = dev::frame(&self.dev);
+        let (geo_set, geo_get, fr_color) = (self.geo.clone(), self.geo.clone(), t.colors.active);
     let active_agent = self.tabs.iter().find(|t| t.id == self.active).is_some_and(|t| t.agent);
         let (trash2, vis2, low2) = (self.trash.clone(), self.visible_now.clone(), self.low.clone());
+        let rgn2: Rc<RefCell<HashMap<String, (i32, i32, i32, u32)>>> = self.rgn.clone();
+        let (zoomed2, zmode) = (self.zoomed.clone(), self.zoom.clone());
         let err_slot: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let err2 = err_slot.clone();
         let host = canvas(
@@ -572,6 +766,22 @@ impl Render for BrowserPanel {
                 for old in trash2.borrow_mut().drain(..) {
                     let _ = window.drop_image(old);
                 }
+                // Simulasi: webview berukuran viewport x skala (maks area), di tengah atas; zoom WebView2 = skala, sehingga
+                // viewport CSS persis ukuran perangkat. Tanpa simulasi: penuh area, skala = zoom pilihan. Geometri dihitung
+                // juga saat webview disembunyikan (menu/dialog) supaya bingkai dan tangkapan tetap tergambar.
+                let bz = frame.map_or(0., |f| f.0);
+                let (aw, ah) = (f32::from(bounds.size.width) - 2. * bz, f32::from(bounds.size.height) - 2. * bz);
+                let s = dev::scale(&zmode, emu_c, (aw, ah));
+                let (bw, bh) = match emu_c {
+                    Some((vw, vh)) => ((vw as f64 * s).min(aw as f64), (vh as f64 * s).min(ah as f64)),
+                    None => (aw as f64, ah as f64),
+                };
+                let rel_x = bz as f64 + (aw as f64 - bw) / 2.;
+                let rel_y = bz as f64;
+                let ox = f32::from(bounds.origin.x) as f64 + rel_x;
+                let oy = f32::from(bounds.origin.y) as f64 + rel_y;
+                let inner_r = frame.map_or(0., |(b, r)| (r - b).max(0.));
+                geo_set.set(emu_c.map(|_| (rel_x as f32, rel_y as f32, bw as f32, bh as f32)));
                 let mut map = views.borrow_mut();
                 if big && !url.is_empty() && !map.contains_key(&active) {
                     match create_view(window, &active, &url, active_agent, tx.clone()) {
@@ -588,10 +798,20 @@ impl Render for BrowserPanel {
                     }
                     if show {
                         let rect = wry::Rect {
-                            position: wry::dpi::LogicalPosition::new(f32::from(bounds.origin.x) as f64, f32::from(bounds.origin.y) as f64).into(),
-                            size: wry::dpi::LogicalSize::new(f32::from(bounds.size.width) as f64, f32::from(bounds.size.height) as f64).into(),
+                            position: wry::dpi::LogicalPosition::new(ox, oy).into(),
+                            size: wry::dpi::LogicalSize::new(bw, bh).into(),
                         };
                         let _ = v.set_bounds(rect);
+                        let key = (bw.round() as i32, bh.round() as i32, inner_r.round() as i32, window.scale_factor().to_bits());
+                        if rgn2.borrow().get(k) != Some(&key) {
+                            round_view(v, bw, bh, inner_r, window.scale_factor());
+                            rgn2.borrow_mut().insert(k.clone(), key);
+                        }
+                        let prev = zoomed2.borrow().get(k).copied().unwrap_or(1.);
+                        if (prev - s).abs() > 1e-6 {
+                            let _ = v.zoom(s);
+                            zoomed2.borrow_mut().insert(k.clone(), s);
+                        }
                     }
                     let _ = v.set_visible(show);
                 }
@@ -602,7 +822,14 @@ impl Render for BrowserPanel {
                 }
                 vis2.set(big && map.contains_key(&active));
             },
-            |_, _, _, _| {},
+            move |bounds: Bounds<Pixels>, _, window, _| {
+                if let (Some((x, y, w, h)), Some((bz, r))) = (geo_get.get(), frame) {
+                    let (x, y) = (f32::from(bounds.origin.x) + x - bz, f32::from(bounds.origin.y) + y - bz);
+                    let (w, h) = (w + 2. * bz, h + 2. * bz);
+                    let b = Bounds::new(gpui::point(gpui::px(x), gpui::px(y)), gpui::size(gpui::px(w), gpui::px(h)));
+                    window.paint_quad(gpui::fill(b, gpui::transparent_black()).corner_radii(gpui::px(r)).border_widths(gpui::px(bz)).border_color(fr_color));
+                }
+            },
         )
         .size_full();
         if let Some(e) = err_slot.borrow_mut().take() {
@@ -620,6 +847,7 @@ impl Render for BrowserPanel {
             .flex_col()
             .child(tabs)
             .child(bar)
+            .child(dev_bar)
             .children(agent_row)
             .child(progress)
             .children(self.error.clone().map(|e| div().px(t.space(2)).small(&t).text_color(t.colors.danger).child(e)))
@@ -629,6 +857,7 @@ impl Render for BrowserPanel {
                     .flex_1()
                     .min_h_0()
                     .relative()
+                    .when(emu.is_some(), |d| d.bg(t.colors.surface))
                     .when(cur_url.is_empty(), |d| {
                         d.child(div().absolute().inset_0().flex().items_center().justify_center().gap(t.space(2)).text_color(t.colors.fg_subtle).child(icon("globe").size(IconSize::Md)).child(i.t("br.address")))
                     })

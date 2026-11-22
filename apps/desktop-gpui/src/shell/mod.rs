@@ -40,6 +40,7 @@ pub mod editor_section;
 pub mod remote_section;
 pub mod browser;
 pub mod browser_agent;
+pub mod browser_devices;
 pub mod trajectory_panel;
 pub mod type_section;
 pub mod titlebar;

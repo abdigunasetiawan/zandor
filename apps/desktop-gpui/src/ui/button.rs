@@ -64,6 +64,9 @@ pub struct Button {
     soft_border: bool,
     /// Toggle aktif berwarna sukses (port `.composer__toggle[aria-pressed]`: teks hijau + tint 18%, hover 28%).
     success_on: bool,
+    /// Tombol di atas permukaan berwarna sendiri (mis. latar blok kode dari tema editor): ikon/teks memakai warna ini,
+    /// hover/tekan = warna yang sama dengan alpha, bukan token tema aplikasi (yang bisa tak terbaca di permukaan itu).
+    on_surface: Option<gpui::Hsla>,
     children: Vec<AnyElement>,
     on_click: Option<OnClick>,
 }
@@ -85,6 +88,7 @@ pub fn button(id: impl Into<ElementId>) -> Button {
         square_right: false,
         soft_border: false,
         success_on: false,
+        on_surface: None,
         children: Vec::new(),
         on_click: None,
     }
@@ -100,6 +104,11 @@ pub fn icon_button(id: impl Into<ElementId>, icon_name: &'static str, label: imp
 }
 
 impl Button {
+    /// Warna ikon di atas permukaan kustom (lihat `on_surface`); `None` = token tema biasa.
+    pub fn on_surface(mut self, fg: Option<gpui::Hsla>) -> Self {
+        self.on_surface = fg;
+        self
+    }
     /// Bentuk bulat penuh (port `.composer__round`, pil).
     /// Sudut kanan siku (kontrol yang menyambung ke kontrol lain di kanannya): hanya sudut luar yang membulat.
     pub fn square_right(mut self, v: bool) -> Self {
@@ -196,6 +205,10 @@ impl RenderOnce for Button {
         };
         let hover_bg = if self.soft_border && !solid { c.hover } else { hover_bg };
         let (bg, fg, hover_bg) = if self.success_on { (c.success.opacity(0.18), c.success, c.success.opacity(0.28)) } else { (bg, fg, hover_bg) };
+        let (bg, fg, hover_bg) = match self.on_surface {
+            Some(s) => (if self.pressed { s.opacity(0.2) } else { gpui::transparent_black() }, s, s.opacity(0.14)),
+            None => (bg, fg, hover_bg),
+        };
 
         let mut el = div()
             .id(self.id)
