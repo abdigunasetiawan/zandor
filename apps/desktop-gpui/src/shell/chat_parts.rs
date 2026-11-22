@@ -941,6 +941,11 @@ impl ChatPanel {
     }
 
     /// PinnedBar: daftar pesan yang disematkan (dapat dilipat); klik → gulir ke pesan.
+    /// Murah: apakah ada pesan tersemat yang tampil (tanpa membangun elemen bar).
+    pub(super) fn has_pinned(&self, sid: &str, turns: &[crate::core::chat::Turn], cx: &gpui::App) -> bool {
+        self.chat.read(cx).pinned_messages.get(sid).is_some_and(|ids| ids.iter().any(|id| turns.iter().any(|x| x.source_ids.contains(id))))
+    }
+
     pub(super) fn pinned_bar(&self, t: &Theme, i: &I18n, sid: &str, turns: &[crate::core::chat::Turn], cx: &mut Context<Self>) -> Option<AnyElement> {
         let ids = self.chat.read(cx).pinned_messages.get(sid).cloned().unwrap_or_default();
         let pinned: Vec<&crate::core::chat::Turn> = ids.iter().filter_map(|id| turns.iter().find(|x| x.source_ids.contains(id))).collect();

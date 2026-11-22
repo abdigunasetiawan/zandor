@@ -15,6 +15,8 @@ enum Msg {
 }
 
 pub struct ChatStore {
+    /// Ada notify yang tertunda untuk delta token (penggabungan render).
+    delta_pending: bool,
     api: Option<EngineApi>,
     pub sessions: HashMap<String, ChatState>,
     dirs: HashMap<String, String>,
@@ -79,22 +81,44 @@ pub struct QueuedMessage {
 fn prefs_path() -> std::path::PathBuf {
     super::services::app_data_dir().join("prefs.json")
 }
+/// Cache prefs.json di memori: dibaca dari disk sekali; tulis ke disk dilakukan di thread latar (tidak menahan UI).
+static PREFS: std::sync::Mutex<Option<serde_json::Value>> = std::sync::Mutex::new(None);
+/// Menserialkan penulisan ke disk agar snapshot terbaru selalu menang.
+static PREFS_DISK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn with_prefs<R>(f: impl FnOnce(&mut serde_json::Value) -> R) -> R {
+    let mut g = PREFS.lock().unwrap_or_else(|e| e.into_inner());
+    let v = g.get_or_insert_with(|| std::fs::read_to_string(prefs_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(serde_json::json!({})));
+    f(v)
+}
 pub fn read_pref(key: &str) -> Option<String> {
-    let t = std::fs::read_to_string(prefs_path()).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&t).ok()?;
-    v.get(key)?.as_str().map(String::from)
+    with_prefs(|v| v.get(key)?.as_str().map(String::from))
 }
 pub fn write_pref(key: &str, val: &str) {
-    let p = prefs_path();
-    let mut v: serde_json::Value =
-        std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(serde_json::json!({}));
-    v[key] = serde_json::json!(val);
-    if let Some(d) = p.parent() {
-        let _ = std::fs::create_dir_all(d);
+    let changed = with_prefs(|v| {
+        if v.get(key).and_then(|x| x.as_str()) == Some(val) {
+            return false;
+        }
+        v[key] = serde_json::json!(val);
+        true
+    });
+    if !changed {
+        return;
     }
-    if let Err(e) = std::fs::write(&p, v.to_string()) {
-        eprintln!("[zandor] gagal menyimpan preferensi: {e}");
-    }
+    std::thread::spawn(|| {
+        let _disk = PREFS_DISK.lock().unwrap_or_else(|e| e.into_inner());
+        let snapshot = with_prefs(|v| v.to_string());
+        let p = prefs_path();
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        // tulis atomik: berkas sementara lalu rename, supaya crash di tengah tulis tidak merusak prefs.json
+        let tmp = p.with_extension("json.tmp");
+        let res = std::fs::write(&tmp, snapshot).and_then(|_| std::fs::rename(&tmp, &p));
+        if let Err(e) = res {
+            eprintln!("[zandor] gagal menyimpan preferensi: {e}");
+        }
+    });
 }
 
 const PINNED_MSG_PREF: &str = "zandor.pinnedMessages";
@@ -128,7 +152,7 @@ impl Global for ChatHandle {}
 impl ChatStore {
     pub fn init(cx: &mut App) -> Entity<ChatStore> {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
-        let e = cx.new(|_| ChatStore { api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect(), retitled_at: HashMap::new(), next_steps: HashMap::new(), ns_for: HashMap::new(), ctx: ContextState::default() });
+        let e = cx.new(|_| ChatStore { delta_pending: false, api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect(), retitled_at: HashMap::new(), next_steps: HashMap::new(), ns_for: HashMap::new(), ctx: ContextState::default() });
         cx.set_global(ChatHandle(e.clone()));
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
@@ -157,7 +181,7 @@ impl ChatStore {
                                 }
                             }
                             if !matches!(ev, EngineEvent::PartDelta { .. }) {
-                                let label = format!("{:?}", ev).split(['(', ' ', '{']).next().unwrap_or("").to_string();
+                                let label = ev.name();
                                 let sid = ev.session_id().unwrap_or("-").to_string();
                                 s.activity.push_back((super::projects::now_ms(), format!("{label} · {sid}")));
                                 while s.activity.len() > 500 {
@@ -180,12 +204,30 @@ impl ChatStore {
                                 cx.notify();
                                 return;
                             };
+                            let is_delta = matches!(ev, EngineEvent::PartDelta { .. });
                             if let Some(st) = s.sessions.get_mut(&sid) {
                                 if st.apply(&ev) {
-                                    cx.notify();
+                                    if is_delta {
+                                        // Delta token: state langsung diperbarui, tetapi render digabung (maks ~30 Hz).
+                                        if !s.delta_pending {
+                                            s.delta_pending = true;
+                                            cx.spawn(async move |this, cx| {
+                                                cx.background_executor().timer(std::time::Duration::from_millis(33)).await;
+                                                let _ = this.update(cx, |s, cx| {
+                                                    s.delta_pending = false;
+                                                    cx.notify();
+                                                });
+                                            })
+                                            .detach();
+                                        }
+                                    } else {
+                                        cx.notify();
+                                    }
                                 }
                             }
-                            s.pump(&sid, false, cx);
+                            if !is_delta {
+                                s.pump(&sid, false, cx);
+                            }
                             if matches!(
                                 ev,
                                 EngineEvent::SessionStatus { status: super::types::SessionRunStatus::Idle, .. } | EngineEvent::SessionUpdated { title: Some(_), .. }

@@ -68,6 +68,7 @@ pub struct ChatPanel {
     focused_msg: Option<String>,
     expanded: HashSet<String>,
     last_count: usize,
+    measure_key: u64,
     msg_list: gpui::ListState,
     msg_list_sid: Option<String>,
     /// Salinan hidup sesi demo terbuka (izin/pertanyaan dijawab lokal; di-reset lewat tombol).
@@ -243,6 +244,7 @@ impl ChatPanel {
             focused_msg: None,
             expanded: HashSet::new(),
             last_count: 0,
+            measure_key: 0,
             busy_sid: None,
             msg_list: {
                 let l = gpui::ListState::new(0, gpui::ListAlignment::Top, gpui::px(600.));
@@ -882,7 +884,14 @@ impl Render for ChatPanel {
                 self.demo_state = crate::core::demo::demo_by_id(&id).map(|d| d.state.clone());
             }
         }
-        let state: Option<ChatState> = if is_demo { self.demo_state.clone() } else { cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id).cloned()) };
+        // Salinan ringan (tanpa riwayat pesan) + giliran yang sudah digabung: satu kali clone pesan per frame, bukan dua.
+        let (state, turns): (Option<ChatState>, Vec<crate::core::chat::Turn>) = {
+            let src = if is_demo { self.demo_state.as_ref() } else { cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id)) };
+            match src.map(|s| s.render_view()) {
+                Some((s, t)) => (Some(s), t),
+                None => (None, vec![]),
+            }
+        };
 
         let busy = state.as_ref().is_some_and(|s| s.busy());
         // "Bekerja selama …" diperbarui tiap detik hanya saat sesi berjalan (useNow).
@@ -1154,7 +1163,7 @@ impl Render for ChatPanel {
         let mem_toggles = self.memory_toggles(&t, i, cx);
         let welcome_layout = match (&state, &cur) {
             (None, _) => true,
-            (Some(st), Some(c)) => st.loaded && st.messages.is_empty() && st.error.is_none() && !self.sent_from_draft.contains(&c.1),
+            (Some(st), Some(c)) => st.loaded && st.n_messages == 0 && st.error.is_none() && !self.sent_from_draft.contains(&c.1),
             _ => false,
         };
         let qdock = cur.as_ref().and_then(|c| self.render_queue(&c.1.clone(), cx));
@@ -1235,7 +1244,7 @@ impl Render for ChatPanel {
 
         let welcome = match (&state, &cur) {
             (None, _) => true,
-            (Some(st), Some(c)) => st.loaded && st.messages.is_empty() && st.error.is_none() && !self.sent_from_draft.contains(&c.1),
+            (Some(st), Some(c)) => st.loaded && st.n_messages == 0 && st.error.is_none() && !self.sent_from_draft.contains(&c.1),
             _ => false,
         };
         // Popup pratinjau lampiran (dipakai di halaman sesi baru maupun sesi berjalan)
@@ -1313,7 +1322,6 @@ impl Render for ChatPanel {
         // ---- isi ----
         // Daftar virtual (gpui::list): hanya pesan yang terlihat yang dirender/di-parse. Mode Tail mengikuti
         // streaming selama pengguna berada di bawah.
-        let turns = crate::core::chat::merge_assistant_turns(st.visible());
         let last_assistant = turns.iter().rposition(|x| x.message.info.role == Role::Assistant);
         // Sesi Chat (tanpa project): begitu jawaban selesai, dokumen yang dihasilkan dibuka di Panel Dokumen.
         let finished = self.busy_sid.as_deref() == Some(sid.as_str()) && !busy;
@@ -1333,7 +1341,7 @@ impl Render for ChatPanel {
         let active_ix = if busy && last_assistant.is_some() && last_assistant == Some(turns.len().saturating_sub(1)) { last_assistant } else { None };
         let ns_count = self.chat.read(cx).next_steps.get(&sid).map_or(0, |v| v.len());
         let count: usize = turns.iter().map(|x| x.message.parts.len() + 1).sum::<usize>() + ns_count;
-        let has_pinned = self.pinned_bar(&t, i, &sid, &turns, cx).is_some();
+        let has_pinned = self.has_pinned(&sid, &turns, cx);
         let off = usize::from(has_pinned);
         let n = off + turns.len() + 1;
         let focus = cx.try_global::<MessageFocus>().and_then(|f| f.0.clone());
@@ -1352,7 +1360,19 @@ impl Render for ChatPanel {
                 ml.reset(n);
             }
         }
-        ml.remeasure();
+        // Ukur ulang hanya saat ada yang bisa mengubah tinggi item (streaming, lebar, tema, jumlah part, pin);
+        // memanggilnya tiap frame membuang tinggi terukur → scroll melompat dan kerja layout ganda.
+        let measure_key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            (count, n, cw.to_bits(), t.scale.to_bits(), t.dark, self.pins_open, format!("{:?}", i.locale)).hash(&mut h);
+            (t.font_ui.as_ref(), t.chat.size.map(f32::to_bits), t.chat.line.map(f32::to_bits), t.chat.gap.map(f32::to_bits), t.chat.font.as_ref().map(|f| f.to_string())).hash(&mut h);
+            h.finish()
+        };
+        if busy || measure_key != self.measure_key {
+            self.measure_key = measure_key;
+            ml.remeasure();
+        }
         if let Some(f) = &focus {
             if let Some(ix) = turns.iter().position(|x| x.source_ids.contains(f)) {
                 ml.scroll_to(gpui::ListOffset { item_ix: ix + off, offset_in_item: gpui::px(0.) });

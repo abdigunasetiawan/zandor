@@ -61,3 +61,11 @@ debug = false
 
 [build-dependencies]
 embed-resource = "3"
+
+# Rilis akhir (distribusi): `cargo build --profile dist --offline`. Lebih lambat dibangun, biner lebih kecil & cepat.
+# Pengembangan harian tetap memakai `release` (LTO thin, 16 unit) agar iterasi cepat.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+strip = true

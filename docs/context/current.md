@@ -67,6 +67,13 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
   - Catatan: draf komposer bersama sempat tertimpa saat uji; sesi uji di project `tes` ("Menyimpan kode...", "Kode uji
     memori...") belum dihapus.
 
+## Terbaru (22-11-2026, GPUI) — Audit performa (branch `zandor/perf-gpui`)
+
+- Streaming chat: render digabung ~30 Hz (`delta_pending` di `ChatStore`), part dicari dari belakang, log aktivitas pakai `EngineEvent::name()`.
+- Render chat: `ChatState::render_view` (salinan tanpa riwayat pesan + turn tergabung, satu clone per frame), `ml.remeasure()` hanya saat streaming/kunci ukuran berubah, `has_pinned` murah.
+- `mtime` dokumen aktif dicek di thread latar; `prefs.json` di-cache di memori dan ditulis atomik di thread latar; profil `dist` (fat LTO) untuk rilis.
+- Belum dikerjakan (perlu ukur dulu / refaktor besar): cache parse markdown, `Arc<Theme>`, pisah composer dari daftar pesan, virtualisasi file tree, polling Mermaid/agent berbasis event.
+
 ## Terbaru (22-11-2026, GPUI)
 
 - **Daftar tugas (todowrite)**: (1) Copy "Rencana" diganti **"Tugas"/"Tasks"** di i18n (`todo.*`, `dock.label`, `step.plan`, dll)

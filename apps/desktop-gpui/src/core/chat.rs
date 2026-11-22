@@ -8,6 +8,8 @@ pub struct ChatState {
     pub session_id: String,
     pub loaded: bool,
     pub messages: Vec<ChatMessage>,
+    /// Jumlah pesan sebenarnya; hanya diisi pada salinan `render_view` (di sana `messages` kosong).
+    pub n_messages: usize,
     pub status: SessionRunStatus,
     pub revert: Option<String>,
     pub permissions: Vec<PermissionRequest>,
@@ -23,6 +25,7 @@ impl ChatState {
             session_id: session_id.into(),
             loaded: false,
             messages: vec![],
+            n_messages: 0,
             status: SessionRunStatus::Idle,
             revert: None,
             permissions: vec![],
@@ -31,6 +34,26 @@ impl ChatState {
             error: None,
             pending: HashMap::new(),
         }
+    }
+
+    /// Salinan ringan untuk render: semua field kecuali `messages` (dikosongkan; jumlahnya di `n_messages`), plus giliran
+    /// tampilan yang sudah digabung. Menghindari dua kali clone seluruh riwayat pesan di tiap frame.
+    pub fn render_view(&self) -> (ChatState, Vec<Turn>) {
+        let turns = merge_assistant_turns(self.visible());
+        let slim = ChatState {
+            session_id: self.session_id.clone(),
+            loaded: self.loaded,
+            messages: vec![],
+            n_messages: self.messages.len(),
+            status: self.status.clone(),
+            revert: self.revert.clone(),
+            permissions: self.permissions.clone(),
+            questions: self.questions.clone(),
+            todos: self.todos.clone(),
+            error: self.error.clone(),
+            pending: HashMap::new(),
+        };
+        (slim, turns)
     }
 
     pub fn busy(&self) -> bool {
@@ -152,8 +175,9 @@ impl ChatState {
                 let part = self
                     .messages
                     .iter_mut()
+                    .rev() // delta hampir selalu untuk pesan/part paling akhir
                     .find(|m| m.info.id == *message_id)
-                    .and_then(|m| m.parts.iter_mut().find(|p| p.id == *part_id));
+                    .and_then(|m| m.parts.iter_mut().rev().find(|p| p.id == *part_id));
                 match part {
                     None => self.pending.entry(part_id.clone()).or_default().push_str(delta),
                     Some(p) => match &mut p.kind {

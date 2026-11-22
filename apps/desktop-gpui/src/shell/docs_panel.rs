@@ -214,17 +214,29 @@ impl DocsPanel {
         // Muat ulang otomatis berkas aktif bila berubah di disk (mis. diedit agent) dan tidak sedang diedit.
         cx.spawn(async move |this, cx| loop {
             cx.background_executor().timer(std::time::Duration::from_millis(800)).await;
+            // 1) tentukan berkas yang perlu dicek (murah, di thread UI)
+            let target = this.update(cx, |s, cx| {
+                let path = s.state.read(cx).active.clone()?;
+                if s.preview || s.editors.contains_key(&path) || s.state.read(cx).diffs.contains_key(&path) {
+                    return None;
+                }
+                let known = s.mtimes.get(&path).cloned().flatten()?;
+                Some((path, known))
+            });
+            let Ok(target) = target else { break };
+            let Some((path, known)) = target else { continue };
+            // 2) syscall `metadata` di thread latar (drive jaringan/antivirus bisa lambat)
+            let p2 = path.clone();
+            let now = cx.background_spawn(async move { mtime(&p2) }).await;
+            let Some(now) = now.filter(|n| *n != known) else { continue };
+            // 3) berubah: buang cache lalu render ulang (render memuat ulang dan memperbarui mtimes)
             let ok = this
                 .update(cx, |s, cx| {
-                    let Some(path) = s.state.read(cx).active.clone() else { return };
-                    if s.preview || s.editors.contains_key(&path) || s.state.read(cx).diffs.contains_key(&path) {
-                        return;
-                    }
-                    let (Some(known), Some(now)) = (s.mtimes.get(&path).cloned().flatten(), mtime(&path)) else { return };
-                    if now != known {
+                    if s.state.read(cx).active.as_deref() == Some(path.as_str()) && s.mtimes.get(&path).cloned().flatten() == Some(known) {
                         s.cache.remove(&path);
                         s.pdfs.remove(&path);
-                        cx.notify(); // render memuat ulang dan memperbarui mtimes
+                        let _ = now;
+                        cx.notify();
                     }
                 })
                 .is_ok();

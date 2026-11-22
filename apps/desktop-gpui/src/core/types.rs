@@ -194,6 +194,26 @@ pub enum EngineEvent {
 }
 
 impl EngineEvent {
+    /// Nama varian (murah; pengganti `format!("{:?}")` yang ikut mencetak seluruh payload).
+    pub fn name(&self) -> &'static str {
+        use EngineEvent::*;
+        match self {
+            MessageUpdated(_) => "MessageUpdated",
+            MessageRemoved { .. } => "MessageRemoved",
+            PartUpdated(_) => "PartUpdated",
+            PartRemoved { .. } => "PartRemoved",
+            PartDelta { .. } => "PartDelta",
+            SessionStatus { .. } => "SessionStatus",
+            SessionUpdated { .. } => "SessionUpdated",
+            SessionError { .. } => "SessionError",
+            PermissionAsked(_) => "PermissionAsked",
+            PermissionReplied { .. } => "PermissionReplied",
+            QuestionAsked(_) => "QuestionAsked",
+            QuestionClosed { .. } => "QuestionClosed",
+            TodoUpdated { .. } => "TodoUpdated",
+        }
+    }
+
     /// Sesi yang dituju event (bila ada).
     pub fn session_id(&self) -> Option<&str> {
         use EngineEvent::*;
