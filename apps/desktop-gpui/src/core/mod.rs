@@ -22,6 +22,7 @@ pub mod profile;
 pub mod projects;
 pub mod settings;
 pub mod services;
+pub mod update;
 pub mod mem;
 pub mod model_logo;
 pub mod model_prefs;

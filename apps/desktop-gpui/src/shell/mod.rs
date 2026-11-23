@@ -22,6 +22,7 @@ pub mod voice_section;
 pub mod projects_style_section;
 pub mod providers_section;
 pub mod acp_section;
+pub mod update_section;
 pub mod models_section;
 pub mod account_list;
 pub mod notification_driver;

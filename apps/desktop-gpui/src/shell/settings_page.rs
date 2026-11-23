@@ -39,6 +39,7 @@ pub struct SettingsPage {
     models: Option<Result<Vec<ModelOption>, String>>,
     providers: Entity<super::providers_section::ProvidersSection>,
     agents: Entity<super::acp_section::AcpSection>,
+    update: Entity<super::update_section::UpdateSection>,
     models_sec: Entity<super::models_section::ModelsSection>,
     notif: Entity<super::notification_section::NotificationSection>,
     profile: Entity<super::profile_section::ProfileSection>,
@@ -82,6 +83,7 @@ impl SettingsPage {
         .detach();
         let providers = cx.new(super::providers_section::ProvidersSection::new);
         let agents = cx.new(super::acp_section::AcpSection::new);
+        let update = cx.new(super::update_section::UpdateSection::new);
         // Daftar model berubah (engine dimulai ulang atau agent CLI diaktifkan): muat ulang.
         cx.observe(&crate::core::services::EngineStatus::global(cx), |s, _, cx| s.load_models(cx)).detach();
         let profile = cx.new(super::profile_section::ProfileSection::new);
@@ -112,7 +114,7 @@ impl SettingsPage {
                 a
             }
         });
-        let mut me = Self { memory, automation, app, settings, search, active: "general", ap_tab: "themes", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, agents, models_sec, notif, profile, voice, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
+        let mut me = Self { memory, automation, app, settings, search, active: "general", ap_tab: "themes", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, agents, update, models_sec, notif, profile, voice, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
         me.load_models(cx);
         me
     }
@@ -322,6 +324,9 @@ impl Render for SettingsPage {
             }
             if g == "chat" && matches_q(&q, &[&i.t("voice.vocabulary"), &i.t("voice.corrections"), &i.t("settings.voiceLanguage")]) {
                 rows.push(self.voice.clone().into_any_element());
+            }
+            if g == "general" && matches_q(&q, &[&i.t("update.title"), &i.t("update.keywords")]) {
+                rows.push(self.update.clone().into_any_element());
             }
             if g == "layout" && matches_q(&q, &[&i.t("settings.layout.reset"), &i.t("settings.layout.resetBody")]) {
                 rows.push(

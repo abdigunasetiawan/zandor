@@ -106,6 +106,12 @@ fn main() {
     if !single_instance::acquire_or_activate() {
         return;
     }
+    // Pindahkan folder data lama (id.web.zandor.app) ke %APPDATA%\Zandor sebelum apa pun membacanya (ADR-084).
+    let _ = core::services::app_data_dir();
+    // Pembaruan yang sudah terunduh tapi belum terpasang (Zandor sempat dihentikan paksa): pasang lalu buka ulang.
+    if core::update::apply_pending_at_start() {
+        return;
+    }
     gpui_platform::application()
         .with_assets(assets::Assets)
         .run(|cx: &mut App| {
@@ -117,8 +123,10 @@ fn main() {
             cx.set_global(I18n::new(detect_locale(std::env::var("LANG").ok().as_deref())));
             AppState::init("/", cx);
             core::services::init(cx);
+            core::update::Updater::init(cx);
             cx.on_app_quit(|cx| {
                 core::services::shutdown(cx);
+                core::update::Updater::apply_on_quit(cx);
                 async {}
             })
             .detach();

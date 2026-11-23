@@ -222,6 +222,9 @@ fn parse_remotes(v: &Value) -> Vec<RemoteEngine> {
 pub struct ProjectHost {
     pub registry: PathBuf,
     pub chats: PathBuf,
+    /// Folder `chats` di jalur data lama (junction setelah migrasi ADR-084): sesi lama tercatat di engine
+    /// dengan jalur ini, jadi daftar Chat juga menanyakannya.
+    pub legacy_chats: Option<PathBuf>,
 }
 
 pub struct ProjectStore {
@@ -478,6 +481,7 @@ impl ProjectStore {
         self.changed(cx);
         let key = key.to_string();
         let chats = self.host.chats.clone();
+        let legacy_chats = self.host.legacy_chats.clone();
         let is_chat = key == CHAT_KEY;
         let task = cx.background_spawn(async move {
             if !is_chat {
@@ -485,10 +489,18 @@ impl ProjectStore {
             }
             // Chat: folder Chat itu sendiri + semua folder sesi di bawahnya; folder gagal diabaikan selama ada yang berhasil.
             let mut dirs = vec![dir.clone()];
-            for p in crate::files::chat_folder_list(&chats) {
-                let s = p.to_string_lossy().into_owned();
+            let mut push = |s: String| {
                 if !dirs.contains(&s) {
                     dirs.push(s);
+                }
+            };
+            if let Some(l) = &legacy_chats {
+                push(normalize_path(&l.to_string_lossy()));
+            }
+            for p in crate::files::chat_folder_list(&chats) {
+                push(p.to_string_lossy().into_owned());
+                if let (Some(l), Some(name)) = (&legacy_chats, p.file_name()) {
+                    push(l.join(name).to_string_lossy().into_owned());
                 }
             }
             let mut out: Vec<SessionInfo> = Vec::new();

@@ -45,10 +45,87 @@ impl EngineStatus {
     }
 }
 
-/// Direktori data aplikasi. Build debug memakai data dev (sama dengan Zandor Dev), rilis memakai data produksi.
+/// Nama folder data: `%APPDATA%\Zandor` (rilis) dan `%APPDATA%\ZandorDev` (build debug, agar data
+/// pengembangan tidak mencampuri data harian). Nama lama (identifier Tauri) dimigrasikan sekali (ADR-084).
+const DATA_NAME: &str = if cfg!(debug_assertions) { "ZandorDev" } else { "Zandor" };
+const LEGACY_NAME: &str = if cfg!(debug_assertions) { "id.web.zandor.dev" } else { "id.web.zandor.app" };
+
+struct DataDirs {
+    current: PathBuf,
+    /// Jalur lama yang masih menunjuk ke data yang sama (junction setelah migrasi). Sesi engine menyimpan
+    /// direktori kerja sebagai jalur absolut, jadi sesi Chat lama tercatat di bawah jalur ini.
+    legacy: Option<PathBuf>,
+}
+
+static DATA_DIRS: std::sync::OnceLock<DataDirs> = std::sync::OnceLock::new();
+
+fn data_dirs() -> &'static DataDirs {
+    DATA_DIRS.get_or_init(|| {
+        let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        resolve_data_dirs(&base.join(DATA_NAME), &base.join(LEGACY_NAME), make_junction)
+    })
+}
+
+/// Tentukan folder data dan migrasikan folder lama bila perlu: pindahkan (rename, atomik di volume yang
+/// sama) lalu pasang junction di jalur lama supaya jalur absolut yang tersimpan tetap berlaku. Bila
+/// pemindahan gagal (mis. Zandor versi lama masih berjalan), sesi ini tetap memakai folder lama dan
+/// migrasi dicoba lagi pada start berikutnya.
+fn resolve_data_dirs(
+    new: &std::path::Path,
+    old: &std::path::Path,
+    link: impl Fn(&std::path::Path, &std::path::Path) -> bool,
+) -> DataDirs {
+    let legacy = |p: &std::path::Path| p.exists().then(|| p.to_path_buf());
+    if new.exists() {
+        return DataDirs { current: new.to_path_buf(), legacy: legacy(old) };
+    }
+    if !old.exists() {
+        return DataDirs { current: new.to_path_buf(), legacy: None };
+    }
+    match std::fs::rename(old, new) {
+        Ok(()) => {
+            if !link(old, new) {
+                eprintln!("[zandor] data: junction {} gagal; sesi Chat lama mungkin tidak terbuka", old.display());
+            }
+            eprintln!("[zandor] data: dipindah {} -> {}", old.display(), new.display());
+            DataDirs { current: new.to_path_buf(), legacy: legacy(old) }
+        }
+        Err(e) => {
+            eprintln!("[zandor] data: gagal memindah {} ({e}); memakai folder lama", old.display());
+            DataDirs { current: old.to_path_buf(), legacy: None }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn make_junction(link: &std::path::Path, target: &std::path::Path) -> bool {
+    use std::os::windows::process::CommandExt;
+    std::process::Command::new("cmd")
+        .arg("/c")
+        .arg("mklink")
+        .arg("/J")
+        .arg(link)
+        .arg(target)
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+#[cfg(not(windows))]
+fn make_junction(link: &std::path::Path, target: &std::path::Path) -> bool {
+    std::os::unix::fs::symlink(target, link).is_ok()
+}
+
+/// Direktori data aplikasi (lihat `DATA_NAME`). Panggilan pertama menjalankan migrasi folder lama.
 pub fn app_data_dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join(if cfg!(debug_assertions) { "id.web.zandor.dev" } else { "id.web.zandor.app" })
+    data_dirs().current.clone()
+}
+
+/// Jalur lama folder data yang masih menunjuk ke data yang sama (atau `None`).
+pub fn legacy_data_dir() -> Option<PathBuf> {
+    data_dirs().legacy.clone()
 }
 
 fn repo_tauri_dir() -> PathBuf {
@@ -93,7 +170,11 @@ pub fn init(cx: &mut App) {
     let data = app_data_dir();
     let _ = std::fs::create_dir_all(&data);
     let projects = ProjectStore::init(
-        ProjectHost { registry: crate::registry::registry_path(&data), chats: data.join("chats") },
+        ProjectHost {
+            registry: crate::registry::registry_path(&data),
+            chats: data.join("chats"),
+            legacy_chats: legacy_data_dir().map(|d| d.join("chats")),
+        },
         cx,
     );
 
@@ -156,4 +237,52 @@ pub fn shutdown(cx: &mut App) {
 #[allow(dead_code)]
 pub fn engine_ready<T>(cx: &Context<T>) -> bool {
     EngineStatus::global(cx).read(cx).state.info.is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("zandor-data-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn folder_lama_dipindah_ke_nama_baru() {
+        let base = tmp("pindah");
+        let (new, old) = (base.join("Zandor"), base.join("id.web.zandor.app"));
+        std::fs::create_dir_all(old.join("chats")).unwrap();
+        std::fs::write(old.join("prefs.json"), "{}").unwrap();
+        let d = resolve_data_dirs(&new, &old, |l, t| {
+            assert_eq!(t, new.as_path());
+            std::fs::create_dir_all(l).is_ok()
+        });
+        assert_eq!(d.current, new);
+        assert!(new.join("prefs.json").exists() && new.join("chats").is_dir());
+        assert_eq!(d.legacy.as_deref(), Some(old.as_path()));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn folder_baru_sudah_ada_tidak_dimigrasi() {
+        let base = tmp("ada");
+        let (new, old) = (base.join("Zandor"), base.join("lama"));
+        std::fs::create_dir_all(&new).unwrap();
+        let d = resolve_data_dirs(&new, &old, |_, _| panic!("tidak boleh membuat junction"));
+        assert_eq!(d.current, new);
+        assert!(d.legacy.is_none());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn instalasi_baru_memakai_nama_baru() {
+        let base = tmp("baru");
+        let d = resolve_data_dirs(&base.join("Zandor"), &base.join("lama"), |_, _| panic!("tidak ada yang dipindah"));
+        assert_eq!(d.current, base.join("Zandor"));
+        assert!(d.legacy.is_none());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

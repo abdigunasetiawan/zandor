@@ -8,6 +8,16 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
 `packages/*` dibekukan sebagai referensi paritas 1:1. Panduan: [`features/gpui.md`](../features/gpui.md). Bagian
 "Terbaru/Sebelumnya" di bawah mendeskripsikan perilaku versi React yang menjadi acuan port.
 
+- **Rilis dan pembaruan otomatis (23-11-2026, branch `zandor/release`, digabung ke `main` (lokal), ADR-084):**
+  - `core/update.rs` memeriksa `latest.json` di GitHub Releases, mengunduh installer di latar, memverifikasi Ed25519 +
+    SHA-256, lalu memasang senyap saat Zandor ditutup. "Mulai ulang sekarang" memasang segera.
+  - UI di Pengaturan > Umum > Pembaruan, dengan toast saat pembaruan siap.
+  - Installer NSIS per pengguna ada di `installer/zandor.nsi`; skrip rilis di `bun scripts/rilis.ts`
+    (panduan: `docs/features/release.md`).
+  - Folder data pindah ke `%APPDATA%\Zandor` (debug: `ZandorDev`). Folder lama di-rename dan diberi junction, dan
+    daftar Chat juga menanyakan jalur lama.
+  - Kunci publik pembaruan: `src/core/update_key.pub`. Kunci privat di `%USERPROFILE%\.zandor\` (wajib dicadangkan).
+  - Belum ada rilis pertama di GitHub; Authenticode belum ada.
 - **Agent CLI lewat ACP (23-11-2026, commit `38d722b`, digabung ke `zandor/perf-gpui`, ADR-083):** Claude Code,
   Codex, dan Gemini (Antigravity) bisa dipakai dengan langganan pengguna lewat Agent Client Protocol (`core/acp/`).
   - UI: Pengaturan > Model > Agent CLI dan langkah provider di Onboarding (`shell/acp_section.rs`, i18n ID+EN).
