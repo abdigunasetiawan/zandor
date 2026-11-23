@@ -9,6 +9,9 @@ Keputusan desain: [ADR-084](../decisions/ADR-084-pembaruan-otomatis-rilis.md). B
   - Tidak perlu hak admin.
   - Lokasi pemasangan: `%LOCALAPPDATA%\Programs\Zandor`.
   - Windows SmartScreen bisa memperingatkan karena installer belum ditandatangani. Pilih "More info" → "Run anyway".
+  - Pemasangan manual menampilkan halaman **Ketentuan Penggunaan (beta)** (`installer/terms-id.txt`/`terms-en.txt`,
+    UTF-8 ber-BOM) dengan kotak persetujuan; Berikutnya aktif setelah dicentang. Pembaruan otomatis (`/S /UPDATE`)
+    melewati halaman ini.
 - **Pembaruan:** berjalan otomatis.
   - Zandor memeriksa 30 detik setelah dibuka, lalu tiap 6 jam.
   - Bila ada versi baru, Zandor mengunduh dan memverifikasinya di latar, lalu memasangnya saat Zandor ditutup.

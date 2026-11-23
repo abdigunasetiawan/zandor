@@ -59,12 +59,11 @@ import {
 import { type FormEvent, useMemo, useState } from "react";
 import { build } from "../build";
 import { useIsDevBuild } from "./app-flavor";
-import { DEMO_KEY, DEMO_SESSIONS } from "./demo-sessions";
 import { targetIndex, useDragReorder } from "./dnd";
 import { type FilesScope, FilesTree } from "./FilesTree";
 import { ProjectStyleDialog, projectBackground } from "./ProjectStyleDialog";
 import { useProfile } from "./profile";
-import { SessionDot, SessionDotFor } from "./SessionDot";
+import { SessionDotFor } from "./SessionDot";
 import {
   useAppearance,
   useEngineState,
@@ -234,34 +233,6 @@ export function Sidebar() {
       />
       <SidebarFooter />
     </div>
-  );
-}
-
-/** Sesi demo bawaan (di dalam daftar Chat): disematkan, permanen (tidak bisa diganti nama/dihapus), hanya-baca. */
-function DemoRows() {
-  const { t } = useI18n();
-  const { projects } = useServices();
-  const state = useProjects();
-  return (
-    <ul className="tree__children sidebar__demo-rows" aria-label={t("sb.section.demo")}>
-      {DEMO_SESSIONS.map((d) => (
-        <li key={d.id}>
-          <div className="tree__row">
-            <button
-              type="button"
-              className="tree__demo"
-              title={t(d.subtitleKey)}
-              aria-current={state.selection.key === DEMO_KEY && state.selection.sessionId === d.id ? "true" : undefined}
-              onClick={() => projects.select(DEMO_KEY, d.id)}
-            >
-              <SessionDot state="idle" />
-              <span className="tree__label">{t(d.titleKey)}</span>
-              <PinIcon size="sm" className="tree__pin" />
-            </button>
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -698,7 +669,6 @@ function SessionsList({
                   />
                 </ContextMenu>
               )}
-              {open && kind === "chats" && settings.showDemos && <DemoRows />}
               {open && (
                 <SessionRows
                   keyId={key}

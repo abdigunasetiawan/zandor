@@ -6,6 +6,7 @@ use crate::core::appearance::{is_color, parse_color, AppearanceStore};
 use crate::core::gradient::{self, Spec, Stop, MAX_STOPS, MIN_STOPS};
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
+use crate::ui::color_picker::{ColorPicked, ColorPicker};
 use crate::ui::{button, icon, icon_button, select, tabs, ButtonVariant, ControlSize, IconSize, InputChanged, Slider, SliderChanged, TabItem, TextInput, Toasts, ToastInput, ToastTone, TypeExt};
 use gpui::{div, prelude::*, AnyElement, App, Context, Entity, EventEmitter, FontWeight, IntoElement, SharedString, Window};
 
@@ -45,6 +46,7 @@ struct StopRow {
 }
 
 pub struct ProjectStyleDialog {
+    _modal: crate::ui::ModalGuard,
     project: String,
     name: String,
     mode: SharedString,
@@ -62,6 +64,9 @@ pub struct ProjectStyleDialog {
     overlay_color: Entity<TextInput>,
     overlay_opacity: Entity<Slider>,
     fg: Entity<TextInput>,
+    wheel: Entity<ColorPicker>,
+    /// Kolom warna yang sedang membuka pemilih warna ("color", "overlay", "fg", "border", "stop-N").
+    picker: Option<String>,
 }
 
 fn text(cx: &mut Context<ProjectStyleDialog>, v: &str, ph: &str) -> Entity<TextInput> {
@@ -105,6 +110,7 @@ impl ProjectStyleDialog {
         let hex = i.t("pstyle.hexHint");
         let num = |v: &Option<String>, d: f32| v.as_deref().and_then(|x| x.parse::<f32>().ok()).unwrap_or(d);
         let mut me = Self {
+            _modal: crate::ui::ModalGuard::new(),
             project,
             name,
             mode: mode.into(),
@@ -122,9 +128,70 @@ impl ProjectStyleDialog {
             overlay_color: text(cx, overlay_color.as_deref().unwrap_or(DEFAULT_OVERLAY_COLOR), &hex),
             overlay_opacity: slider(cx, num(&overlay_opacity, 50.), 0., 100., 1., String::new()),
             fg: text(cx, fg.as_deref().unwrap_or(""), &hex),
+            wheel: cx.new(|cx| ColorPicker::new(DEFAULT_PROJECT_COLOR, cx)),
+            picker: None,
         };
+        cx.subscribe(&me.wheel, |this, _, e: &ColorPicked, cx| this.apply_pick(&e.0, cx)).detach();
         me.set_spec(spec, cx);
         me
+    }
+
+    fn input_for(&self, key: &str) -> Option<Entity<TextInput>> {
+        match key {
+            "color" => Some(self.color.clone()),
+            "overlay" => Some(self.overlay_color.clone()),
+            "fg" => Some(self.fg.clone()),
+            "border" => Some(self.border.clone()),
+            k => k.strip_prefix("stop-").and_then(|n| n.parse::<usize>().ok()).and_then(|n| self.stops.get(n)).map(|s| s.color.clone()),
+        }
+    }
+
+    fn apply_pick(&mut self, hex: &str, cx: &mut Context<Self>) {
+        if let Some(input) = self.picker.as_deref().and_then(|k| self.input_for(k)) {
+            let hex = hex.to_string();
+            input.update(cx, |t, cx| t.set_text(hex, cx));
+        }
+        cx.notify();
+    }
+
+    fn toggle_picker(&mut self, key: &str, cx: &mut Context<Self>) {
+        if self.picker.as_deref() == Some(key) {
+            self.picker = None;
+        } else {
+            if let Some(input) = self.input_for(key) {
+                let cur = input.read(cx).text().trim().to_string();
+                self.wheel.update(cx, |w, cx| w.set_hex(&cur, cx));
+            }
+            self.picker = Some(key.to_string());
+        }
+        cx.notify();
+    }
+
+    /// Kolom warna: contoh warna, kolom hex, tombol pemilih warna; roda terbuka di bawahnya.
+    fn color_field(&self, t: &Theme, key: &str, input: &Entity<TextInput>, cx: &mut Context<Self>) -> AnyElement {
+        let v = input.read(cx).text().trim().to_string();
+        let swatch = parse_color(&v);
+        let open = self.picker.as_deref() == Some(key);
+        let k = key.to_string();
+        let i = cx.global::<I18n>().clone();
+        let mut col = div().flex().flex_col().gap(t.space(2)).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(t.space(2))
+                .child(div().flex_none().size(t.rem(rem::CONTROL_SM)).rounded(t.rem(rem::RADIUS_SM)).border_1().border_color(t.colors.border).when_some(swatch, |d, c| d.bg(c)))
+                .child(div().flex_1().child(input.clone()))
+                .child(
+                    icon_button(SharedString::from(format!("pst-wheel-{key}")), "palette", i.t("pstyle.wheel"))
+                        .variant(if open { ButtonVariant::Outline } else { ButtonVariant::Ghost })
+                        .size(ControlSize::Sm)
+                        .on_click(cx.listener(move |s, _, _, cx| s.toggle_picker(&k, cx))),
+                ),
+        );
+        if open {
+            col = col.child(div().flex().justify_center().child(self.wheel.clone()));
+        }
+        col.into_any_element()
     }
 
     fn set_spec(&mut self, spec: Spec, cx: &mut Context<Self>) {
@@ -244,16 +311,13 @@ impl ProjectStyleDialog {
     }
 }
 
-fn color_field(t: &Theme, input: &Entity<TextInput>, cx: &App) -> AnyElement {
-    let v = input.read(cx).text().trim().to_string();
-    let swatch = parse_color(&v);
-    div()
-        .flex()
-        .items_center()
-        .gap(t.space(2))
-        .child(div().flex_none().size(t.rem(rem::CONTROL_SM)).rounded(t.rem(rem::RADIUS_SM)).border_1().border_color(t.colors.border).when_some(swatch, |d, c| d.bg(c)))
-        .child(div().flex_1().child(input.clone()))
-        .into_any_element()
+/// `icon()` selalu memakai warna tema dan tidak mewarisi warna induk, jadi warna teks/ikon kustom
+/// harus diteruskan ke ikon secara eksplisit.
+pub(super) fn tinted(i: crate::ui::Icon, c: Option<gpui::Hsla>) -> crate::ui::Icon {
+    match c {
+        Some(c) => i.color(c),
+        None => i,
+    }
 }
 
 fn labeled(t: &Theme, label: String, hint: Option<String>, el: impl IntoElement) -> gpui::Div {
@@ -289,14 +353,14 @@ impl Render for ProjectStyleDialog {
                 None => div().flex_none().w(t.rem(rem::ICON_MD)).flex().justify_center().child(if logo_txt.is_empty() { "📁".to_string() } else { logo_txt }).into_any_element(),
             })
             .child(div().flex_1().min_w_0().truncate().child(self.name.clone()))
-            .child(icon("folder").size(IconSize::Sm))
-            .child(icon("plus").size(IconSize::Sm))
-            .child(icon("more").size(IconSize::Sm));
+            .child(tinted(icon("folder").size(IconSize::Sm), pfg))
+            .child(tinted(icon("plus").size(IconSize::Sm), pfg))
+            .child(tinted(icon("more").size(IconSize::Sm), pfg));
 
         // ---- isi tab latar ----
         let mode = self.mode.to_string();
         let bg_body: AnyElement = match mode.as_str() {
-            "color" => color_field(&t, &self.color, cx),
+            "color" => self.color_field(&t, "color", &self.color, cx),
             "gradient" => {
                 let mut tpl = div().flex().flex_wrap().gap(t.space(1));
                 for (n, (_, name, ..)) in gradient::TEMPLATES.iter().enumerate() {
@@ -346,7 +410,7 @@ impl Render for ProjectStyleDialog {
                             .flex()
                             .items_center()
                             .gap(t.space(2))
-                            .child(div().flex_1().child(labeled(&t, i.tp("pstyle.stop", &[("n", &(n + 1).to_string())]), None, color_field(&t, &st.color, cx))))
+                            .child(div().flex_1().child(labeled(&t, i.tp("pstyle.stop", &[("n", &(n + 1).to_string())]), None, self.color_field(&t, &format!("stop-{n}"), &st.color, cx))))
                             .child(div().flex_1().child(st.pos.clone()))
                             .child(icon_button(SharedString::from(format!("pst-rm-{n}")), "trash", i.tp("pstyle.removeStop", &[("n", &(n + 1).to_string())])).size(ControlSize::Sm).disabled(n_stops <= MIN_STOPS).on_click(cx.listener(move |s, _, _, cx| {
                                 let mut sp = s.current_spec(cx);
@@ -430,12 +494,12 @@ impl Render for ProjectStyleDialog {
                 }),
             ));
             if self.overlay.as_ref() != "none" {
-                sec = sec.child(labeled(&t, i.t("pstyle.overlay.color"), None, color_field(&t, &self.overlay_color, cx))).child(self.overlay_opacity.clone());
+                sec = sec.child(labeled(&t, i.t("pstyle.overlay.color"), None, self.color_field(&t, "overlay", &self.overlay_color, cx))).child(self.overlay_opacity.clone());
             }
             body = body.child(sec);
         }
         body = body
-            .child(labeled(&t, i.t("pstyle.fg"), Some(i.t("pstyle.fgHint")), color_field(&t, &self.fg, cx)))
+            .child(labeled(&t, i.t("pstyle.fg"), Some(i.t("pstyle.fgHint")), self.color_field(&t, "fg", &self.fg, cx)))
             .child(labeled(
                 &t,
                 i.t("pstyle.logo"),
@@ -453,7 +517,7 @@ impl Render for ProjectStyleDialog {
                         })))
                     }),
             ))
-            .child(labeled(&t, i.t("pstyle.border"), None, color_field(&t, &self.border, cx)));
+            .child(labeled(&t, i.t("pstyle.border"), None, self.color_field(&t, "border", &self.border, cx)));
 
         crate::ui::dialog(i.tp("pstyle.title", &[("name", &self.name)]))
             .width_rem(rem::SPACE[7] * 12.)

@@ -275,6 +275,7 @@ impl ShellLayout {
         cx.set_global(super::agent_control::ActiveTool(self.active_tool));
         let names: Vec<String> = v["collapsed"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
         self.app.update(cx, |a, _| {
+            a.collapsed.clear(); // tata letak tersimpan menggantikan tampilan awal sepenuhnya
             for p in PANEL_IDS {
                 if names.contains(&format!("{p:?}")) {
                     a.collapsed.insert(p);

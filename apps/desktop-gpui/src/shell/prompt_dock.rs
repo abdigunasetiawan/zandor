@@ -68,26 +68,6 @@ fn dock_card(t: &Theme) -> gpui::Div {
 }
 
 impl ChatPanel {
-    /// Sesi demo: jawaban izin/pertanyaan hanya lokal (kartu dilepas + toast), tidak dikirim ke engine (port DemoChat).
-    /// `true` bila `sid` adalah sesi demo yang terbuka.
-    pub(super) fn demo_reply(&mut self, sid: &str, req: &str, answers: Option<&Vec<Vec<String>>>, perm: Option<PermissionReply>, cx: &mut Context<Self>) -> bool {
-        let Some(st) = self.demo_state.as_mut().filter(|s| s.session_id == sid) else { return false };
-        let i = cx.global::<I18n>().clone();
-        let msg = if let Some(r) = perm {
-            st.permissions.retain(|p| p.id != req);
-            i.tp("demo.answered.permission", &[("reply", &i.t(&format!("demo.reply.{}", r.as_str())))])
-        } else {
-            st.questions.retain(|q| q.id != req);
-            match answers {
-                Some(a) => i.tp("demo.answered.question", &[("answers", &a.iter().map(|x| x.join(", ")).collect::<Vec<_>>().join(" | "))]),
-                None => i.t("demo.answered.skipped"),
-            }
-        };
-        crate::ui::Toasts::show(crate::ui::ToastInput { tone: crate::ui::ToastTone::Success, ..crate::ui::ToastInput::new(msg) }, cx);
-        cx.notify();
-        true
-    }
-
     pub(super) fn render_dock(&mut self, st: &ChatState, sid: &str, queue: Option<AnyElement>, cx: &mut Context<Self>) -> Option<AnyElement> {
         let pending = st.permissions.len() + st.questions.len();
         if pending == 0 && st.todos.is_empty() && queue.is_none() {
@@ -255,9 +235,7 @@ impl ChatPanel {
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Sm)
                     .on_click(cx.listener(move |s, _, _, cx| {
-                        if !s.demo_reply(&sid2, &r2, None, None, cx) {
-                            s.chat.update(cx, |c, cx| c.reply_question(&sid2, &r2, None, cx))
-                        }
+                        s.chat.update(cx, |c, cx| c.reply_question(&sid2, &r2, None, cx))
                     })),
             );
         }
@@ -282,9 +260,7 @@ impl ChatPanel {
                         let Some(qs) = s.dock.q.get(&r2) else { return };
                         let a = answers(&req2, qs, |n| qs.custom.get(&n).map(|e| e.read(cx).text().to_string()).unwrap_or_default());
                         if a.iter().all(|x| !x.is_empty()) {
-                            if !s.demo_reply(&sid2, &r2, Some(&a), None, cx) {
-                                s.chat.update(cx, |c, cx| c.reply_question(&sid2, &r2, Some(a), cx));
-                            }
+                            s.chat.update(cx, |c, cx| c.reply_question(&sid2, &r2, Some(a), cx));
                         }
                     })),
             );
@@ -317,9 +293,7 @@ impl ChatPanel {
                 .variant(v)
                 .size(ControlSize::Sm)
                 .on_click(cx.listener(move |s, _, _, cx| {
-                    if !s.demo_reply(&sid, &rid, None, Some(r), cx) {
-                        s.chat.update(cx, |c, cx| c.reply_permission(&sid, &rid, r, cx))
-                    }
+                    s.chat.update(cx, |c, cx| c.reply_permission(&sid, &rid, r, cx))
                 }))
         };
         let title = i.tp("chat.permission.title", &[("permission", &p.permission)]);

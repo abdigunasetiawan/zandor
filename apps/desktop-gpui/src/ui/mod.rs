@@ -2,6 +2,7 @@
 #![allow(dead_code, unused_imports)]
 pub mod button;
 pub mod choice;
+pub mod color_picker;
 pub mod feedback;
 pub mod highlight;
 pub mod icon;
@@ -40,6 +41,29 @@ thread_local! {
 pub fn overlay_deferred(child: impl gpui::IntoElement) -> gpui::Deferred {
     OVERLAY.with(|o| o.set(true));
     gpui::deferred(child)
+}
+
+static MODALS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Penanda dialog modal yang sedang terbuka. Berbeda dari `overlay_deferred` (penanda per frame yang bisa terlewat bila
+/// view tidak digambar ulang), penjaga ini aktif selama dialog hidup; Browser menyembunyikan webview selama ada.
+pub struct ModalGuard;
+
+impl ModalGuard {
+    pub fn new() -> Self {
+        MODALS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for ModalGuard {
+    fn drop(&mut self) {
+        MODALS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+pub fn modal_open() -> bool {
+    MODALS.load(std::sync::atomic::Ordering::Relaxed) > 0
 }
 
 /// Baca lalu reset penanda overlay (dipanggil sekali per frame oleh host Browser).

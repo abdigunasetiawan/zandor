@@ -347,16 +347,6 @@
         "group": "chat"
       }
     },
-    "showDemos": {
-      "type": "boolean",
-      "title": "Tampilkan sesi demo",
-      "description": "Tampilkan tiga sesi demo bawaan di daftar Chat.",
-      "default": true,
-      "x-zandor": {
-        "titleKey": "settings.showDemos",
-        "group": "chat"
-      }
-    },
     "terminalFontSize": {
       "type": "number",
       "title": "Ukuran huruf terminal",

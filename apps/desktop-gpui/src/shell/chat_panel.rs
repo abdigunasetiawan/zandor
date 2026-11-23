@@ -74,8 +74,6 @@ pub struct ChatPanel {
     turns_cache: Option<((String, u64, Option<String>), std::rc::Rc<Vec<crate::core::chat::Turn>>)>,
     msg_list: gpui::ListState,
     msg_list_sid: Option<String>,
-    /// Salinan hidup sesi demo terbuka (izin/pertanyaan dijawab lokal; di-reset lewat tombol).
-    demo_state: Option<ChatState>,
     pending_new: bool,
     /// Sesi terakhir yang composernya sudah difokuskan.
     focused_sid: Option<String>,
@@ -262,7 +260,6 @@ impl ChatPanel {
                 l
             },
             msg_list_sid: None,
-            demo_state: None,
             pending_new: false,
             focused_sid: None,
             composer_w: 0.,
@@ -377,12 +374,6 @@ impl ChatPanel {
     }
 
     fn current(&self, cx: &App) -> Option<(String, String, String, String)> {
-        let sel = &self.store.read(cx).selection;
-        if sel.key.as_deref() == Some(crate::core::demo::DEMO_KEY) {
-            let id = sel.session_id.clone()?;
-            let d = crate::core::demo::demo_by_id(&id)?;
-            return Some((crate::core::demo::DEMO_KEY.into(), id, String::new(), cx.global::<I18n>().t(&d.title_key)));
-        }
         let (key, s, p) = self.store.read(cx).selected()?;
         let dir = if !s.directory.is_empty() { s.directory.clone() } else { p.map(|p| p.path).unwrap_or_default() };
         let title = session_title(&s).map(str::to_string).unwrap_or_default();
@@ -401,8 +392,13 @@ impl ChatPanel {
             this.update(cx, |s, cx| {
                 if s.chat.read(cx).model.is_none() {
                     let saved = crate::core::chat_store::read_pref("zandor.model");
+                    // tersimpan → model chat bawaan (Pengaturan) → pertama kali: DeepSeek dari opencode → model pertama
+                    let by_key = |k: String| list.iter().find(|m| format!("{}/{}", m.provider_id, m.model_id) == k);
+                    let default_chat = crate::core::model_prefs::ModelPrefsStore::global(cx).and_then(|p| p.read(cx).prefs.default_chat.as_ref().map(|r| r.key()));
                     let pick = saved
-                        .and_then(|k| list.iter().find(|m| format!("{}/{}", m.provider_id, m.model_id) == k))
+                        .and_then(by_key)
+                        .or_else(|| default_chat.and_then(by_key))
+                        .or_else(|| crate::core::model_prefs::first_run_model(&list))
                         .or(list.first());
                     if let Some(m) = pick {
                         let r = crate::core::engine::ModelRef { provider_id: m.provider_id.clone(), model_id: m.model_id.clone() };
@@ -743,19 +739,19 @@ impl ChatPanel {
         let mut extra: Option<AnyElement> = None;
         let el = match m.info.role {
             Role::User => {
-                let tb = if c.key == crate::core::demo::DEMO_KEY { div().into_any_element() } else { self.message_toolbar(&t, i, turn, &c.sid, &c.key, false, cx) };
+                let tb = self.message_toolbar(&t, i, turn, &c.sid, &c.key, false, cx);
                 user_msg(&t, m, SharedString::from(format!("m-{}", m.info.id)), tb).unwrap_or_else(|| div().into_any_element())
             }
             Role::Assistant => {
                 let pid = m.info.provider_id.clone();
                 let provider_name = self.models.iter().find(|x| Some(&x.provider_id) == pid.as_ref()).map(|x| x.provider_name.clone()).or(pid).unwrap_or_default();
                 let is_last = c.last_assistant == Some(k) && !c.busy;
-                let tb = (m.info.completed.is_some() && !streaming && c.key != crate::core::demo::DEMO_KEY).then(|| self.message_toolbar(&t, i, turn, &c.sid, &c.key, is_last, cx));
+                let tb = (m.info.completed.is_some() && !streaming).then(|| self.message_toolbar(&t, i, turn, &c.sid, &c.key, is_last, cx));
                 let interrupted = !streaming && c.loaded && crate::core::resume::is_interrupted(&m.info, c.busy);
                 let resume_note = k.checked_sub(1).and_then(|p| crate::core::resume::resume_note(&c.turns[p].message)).map(String::from);
-                let ctx = chat_parts::TurnCtx { interrupted, can_resume: interrupted && is_last && c.key != crate::core::demo::DEMO_KEY, resume_note, sid: c.sid.clone() };
+                let ctx = chat_parts::TurnCtx { interrupted, can_resume: interrupted && is_last, resume_note, sid: c.sid.clone() };
                 // kartu kesimpulan menetap di bawah jawaban terakhir tiap pertukaran; tombol aktif hanya di jawaban terakhir
-                if c.loaded && c.key != crate::core::demo::DEMO_KEY && c.turns.get(k + 1).is_none_or(|n| n.message.info.role == Role::User) {
+                if c.loaded && c.turns.get(k + 1).is_none_or(|n| n.message.info.role == Role::User) {
                     let owner = c.turns[..k].iter().rev().find(|x| x.message.info.role == Role::User).map(|x| x.message.info.id.clone());
                     let found = owner.and_then(|uid| self.chat.read(cx).next_steps.get(&c.sid).and_then(|v| v.iter().find(|n| n.for_msg == uid)).cloned());
                     if let Some(ns) = found {
@@ -889,17 +885,10 @@ impl Render for ChatPanel {
             self.focused_sid = cur_id;
         }
         let engine_ready = self.engine.read(cx).state.info.is_some();
-        let is_demo = cur.as_ref().is_some_and(|c| c.0 == crate::core::demo::DEMO_KEY);
-        if is_demo {
-            let id = cur.as_ref().map(|c| c.1.clone()).unwrap_or_default();
-            if self.demo_state.as_ref().map(|s| s.session_id.as_str()) != crate::core::demo::demo_by_id(&id).map(|d| d.state.session_id.as_str()) {
-                self.demo_state = crate::core::demo::demo_by_id(&id).map(|d| d.state.clone());
-            }
-        }
         // Salinan ringan (tanpa riwayat pesan) + giliran yang sudah digabung: satu kali clone pesan per frame, bukan dua.
         // Giliran tergabung di-cache per (sesi, rev, revert): ketikan di composer dan notify lain tidak lagi meng-clone riwayat.
         let (state, turns): (Option<ChatState>, std::rc::Rc<Vec<crate::core::chat::Turn>>) = {
-            let src = if is_demo { self.demo_state.as_ref() } else { cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id)) };
+            let src = cur.as_ref().and_then(|(_, id, _, _)| self.chat.read(cx).sessions.get(id));
             match src {
                 Some(s) => {
                     let key = (s.session_id.clone(), s.rev, s.revert.clone());
@@ -1193,29 +1182,6 @@ impl Render for ChatPanel {
             (Some(st), Some(c)) => self.render_dock(st, &c.1.clone(), qdock, cx),
             _ => qdock,
         };
-        // Demo: tanpa composer; dock izin/pertanyaan/rencana berdiri sendiri di bawah transkrip.
-        let (qdock, demo_dock) = if is_demo { (None, qdock) } else { (qdock, None) };
-        let demo_banner = is_demo.then(|| {
-            let def = cur.as_ref().and_then(|c| crate::core::demo::demo_by_id(&c.1));
-            let pending = def.is_some_and(|d| d.state.permissions.len() + d.state.questions.len() > 0);
-            div()
-                .flex()
-                .items_center()
-                .gap(t.space(2))
-                .px(t.space(3))
-                .py(t.space(2))
-                .border_b_1()
-                .border_color(t.colors.border)
-                .child(crate::ui::badge(i.t("demo.badge")).tone(crate::ui::BadgeTone::Outline))
-                .child(div().flex_1().min_w_0().small(&t).text_color(t.colors.fg_muted).child(i.t("demo.banner")))
-                .when(pending, |d| {
-                    d.child(crate::ui::button("demo-reset").size(ControlSize::Sm).label(i.t("demo.reset")).on_click(cx.listener(|s, _, _, cx| {
-                        s.demo_state = None;
-                        s.dock = Default::default();
-                        cx.notify();
-                    })))
-                })
-        });
         let psuggest = self.render_project_suggest(&t, i, cx);
         let composer = div().w_full().when(!welcome_layout, |d| d.px(t.space(3)).pb(t.space(3))).flex().flex_col().gap(t.space(2)).children(psuggest).children(qdock).children(sug_el).children(chips).child(
             div()
@@ -1329,7 +1295,7 @@ impl Render for ChatPanel {
         // Sesi Chat (tanpa project): begitu jawaban selesai, dokumen yang dihasilkan dibuka di Panel Dokumen.
         let finished = self.busy_sid.as_deref() == Some(sid.as_str()) && !busy;
         self.busy_sid = busy.then(|| sid.clone());
-        if finished && !has_project && !is_demo {
+        if finished && !has_project {
             if let Some(m) = last_assistant.map(|k| &turns[k]) {
                 let parts: Vec<&MessagePart> = m.message.parts.iter().filter(|p| !matches!(p.kind, PartKind::Other { .. } | PartKind::StepFinish { .. })).collect();
                 let (process, _) = crate::core::tool_view::split_turn(&parts);
@@ -1417,10 +1383,8 @@ impl Render for ChatPanel {
             .flex_col()
             .size_full()
             .child(tabs_bar)
-            .children(demo_banner)
             .child(body)
-            .when(is_demo, |d| d.children(demo_dock.map(|dk| div().w_full().max_w(t.rem(cw * ratio)).mx_auto().px(t.space(3)).pb(t.space(3)).child(dk))))
-            .when(!is_demo, |d| d.child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer)))
+            .child(div().w_full().max_w(t.rem(cw * ratio)).mx_auto().child(composer))
             .children(att_dialog)
             .children(revert_dialog)
             .into_any_element()

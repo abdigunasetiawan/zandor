@@ -1,0 +1,27 @@
+﻿KETENTUAN PENGGUNAAN ZANDOR (BETA)
+
+Harap baca ketentuan ini sebelum memasang Zandor. Dengan mencentang kotak persetujuan dan melanjutkan pemasangan, Anda menyetujui ketentuan berikut.
+
+1. Perangkat lunak beta
+Zandor masih dalam tahap beta. Aplikasi ini disediakan "apa adanya", tanpa jaminan apa pun, baik tersurat maupun tersirat, termasuk jaminan bebas galat, kesesuaian untuk tujuan tertentu, atau ketersediaan terus-menerus. Fitur dapat berubah atau dihapus kapan saja.
+
+2. Pembaruan otomatis
+Zandor memeriksa pembaruan secara berkala ke halaman rilis resmi di GitHub, mengunduh versi baru di latar belakang, memverifikasi tanda tangan digitalnya, lalu memasangnya saat aplikasi ditutup atau dimulai ulang. Pemeriksaan ini hanya mengambil berkas rilis dan tidak mengirim data pribadi Anda.
+
+3. Data Anda
+Percakapan, project, memori, dan pengaturan disimpan di komputer Anda (folder %APPDATA%\Zandor). Zandor tidak mengirim telemetri atau data penggunaan ke pengembang. Pesan yang Anda kirim ke model AI diteruskan ke penyedia model yang Anda pilih (misalnya OpenCode, Anthropic, OpenAI, atau DeepSeek) dan tunduk pada ketentuan serta kebijakan privasi penyedia tersebut. Kunci API dan akun penyedia adalah tanggung jawab Anda.
+
+4. Tindakan agent
+Agent AI di Zandor dapat membaca dan mengubah berkas, menjalankan perintah, dan membuka situs web sesuai izin yang Anda berikan. Tinjau setiap permintaan izin dengan cermat dan cadangkan data penting Anda. Anda bertanggung jawab atas tindakan yang Anda setujui serta atas penggunaan hasil yang dibuat AI, yang bisa saja keliru.
+
+5. Penggunaan yang wajar
+Anda setuju untuk tidak memakai Zandor untuk kegiatan yang melanggar hukum, melanggar hak pihak lain, atau melanggar ketentuan penyedia model yang Anda gunakan.
+
+6. Batasan tanggung jawab
+Sejauh diizinkan oleh hukum yang berlaku, pengembang Zandor tidak bertanggung jawab atas kerugian apa pun, termasuk kehilangan data, yang timbul dari penggunaan atau ketidakmampuan menggunakan aplikasi ini.
+
+7. Perubahan ketentuan
+Ketentuan ini dapat diperbarui bersama versi baru Zandor. Dengan terus memakai Zandor setelah pembaruan, Anda menyetujui ketentuan yang berlaku saat itu.
+
+8. Menghapus Zandor
+Anda dapat menghapus Zandor kapan saja lewat Pengaturan Windows > Aplikasi. Data Anda di %APPDATA%\Zandor tidak ikut dihapus; hapus folder itu sendiri bila tidak diperlukan lagi.

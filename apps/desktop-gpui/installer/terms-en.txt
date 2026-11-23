@@ -1,0 +1,27 @@
+﻿ZANDOR TERMS OF USE (BETA)
+
+Please read these terms before installing Zandor. By ticking the agreement box and continuing the installation, you agree to the following terms.
+
+1. Beta software
+Zandor is in beta. It is provided "as is", without warranty of any kind, express or implied, including any warranty of being error-free, fitness for a particular purpose, or continuous availability. Features may change or be removed at any time.
+
+2. Automatic updates
+Zandor periodically checks the official release page on GitHub for updates, downloads new versions in the background, verifies their digital signature, and installs them when the app is closed or restarted. These checks only fetch release files and do not send your personal data.
+
+3. Your data
+Conversations, projects, memory, and settings are stored on your computer (the %APPDATA%\Zandor folder). Zandor does not send telemetry or usage data to its developers. Messages you send to an AI model are forwarded to the model provider you choose (for example OpenCode, Anthropic, OpenAI, or DeepSeek) and are subject to that provider's terms and privacy policy. You are responsible for your API keys and provider accounts.
+
+4. Agent actions
+AI agents in Zandor can read and change files, run commands, and open websites according to the permissions you grant. Review every permission request carefully and back up your important data. You are responsible for the actions you approve and for how you use AI-generated output, which may be wrong.
+
+5. Acceptable use
+You agree not to use Zandor for unlawful activities, to infringe the rights of others, or to violate the terms of the model providers you use.
+
+6. Limitation of liability
+To the extent permitted by applicable law, Zandor's developers are not liable for any loss, including loss of data, arising from the use of or inability to use this application.
+
+7. Changes to these terms
+These terms may be updated together with new versions of Zandor. By continuing to use Zandor after an update, you agree to the terms in effect at that time.
+
+8. Removing Zandor
+You can uninstall Zandor at any time from Windows Settings > Apps. Your data in %APPDATA%\Zandor is not removed; delete that folder yourself if you no longer need it.

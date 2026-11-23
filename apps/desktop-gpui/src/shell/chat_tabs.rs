@@ -55,9 +55,6 @@ impl ChatPanel {
         let title = sid
             .as_deref()
             .map(|id| {
-                if key == crate::core::demo::DEMO_KEY {
-                    return crate::core::demo::demo_by_id(id).map(|d| i.t(&d.title_key)).unwrap_or_else(|| i.t("sb.untitled"));
-                }
                 sessions.get(&key).and_then(|g| g.items.iter().find(|x| x.id == id)).and_then(|s| session_title(s).map(str::to_string)).unwrap_or_else(|| i.t("sb.untitled"))
             })
             .unwrap_or_else(|| i.t("sb.untitled"));

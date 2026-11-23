@@ -314,23 +314,13 @@ fn project_layers(ap: &crate::core::appearance::AppearanceStore, id: &str, radiu
 /// persegi, jadi tiap lapisan harus membulatkan sudutnya sendiri.
 pub(crate) fn style_layers(get: &dyn Fn(&str) -> Option<String>, radius: gpui::Pixels) -> Vec<gpui::AnyElement> {
     use crate::core::appearance::parse_color;
-    use gpui::{linear_color_stop, linear_gradient, relative};
+    use gpui::{linear_color_stop, linear_gradient};
     let mut out = vec![];
     let num = |k: &str, d: f32| get(k).and_then(|v| v.parse::<f32>().ok()).unwrap_or(d);
     if let Some(img) = get("image").and_then(|u| crate::core::gradient::image_of(&u)) {
         let z = num("imageZoom", 100.) / 100.;
         let y = num("imageY", 50.) / 100.;
-        out.push(
-            gpui::img(img)
-                .absolute()
-                .w(relative(z))
-                .h(relative(z))
-                .left(relative(-(z - 1.) / 2.))
-                .top(relative(-(z - 1.) * y))
-                .object_fit(gpui::ObjectFit::Cover)
-                .rounded(radius)
-                .into_any_element(),
-        );
+        out.push(image_layer(img, z, y, radius));
     } else if let Some(spec) = get("gradient").and_then(|g| crate::core::gradient::parse_gradient(&g)) {
         let stops: Vec<(f32, [f32; 4])> = spec
             .stops
@@ -357,6 +347,47 @@ pub(crate) fn style_layers(get: &dyn Fn(&str) -> Option<String>, radius: gpui::P
         out.push(layer.into_any_element());
     }
     out
+}
+
+thread_local! {
+    static IMG_CACHE: std::cell::RefCell<std::collections::HashMap<u64, std::sync::Arc<gpui::RenderImage>>> = Default::default();
+}
+
+/// Lapisan gambar latar: dilukis langsung dengan `paint_image` — area terlihat = batas baris (dengan sudut tumpul),
+/// sedangkan gambar (zoom/geser, mode cover) boleh melebihinya. Membulatkan elemen `img` yang diperbesar tidak
+/// cukup: sudutnya jatuh di luar baris lalu dipotong persegi oleh `overflow_hidden`.
+fn image_layer(img: std::sync::Arc<gpui::Image>, zoom: f32, y: f32, radius: gpui::Pixels) -> gpui::AnyElement {
+    gpui::canvas(
+        move |_, _, cx| {
+            if let Some(i) = IMG_CACHE.with(|c| c.borrow().get(&img.id).cloned()) {
+                return Some(i);
+            }
+            let data = img.to_image_data(cx.svg_renderer()).ok()?;
+            IMG_CACHE.with(|c| {
+                let mut c = c.borrow_mut();
+                if c.len() > 32 {
+                    c.clear();
+                }
+                c.insert(img.id, data.clone());
+            });
+            Some(data)
+        },
+        move |b, data, window, _| {
+            let Some(data) = data else { return };
+            if data.frame_count() == 0 {
+                return;
+            }
+            let zoomed = gpui::Bounds {
+                origin: gpui::point(b.origin.x - b.size.width * ((zoom - 1.) / 2.), b.origin.y - b.size.height * ((zoom - 1.) * y)),
+                size: gpui::size(b.size.width * zoom, b.size.height * zoom),
+            };
+            let fitted = gpui::ObjectFit::Cover.get_bounds(zoomed, data.size(0));
+            let _ = window.paint_image(b, fitted, gpui::Corners::all(radius), data, 0, false);
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
 }
 
 thread_local! {
@@ -801,6 +832,7 @@ impl Render for Sidebar {
                 if projects.is_empty() {
                     inner = inner.child(note(&t, i.t("sb.noProjects")));
                 }
+                let mut first_project = true;
                 for p in &projects {
                     let open = !self.collapsed.contains(&p.id);
                     let active = ctx.sel.0.as_deref() == Some(p.id.as_str());
@@ -822,10 +854,12 @@ impl Render for Sidebar {
                             cx.subscribe(&d, |sb, _, _: &super::project_style_dialog::StyleClosed, cx| {
                                 sb.pstyle = None;
                                 cx.notify();
+                                super::browser::refresh(cx);
                             })
                             .detach();
                             sb.pstyle = Some(d);
                             cx.notify();
+                            super::browser::refresh(cx);
                         }))
                         .icon("image"),
                         entry(i.t("sb.refresh"), mkp(|sb, id, _, _, cx| sb.store.update(cx, |s, cx| s.refresh(&id, cx)))).icon("refresh"),
@@ -868,7 +902,7 @@ impl Render for Sidebar {
                         .child(match (logo_img, logo) {
                             (Some(img), _) => gpui::img(img).flex_none().size(t.rem(rem::ICON_MD)).rounded(t.rem(rem::RADIUS_SM)).object_fit(gpui::ObjectFit::Cover).into_any_element(),
                             (None, Some(l)) => div().flex_none().w(t.rem(rem::ICON_MD)).flex().justify_center().child(l).into_any_element(),
-                            (None, None) => icon(if open { "folder_open" } else { "folder" }).size(IconSize::Md).into_any_element(),
+                            (None, None) => super::project_style_dialog::tinted(icon(if open { "folder_open" } else { "folder" }).size(IconSize::Md), pfg).into_any_element(),
                         })
                         .child(div().flex_1().min_w_0().truncate().child(p.name.clone()))
                         .children(p.engine.as_ref().map(|eid| {
@@ -897,7 +931,8 @@ impl Render for Sidebar {
                             ),
                         )
                         .child(menu_trigger(&ctx, format!("p:{}", p.id), entries, p_pinned, i.tp("sb.menuFor", &[("name", &p.name)])));
-                    inner = inner.child(row);
+                    inner = inner.child(row.mt(t.space(if first_project { 0 } else { 1 })));
+                    first_project = false;
                     if open {
                         inner = inner.child(div().flex().flex_col().gap(t.space(1)).children(sessions_list(&ctx, &p.id, sessions.get(&p.id), engine_ready)));
                     }
@@ -911,26 +946,6 @@ impl Render for Sidebar {
                         .on_click(cx.listener(|s, _, _, cx| s.new_session(CHAT_KEY.into(), cx)))
                         .into_any_element()],
                 ));
-                // Sesi demo bawaan (pengaturan showDemos): disematkan, permanen, hanya-baca (port DemoRows).
-                if crate::core::settings::SettingsStore::global(cx).read(cx).bool("showDemos") {
-                    for d in crate::core::demo::demos() {
-                        let active = ctx.sel.0.as_deref() == Some(crate::core::demo::DEMO_KEY) && ctx.sel.1.as_deref() == Some(d.id.as_str());
-                        let id = d.id.clone();
-                        inner = inner.child(
-                            row_base(&t, format!("demo-{}", d.id), active)
-                                .text_color(c.fg)
-                                .tooltip(crate::ui::tooltip::text_tooltip(i.t(&d.subtitle_key).into()))
-                                .on_click(cx.listener(move |s, _, _, cx| {
-                                    let id = id.clone();
-                                    s.store.update(cx, |st, cx| st.select(Some(crate::core::demo::DEMO_KEY.into()), Some(id), cx));
-                                    s.app.update(cx, |a, cx| a.push("/", cx));
-                                }))
-                                .child(session_dot(&t, &i, crate::core::attention::Indicator::Idle, &d.id))
-                                .child(div().flex_1().min_w_0().truncate().child(i.t(&d.title_key)))
-                                .child(trailing_slot(&t, c.fg_subtle, icon("pin").size(IconSize::Sm).into_any_element())),
-                        );
-                    }
-                }
                 inner = inner.child(div().flex().flex_col().gap(t.space(1)).children(sessions_list(&ctx, CHAT_KEY, sessions.get(CHAT_KEY), engine_ready)));
             }
             list = list.child(inner);
@@ -988,7 +1003,6 @@ impl Render for Sidebar {
                                     .gap(t.space(1))
                                     .small(&t)
                                     .text_color(c.fg_subtle)
-                                    .child(div().code(&t).child(i.tp("sb.versionShort", &[("version", env!("ZANDOR_VERSION"))])))
                                     .when(est.status != "ready", |d| d.child(div().size(px(6.)).rounded_full().bg(dot)).child(i.t(&format!("engine.{}", est.status)))),
                             ),
                     )

@@ -28,6 +28,13 @@ pub struct Tab {
 pub struct BrowserHandle(pub gpui::WeakEntity<BrowserPanel>);
 impl gpui::Global for BrowserHandle {}
 
+/// Paksa panel Browser menggambar ulang (mis. dialog modal baru dibuka/ditutup → webview harus disembunyikan/ditampilkan).
+pub fn refresh(cx: &mut gpui::App) {
+    if let Some(h) = cx.try_global::<BrowserHandle>().and_then(|h| h.0.upgrade()) {
+        h.update(cx, |_, cx| cx.notify());
+    }
+}
+
 /// Port normalizeBrowserUrl: tambah https:// bila tanpa skema; hanya http/https dengan host.
 pub fn normalize_browser_url(input: &str) -> Result<String, &'static str> {
     let t = input.trim();
@@ -67,6 +74,27 @@ pub fn tab_label(url: &str) -> String {
 const OVERLAY_HOLD_MS: u64 = 250;
 static LAST_OVERLAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+/// Waktu (ms sejak start) engine terlihat selesai start; 0 = belum.
+static ENGINE_SETTLED_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Startup dianggap tenang bila: lewat 4 dtk sejak proses mulai, engine tidak lagi "starting" (siap/galat/berhenti) dan
+/// sudah 1,5 dtk sesudahnya (tugas async penutup startup selesai), atau paling lama 20 dtk. Membuat WebView2 memompa pesan
+/// Windows sehingga tugas async GPUI yang selesai di tengahnya memakai `App` yang masih dipinjam → panik → abort
+/// (crash saat Zandor dibuka dengan panel Browser sudah aktif dari sesi sebelumnya).
+fn startup_settled(now_ms: u64, engine_starting: bool) -> bool {
+    use std::sync::atomic::Ordering::Relaxed;
+    if now_ms < 4_000 {
+        return false;
+    }
+    if now_ms >= 20_000 {
+        return true;
+    }
+    if engine_starting {
+        return false;
+    }
+    let _ = ENGINE_SETTLED_MS.compare_exchange(0, now_ms, Relaxed, Relaxed);
+    now_ms >= ENGINE_SETTLED_MS.load(Relaxed) + 1_500
+}
+
 fn big_ok_and(settled: bool, big: bool) -> bool {
     settled && big
 }
@@ -114,7 +142,6 @@ pub struct BrowserPanel {
     views: Views,
     low: LowSet,
     loading: HashMap<String, bool>,
-    tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>,
     error: Option<String>,
     /// Webview tertanam gagal dibuat: alamat dibuka di browser sistem (br.systemFallback).
     system_fallback: bool,
@@ -146,6 +173,11 @@ pub struct BrowserPanel {
     rgn: Rc<RefCell<HashMap<String, (i32, i32, i32, u32)>>>,
     /// Persegi layar simulasi relatif ke area host (x, y, lebar, tinggi), diisi canvas tiap frame.
     geo: Rc<std::cell::Cell<Option<(f32, f32, f32, f32)>>>,
+    /// Antrean pembuatan webview. WebView2 dibuat DI LUAR proses gambar (lihat `spawn_creator`): pembuatannya memompa
+    /// pesan Windows sehingga tugas async GPUI ikut berjalan, dan di dalam frame `App` masih dipinjam → panik/abort.
+    create_tx: futures::channel::mpsc::UnboundedSender<CreateReq>,
+    creating: Rc<RefCell<std::collections::HashSet<String>>>,
+    parent: Rc<std::cell::Cell<Option<raw_window_handle::RawWindowHandle>>>,
 }
 
 /// Lama panel Browser disembunyikan sebelum webview-nya (dan proses WebView2 yang menyertainya) dibuang.
@@ -219,7 +251,47 @@ impl BrowserPanel {
             e
         };
         let (dev_w, dev_h) = (mk_dim(cx, "br.width"), mk_dim(cx, "br.height"));
-        Self { tabs: vec![Tab { id: "b1".into(), url: HOME_URL.into(), agent: false }], active: "b1".into(), address, views: Default::default(), low: Default::default(), loading: HashMap::new(), tx, error: None, system_fallback: false, shown: false, snap: Default::default(), trash: Default::default(), snap_raw: Default::default(), snap_busy: Default::default(), visible_now: Default::default(), hidden_at: None, dev: dev::RESPONSIVE.into(), vw: 0, vh: 0, zoom: "fit".into(), dev_w, dev_h, ua_applied: Default::default(), zoomed: Default::default(), rgn: Default::default(), geo: Default::default() }
+        let (create_tx, mut create_rx) = futures::channel::mpsc::unbounded::<CreateReq>();
+        let creating: Rc<RefCell<std::collections::HashSet<String>>> = Default::default();
+        let parent: Rc<std::cell::Cell<Option<raw_window_handle::RawWindowHandle>>> = Default::default();
+        let views: Views = Default::default();
+        // Pembuat webview: berjalan sebagai tugas async biasa, BUKAN di dalam frame/`cx.update`, jadi tidak ada pinjaman
+        // `App` yang aktif saat WebView2 memompa pesan dan menjalankan tugas async lain.
+        {
+            let (creating, parent, tx) = (creating.clone(), parent.clone(), tx.clone());
+            cx.spawn(async move |this, cx| {
+                use futures::StreamExt;
+                while let Some((id, url, agent)) = create_rx.next().await {
+                    cx.background_executor().timer(std::time::Duration::from_millis(30)).await; // biarkan frame peminta selesai
+                    let result = match parent.get() {
+                        Some(h) => create_view(&ParentWindow(h), &id, &url, agent, tx.clone()),
+                        None => Err("jendela induk belum diketahui".to_string()),
+                    };
+                    creating.borrow_mut().remove(&id);
+                    let _ = this.update(cx, |s, cx| {
+                        match result {
+                            // tab sudah ditutup selama pembuatan: webview dibuang (drop)
+                            Ok(v) if s.tabs.iter().any(|t| t.id == id) => {
+                                s.views.borrow_mut().insert(id.clone(), v);
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                eprintln!("webview gagal: {e}");
+                                if !s.system_fallback {
+                                    s.system_fallback = true;
+                                    if !url.is_empty() {
+                                        cx.open_url(&url);
+                                    }
+                                }
+                            }
+                        }
+                        cx.notify();
+                    });
+                }
+            })
+            .detach();
+        }
+        Self { tabs: vec![Tab { id: "b1".into(), url: HOME_URL.into(), agent: false }], active: "b1".into(), address, views, low: Default::default(), loading: HashMap::new(), error: None, system_fallback: false, shown: false, snap: Default::default(), trash: Default::default(), snap_raw: Default::default(), snap_busy: Default::default(), visible_now: Default::default(), hidden_at: None, dev: dev::RESPONSIVE.into(), vw: 0, vh: 0, zoom: "fit".into(), dev_w, dev_h, ua_applied: Default::default(), zoomed: Default::default(), rgn: Default::default(), geo: Default::default(), create_tx, creating, parent }
     }
 
     /// Ukuran viewport simulasi (None = responsif).
@@ -296,7 +368,12 @@ impl BrowserPanel {
         if self.shown || !self.hidden_at.is_some_and(|t| t.elapsed() >= IDLE_DROP) || self.views.borrow().is_empty() {
             return;
         }
-        self.views.borrow_mut().clear();
+        let dead: Vec<_> = self.views.borrow_mut().drain().map(|(_, v)| v).collect();
+        cx.spawn(async move |_, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(150)).await;
+            drop(dead);
+        })
+        .detach();
         self.low.borrow_mut().clear();
         self.loading.clear();
         self.visible_now.set(false);
@@ -371,6 +448,9 @@ impl BrowserPanel {
         let i = cx.global::<I18n>().clone();
         match normalize_browser_url(&raw) {
             Ok(url) => {
+                if self.tabs.is_empty() {
+                    self.add(cx);
+                }
                 self.error = None;
                 self.clear_snap();
                 let id = self.active.clone();
@@ -422,19 +502,33 @@ impl BrowserPanel {
     fn close(&mut self, id: String, cx: &mut Context<Self>) {
         let Some(i) = self.tabs.iter().position(|t| t.id == id) else { return };
         self.tabs.remove(i);
-        self.views.borrow_mut().remove(&id);
+        // Membuang WebView2 memompa pesan Windows; di dalam handler klik itu menjalankan tugas async lain saat `App`
+        // masih dipinjam (panik/crash). Jadi webview dibuang belakangan, di luar proses gambar/event.
+        let dead = self.views.borrow_mut().remove(&id);
+        if let Some(v) = dead {
+            cx.spawn(async move |_, cx| {
+                cx.background_executor().timer(std::time::Duration::from_millis(150)).await;
+                drop(v);
+            })
+            .detach();
+        }
         self.low.borrow_mut().remove(&id);
         self.ua_applied.borrow_mut().remove(&id);
         self.zoomed.borrow_mut().remove(&id);
         self.rgn.borrow_mut().remove(&id);
-        if self.tabs.is_empty() {
-            let fresh = if id == "b1" { "b2" } else { "b1" };
-            self.tabs.push(Tab { id: fresh.into(), url: HOME_URL.into(), agent: false });
-        }
         self.publish_count(cx);
         if self.active == id {
-            let n = self.tabs[i.min(self.tabs.len() - 1)].id.clone();
-            self.select(n, cx);
+            // Tanpa tab tersisa: panel menampilkan keadaan kosong (tab baru lewat tombol +).
+            let next = self.tabs.get(i.min(self.tabs.len().saturating_sub(1))).map(|t| t.id.clone());
+            match next {
+                Some(n) => self.select(n, cx),
+                None => {
+                    self.active = String::new();
+                    self.error = None;
+                    self.clear_snap();
+                    self.address.update(cx, |a, cx| a.set_text(String::new(), cx));
+                }
+            }
         }
         cx.notify();
     }
@@ -566,8 +660,20 @@ fn round_view(v: &wry::WebView, w: f64, h: f64, radius: f32, sf: f32) {
 #[cfg(not(windows))]
 fn round_view(_: &wry::WebView, _: f64, _: f64, _: f32, _: f32) {}
 
+/// HWND jendela GPUI yang disalin dari canvas supaya webview bisa dibuat di luar proses gambar.
+struct ParentWindow(raw_window_handle::RawWindowHandle);
+impl raw_window_handle::HasWindowHandle for ParentWindow {
+    fn window_handle(&self) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
+        // SAFETY: handle berasal dari jendela GPUI yang hidup selama aplikasi berjalan.
+        Ok(unsafe { raw_window_handle::WindowHandle::borrow_raw(self.0) })
+    }
+}
+
+/// Permintaan membuat webview: (id tab, URL, tab agen).
+type CreateReq = (String, String, bool);
+
 /// Buat webview tab sebagai anak jendela GPUI.
-fn create_view(window: &Window, id: &str, url: &str, agent: bool, tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>) -> Result<wry::WebView, String> {
+fn create_view(window: &impl raw_window_handle::HasWindowHandle, id: &str, url: &str, agent: bool, tx: futures::channel::mpsc::UnboundedSender<(String, String, bool)>) -> Result<wry::WebView, String> {
     let (id1, tx1) = (id.to_string(), tx.clone());
     // Profil agen terpisah dari tab pengguna (tanpa login pengguna). WebContext dibuat SEKALI per proses (sebelumnya
     // di-leak tiap view agen dibuat) dan hanya dipinjam selama build di thread UI.
@@ -749,7 +855,7 @@ impl Render for BrowserPanel {
         let progress = div().h(gpui::px(2.)).w_full().when(loading, |d| d.bg(t.colors.accent));
 
         // Host webview: canvas mengukur area tiap frame lalu menempatkan/membuat webview tab aktif.
-        let (views, active, url, tx) = (self.views.clone(), self.active.clone(), cur_url.clone(), self.tx.clone());
+        let (views, active, url) = (self.views.clone(), self.active.clone(), cur_url.clone());
         let emu_c = emu;
         let frame = dev::frame(&self.dev);
         let (geo_set, geo_get, fr_color) = (self.geo.clone(), self.geo.clone(), t.colors.active);
@@ -757,10 +863,9 @@ impl Render for BrowserPanel {
         let (trash2, vis2, low2) = (self.trash.clone(), self.visible_now.clone(), self.low.clone());
         let rgn2: Rc<RefCell<HashMap<String, (i32, i32, i32, u32)>>> = self.rgn.clone();
         let (zoomed2, zmode) = (self.zoomed.clone(), self.zoom.clone());
-        let err_slot: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
-        let err2 = err_slot.clone();
+        let (creating2, create_tx2, parent2) = (self.creating.clone(), self.create_tx.clone(), self.parent.clone());
         let host = canvas(
-            move |bounds: Bounds<Pixels>, window, _cx| {
+            move |bounds: Bounds<Pixels>, window, cx| {
                 // Penanda overlay hanya menyala di frame saat menu/dialog ikut digambar. Saat hover item menu, sebagian frame
                 // tidak menggambarnya → webview sempat tampil menutupi menu (kedip). Jadi overlay dianggap tetap aktif
                 // OVERLAY_HOLD_MS sejak terakhir terdeteksi.
@@ -769,14 +874,16 @@ impl Render for BrowserPanel {
                     LAST_OVERLAY_MS.store(now_ms + 1, std::sync::atomic::Ordering::Relaxed);
                 }
                 let last = LAST_OVERLAY_MS.load(std::sync::atomic::Ordering::Relaxed);
-                let overlay = last != 0 && now_ms < last - 1 + OVERLAY_HOLD_MS;
+                let modal = crate::ui::modal_open();
+                let overlay = modal || (last != 0 && now_ms < last - 1 + OVERLAY_HOLD_MS);
                 if overlay {
                     // periksa lagi tiap frame sampai overlay tertutup (view bisa di-cache)
                     window.request_animation_frame();
                 }
                 // Membuat WebView2 memompa pesan; saat startup tugas async lain (engine, dll.) bisa berjalan ulang di tengahnya
                 // dan panik ("already borrowed"). Tunda pembuatan webview pertama sampai startup tenang.
-                let settled = START.get_or_init(std::time::Instant::now).elapsed() >= std::time::Duration::from_secs(4);
+                let engine_starting = crate::core::services::EngineStatus::try_global(cx).is_none_or(|e| e.read(cx).state.status == "starting");
+                let settled = startup_settled(now_ms, engine_starting);
                 if !settled {
                     window.request_animation_frame();
                 }
@@ -800,14 +907,13 @@ impl Render for BrowserPanel {
                 let oy = f32::from(bounds.origin.y) as f64 + rel_y;
                 let inner_r = frame.map_or(0., |(b, r)| (r - b).max(0.));
                 geo_set.set(emu_c.map(|_| (rel_x as f32, rel_y as f32, bw as f32, bh as f32)));
-                let mut map = views.borrow_mut();
-                if big && !url.is_empty() && !map.contains_key(&active) {
-                    match create_view(window, &active, &url, active_agent, tx.clone()) {
-                        Ok(v) => {
-                            map.insert(active.clone(), v);
-                        }
-                        Err(e) => *err2.borrow_mut() = Some(e),
-                    }
+                let map = views.borrow();
+                if big && !url.is_empty() && !map.contains_key(&active) && !creating2.borrow().contains(&active) {
+                    // Hanya mengantre: webview dibuat di luar frame (lihat `BrowserPanel::new`).
+                    use raw_window_handle::HasWindowHandle;
+                    parent2.set(window.window_handle().ok().map(|h| h.as_raw()));
+                    creating2.borrow_mut().insert(active.clone());
+                    let _ = create_tx2.unbounded_send((active.clone(), url.clone(), active_agent));
                 }
                 for (k, v) in map.iter() {
                     let show = big && *k == active;
@@ -852,15 +958,6 @@ impl Render for BrowserPanel {
             },
         )
         .size_full();
-        if let Some(e) = err_slot.borrow_mut().take() {
-            eprintln!("webview gagal: {e}");
-            if !self.system_fallback {
-                self.system_fallback = true;
-                if !cur_url.is_empty() {
-                    cx.open_url(&cur_url);
-                }
-            }
-        }
         div()
             .size_full()
             .flex()
@@ -900,5 +997,18 @@ mod tests {
         assert!(normalize_browser_url("").is_err());
         assert_eq!(tab_label("https://www.contoh.id/x"), "contoh.id");
         assert_eq!(tab_label(""), "");
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::startup_settled;
+    #[test]
+    fn webview_menunggu_engine_selesai_start() {
+        assert!(!startup_settled(3_000, false)); // belum 4 dtk
+        assert!(!startup_settled(8_000, true)); // engine masih starting
+        assert!(!startup_settled(9_000, false)); // engine baru selesai: tunggu 1,5 dtk
+        assert!(startup_settled(10_600, false));
+        assert!(startup_settled(25_000, true)); // batas atas: jangan menunggu selamanya
     }
 }

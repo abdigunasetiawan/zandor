@@ -13,6 +13,12 @@ pub enum PanelId {
 }
 pub const PANEL_IDS: [PanelId; 5] = [PanelId::Sidebar, PanelId::Chat, PanelId::Docs, PanelId::Tools, PanelId::Rail];
 
+/// Tampilan awal (pemasangan baru / atur ulang tata letak): Sidebar, Chat, dan rel alat di kanan. Panel Alat dibuka
+/// lewat rel; panel Dokumen tampil sendiri saat ada dokumen yang dibuka.
+pub fn default_collapsed() -> HashSet<PanelId> {
+    HashSet::from([PanelId::Tools])
+}
+
 impl PanelId {
     pub fn label_key(self) -> &'static str {
         match self {
@@ -81,7 +87,7 @@ impl Global for AppStateHandle {}
 impl AppState {
     pub fn init(start: &str, cx: &mut App) -> Entity<AppState> {
         let recent: Vec<String> = std::fs::read_to_string(recent_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let e = cx.new(|_| AppState { history: vec![start.to_string()], index: 0, collapsed: HashSet::new(), active_panel: None, recent });
+        let e = cx.new(|_| AppState { history: vec![start.to_string()], index: 0, collapsed: default_collapsed(), active_panel: None, recent });
         cx.set_global(AppStateHandle(e.clone()));
         e
     }
@@ -159,7 +165,7 @@ impl AppState {
         cx.notify();
     }
     pub fn reset_layout(&mut self, cx: &mut Context<Self>) {
-        self.collapsed.clear();
+        self.collapsed = default_collapsed();
         cx.emit(AppEvent::PanelsChanged);
         cx.notify();
     }

@@ -2,7 +2,6 @@
 pub mod acp;
 pub mod re;
 pub mod rewind;
-pub mod demo;
 pub mod activity;
 pub mod pdf;
 pub mod ws;
@@ -12,6 +11,7 @@ pub mod automation;
 pub mod autotitle;
 pub mod chat;
 pub mod chat_store;
+pub mod fs_ops;
 pub mod context_policy;
 pub mod composer;
 pub mod editor_theme;

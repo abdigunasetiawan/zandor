@@ -767,7 +767,18 @@ impl Render for OnboardingPage {
         let t = cx.global::<Theme>().clone();
         let i = cx.global::<I18n>().clone();
         let step = STEPS[self.step];
-        let frame = |inner: AnyElement| div().id("onb").size_full().overflow_y_scroll().bg(t.colors.frame).child(div().flex().flex_col().w_full().max_w(t.rem(rem::SPACE[7] * 12.)).mx_auto().px(t.space(4)).py(t.space(6)).child(inner));
+        // Isi di tengah layar (vertikal dan horizontal); bila lebih tinggi dari jendela, area ini menggulir dari atas.
+        let frame = |inner: AnyElement| {
+            div().id("onb").size_full().overflow_y_scroll().bg(t.colors.frame).child(
+                div()
+                    .min_h_full()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .child(div().flex().flex_col().w_full().max_w(t.rem(rem::SPACE[7] * 12.)).mx_auto().px(t.space(4)).py(t.space(6)).child(inner)),
+            )
+        };
         if step == "welcome" {
             let w = self.welcome(&t, &i, cx);
             return frame(w);

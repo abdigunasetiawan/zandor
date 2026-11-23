@@ -6,8 +6,10 @@ use crate::core::projects::ProjectStore;
 use crate::i18n::I18n;
 use crate::theme::{rem, Theme};
 use crate::ui::{button, entry, icon, icon_button, menu_popup, ButtonVariant, ControlSize, IconSize, InputBlur, InputChanged, InputSubmit, MenuEntry, TextInput, Toasts, ToastInput, ToastTone, TypeExt};
-use gpui::{anchored, div, prelude::*, AnyElement, Anchor, Context, Entity, Focusable, IntoElement, SharedString, Window};
+use crate::core::fs_ops;
+use gpui::{anchored, div, prelude::*, AnyElement, Anchor, ClipboardEntry, ClipboardItem, Context, Entity, ExternalPaths, FocusHandle, Focusable, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Window};
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 /// Batas folder yang dibuka sekaligus oleh "Buka semua" dan pencarian (melindungi repo besar).
 pub const MAX_EXPAND: usize = 150;
@@ -27,6 +29,48 @@ fn join(parent: &str, name: &str) -> String {
     if parent.is_empty() { name.to_string() } else { format!("{parent}/{name}") }
 }
 
+/// Entri yang sedang diseret di dalam pohon (juga jadi pratinjau seret).
+#[derive(Clone)]
+struct DragEntry {
+    abs: PathBuf,
+    label: SharedString,
+}
+
+impl Render for DragEntry {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = cx.global::<Theme>().clone();
+        div().max_w(t.rem(20.)).truncate().px(t.space(2)).py(t.space(1)).rounded(t.rem(rem::RADIUS_MD)).bg(t.colors.raised).border_1().border_color(t.colors.border).shadow(t.shadow_2()).child(self.label.clone())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Copy,
+    Move,
+}
+
+/// Papan klip internal pohon: jalur mutlak + apakah operasinya "potong".
+struct Clip {
+    paths: Vec<PathBuf>,
+    cut: bool,
+}
+
+/// Bentuk baku jalur relatif untuk dibandingkan: pemisah "/", tanpa pemisah di ujung.
+fn norm(rel: &str) -> String {
+    rel.replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+fn parent_of(rel: &str) -> String {
+    norm(rel).rsplit_once('/').map(|(a, _)| a.to_string()).unwrap_or_default()
+}
+
+/// Berkas yang ada di papan klip sistem (mis. disalin dari File Explorer).
+fn clipboard_files(cx: &gpui::App) -> Vec<PathBuf> {
+    cx.read_from_clipboard()
+        .map(|c| c.entries().iter().filter_map(|e| if let ClipboardEntry::ExternalPaths(p) = e { Some(p.paths().to_vec()) } else { None }).flatten().collect())
+        .unwrap_or_default()
+}
+
 pub struct FilesTree {
     root: Option<String>,
     engine_ready: bool,
@@ -39,6 +83,13 @@ pub struct FilesTree {
     creating: Option<(String, bool)>,
     name: Entity<TextInput>,
     project_menu: bool,
+    /// Entri terpilih (jalur relatif, folder?) — sasaran salin/potong dan folder tujuan tempel/unggah.
+    selected: Option<(String, bool)>,
+    focus: FocusHandle,
+    clip: Option<Clip>,
+    /// Menu klik-kanan terbuka di posisi ini; menu unggah (tombol kepala).
+    ctx: Option<Point<Pixels>>,
+    upload_menu: bool,
 }
 
 impl FilesTree {
@@ -66,7 +117,7 @@ impl FilesTree {
         .detach();
         let store = ProjectStore::global(cx);
         cx.observe(&store, |s, _, cx| s.sync(cx)).detach();
-        let mut me = Self { root: None, engine_ready: false, listings: HashMap::new(), open: HashSet::new(), query, searched: false, capped: false, creating: None, name, project_menu: false };
+        let mut me = Self { root: None, engine_ready: false, listings: HashMap::new(), open: HashSet::new(), query, searched: false, capped: false, creating: None, name, project_menu: false, selected: None, focus: cx.focus_handle(), clip: None, ctx: None, upload_menu: false };
         me.sync(cx);
         me
     }
@@ -98,6 +149,8 @@ impl FilesTree {
         self.query.update(cx, |q, cx| q.set_text("", cx));
         self.searched = false;
         self.creating = None;
+        self.selected = None;
+        self.ctx = None;
         self.capped = false;
         if self.root.is_some() && ready {
             self.fetch(String::new(), true, cx);
@@ -261,6 +314,162 @@ impl FilesTree {
         cx.notify();
     }
 
+    /// Kunci listing yang sudah ada untuk `rel` (bentuk aslinya dari engine), atau bentuk bakunya bila belum ada.
+    fn key_for(&self, rel: &str) -> String {
+        let n = norm(rel);
+        if n.is_empty() {
+            return String::new();
+        }
+        self.listings.keys().chain(self.open.iter()).find(|k| norm(k) == n).cloned().unwrap_or(n)
+    }
+
+    fn abs_of(&self, rel: &str) -> Option<PathBuf> {
+        if !fs_ops::safe_rel(rel) {
+            return None;
+        }
+        Some(Path::new(self.root.as_ref()?).join(rel))
+    }
+
+    /// Folder tujuan tempel/unggah: folder terpilih, induk berkas terpilih, atau akar project.
+    fn target_dir(&self) -> String {
+        match &self.selected {
+            Some((p, true)) => self.key_for(p),
+            Some((p, false)) => self.key_for(&parent_of(p)),
+            None => String::new(),
+        }
+    }
+
+    fn select(&mut self, rel: String, is_dir: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.selected = Some((rel, is_dir));
+        self.ctx = None;
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn copy_selected(&mut self, cut: bool, cx: &mut Context<Self>) {
+        let Some(abs) = self.selected.as_ref().and_then(|(rel, _)| self.abs_of(rel)) else { return };
+        // Jalur ditulis juga ke papan klip sistem sebagai teks: ini menimpa berkas Explorer yang disalin sebelumnya,
+        // sehingga "Tempel" tidak salah memakai papan klip yang lebih lama.
+        cx.write_to_clipboard(ClipboardItem::new_string(abs.to_string_lossy().into_owned()));
+        self.clip = Some(Clip { paths: vec![abs], cut });
+        self.ctx = None;
+        cx.notify();
+    }
+
+    fn paste(&mut self, cx: &mut Context<Self>) {
+        self.ctx = None;
+        let dest = self.target_dir();
+        let ext = clipboard_files(cx);
+        if !ext.is_empty() {
+            return self.transfer(ext, dest, Mode::Copy, cx);
+        }
+        if let Some(c) = self.clip.as_ref() {
+            let (paths, cut) = (c.paths.clone(), c.cut);
+            if cut {
+                self.clip = None; // potong → tempel hanya sekali
+            }
+            return self.transfer(paths, dest, if cut { Mode::Move } else { Mode::Copy }, cx);
+        }
+        let title = cx.global::<I18n>().t("files.nothingToPaste");
+        Toasts::show(ToastInput::new(title), cx);
+    }
+
+    /// Dialog pilih berkas/folder dari komputer lalu salin ke folder tujuan saat ini.
+    fn pick(&mut self, folder: bool, cx: &mut Context<Self>) {
+        self.upload_menu = false;
+        self.ctx = None;
+        let dest = self.target_dir();
+        let rx = cx.prompt_for_paths(gpui::PathPromptOptions { files: !folder, directories: folder, multiple: true, prompt: None });
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else { return };
+            this.update(cx, |s, cx| s.transfer(paths, dest, Mode::Copy, cx)).ok();
+        })
+        .detach();
+        cx.notify();
+    }
+
+    /// Salin/pindahkan `items` ke folder `dest_rel` (relatif ke akar) di thread latar, lalu segarkan pohon.
+    fn transfer(&mut self, items: Vec<PathBuf>, dest_rel: String, mode: Mode, cx: &mut Context<Self>) {
+        let Some(dest_abs) = self.abs_of(&dest_rel) else { return };
+        if items.is_empty() {
+            return;
+        }
+        let task = cx.background_spawn(async move {
+            items
+                .into_iter()
+                .map(|src| match mode {
+                    Mode::Copy => fs_ops::copy_entry(&src, &dest_abs),
+                    Mode::Move => fs_ops::move_entry(&src, &dest_abs),
+                })
+                .collect::<Vec<_>>()
+        });
+        cx.spawn(async move |this, cx| {
+            let results = task.await;
+            this.update(cx, |s, cx| s.finish_transfer(results, dest_rel, mode, cx)).ok();
+        })
+        .detach();
+    }
+
+    fn finish_transfer(&mut self, results: Vec<fs_ops::Outcome>, dest_rel: String, mode: Mode, cx: &mut Context<Self>) {
+        let i = cx.global::<I18n>().clone();
+        let done = results.iter().filter(|r| matches!(r, Ok(Some(_)))).count();
+        if let Some(e) = results.iter().find_map(|r| r.as_ref().err()) {
+            Toasts::show(ToastInput { tone: ToastTone::Danger, ..ToastInput::new(i.tp("files.transferFail", &[("error", e)])) }, cx);
+        }
+        if done > 0 {
+            let dest = if dest_rel.is_empty() {
+                self.root.as_deref().and_then(|r| Path::new(r).file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+            } else {
+                norm(&dest_rel).rsplit('/').next().unwrap_or_default().to_string()
+            };
+            let key = if mode == Mode::Move { "files.moved" } else { "files.copied" };
+            Toasts::show(ToastInput { tone: ToastTone::Success, ..ToastInput::new(i.tp(key, &[("n", &done.to_string()), ("dest", &dest)])) }, cx);
+            if !dest_rel.is_empty() {
+                self.open.insert(dest_rel.clone());
+            }
+            if mode == Mode::Move {
+                self.refresh(cx); // sumber dan tujuan berubah
+            } else {
+                self.fetch(dest_rel, true, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn context_menu(&self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let pos = self.ctx?;
+        let me = cx.entity().downgrade();
+        let act = |f: fn(&mut Self, &mut Context<Self>)| {
+            let me = me.clone();
+            move |_: &mut Window, cx: &mut gpui::App| {
+                me.update(cx, |s, cx| f(s, cx)).ok();
+            }
+        };
+        let has_sel = self.selected.is_some();
+        let can_paste = self.clip.is_some() || !clipboard_files(cx).is_empty();
+        let entries = vec![
+            entry(i.t("files.copy"), act(|s, cx| s.copy_selected(false, cx))).icon("copy").disabled(!has_sel),
+            entry(i.t("files.cut"), act(|s, cx| s.copy_selected(true, cx))).icon("scissors").disabled(!has_sel),
+            entry(i.t("files.paste"), act(|s, cx| s.paste(cx))).icon("clipboard_paste").disabled(!can_paste),
+            MenuEntry::Separator,
+            entry(i.t("files.uploadFiles"), act(|s, cx| s.pick(false, cx))).icon("upload"),
+            entry(i.t("files.uploadFolder"), act(|s, cx| s.pick(true, cx))).icon("upload"),
+        ];
+        let me2 = cx.entity().downgrade();
+        Some(
+            div()
+                .absolute()
+                .child(anchored().position(pos).child(menu_popup("ftree-ctx", t, entries, Anchor::TopLeft, move |_, cx| {
+                    me2.update(cx, |s, cx| {
+                        s.ctx = None;
+                        cx.notify();
+                    })
+                    .ok();
+                })))
+                .into_any_element(),
+        )
+    }
+
     fn note(t: &Theme, text: String, pad: f32) -> AnyElement {
         div().pl(t.rem(pad)).py(t.space(1)).small(t).text_color(t.colors.fg_subtle).child(text).into_any_element()
     }
@@ -295,10 +504,17 @@ impl FilesTree {
             return;
         }
         out.extend(self.create_row(t, path, depth));
+        let active_bg = t.colors.active;
         for n in nodes {
             let open = self.open.contains(&n.path);
             let p = n.path.clone();
             let is_dir = n.is_dir;
+            let selected = self.selected.as_ref().is_some_and(|(sp, _)| *sp == n.path);
+            let abs = self.abs_of(&n.path).unwrap_or_default();
+            let is_cut = self.clip.as_ref().is_some_and(|c| c.cut && c.paths.contains(&abs));
+            // Lepas di folder → ke folder itu; lepas di berkas → ke folder induknya.
+            let drop_to = if is_dir { n.path.clone() } else { self.key_for(&parent_of(&n.path)) };
+            let (drop_a, drop_b, ctx_p) = (drop_to.clone(), drop_to.clone(), n.path.clone());
             let mut row = div()
                 .id(SharedString::from(format!("fn-{}", n.path)))
                 .group("frow")
@@ -310,15 +526,32 @@ impl FilesTree {
                 .pr(t.space(1))
                 .rounded(t.rem(rem::RADIUS_SM))
                 .cursor_pointer()
-                .when(n.ignored, |d| d.opacity(0.6))
+                .when(n.ignored || is_cut, |d| d.opacity(if is_cut { 0.5 } else { 0.6 }))
+                .when(selected, |d| d.bg(t.colors.active))
                 .hover(|s| s.bg(t.colors.hover))
-                .on_click(cx.listener(move |s, _, _, cx| {
+                .on_click(cx.listener(move |s, _, w, cx| {
+                    s.select(p.clone(), is_dir, w, cx);
                     if is_dir {
                         s.toggle(p.clone(), cx);
                     } else {
                         s.open_file(&p, cx);
                     }
                 }))
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |s, e: &MouseDownEvent, w, cx| {
+                        s.select(ctx_p.clone(), is_dir, w, cx);
+                        s.ctx = Some(e.position);
+                        cx.stop_propagation();
+                    }),
+                )
+                .on_drag(DragEntry { abs: abs.clone(), label: n.name.clone().into() }, |d, _, _, cx| cx.new(|_| d.clone()))
+                .when(is_dir, |d| d.drag_over::<DragEntry>(move |st, _, _, _| st.bg(active_bg)).drag_over::<ExternalPaths>(move |st, _, _, _| st.bg(active_bg)))
+                .on_drop(cx.listener(move |s, d: &DragEntry, w, cx| {
+                    let mode = if w.modifiers().control { Mode::Copy } else { Mode::Move };
+                    s.transfer(vec![d.abs.clone()], drop_a.clone(), mode, cx);
+                }))
+                .on_drop(cx.listener(move |s, d: &ExternalPaths, _, cx| s.transfer(d.paths().to_vec(), drop_b.clone(), Mode::Copy, cx)))
                 // garis panduan: satu segmen per tingkat, tampak hanya saat pohon di-hover (.ftree__tree:hover)
                 .children((0..depth).map(|_| div().flex_none().self_stretch().w(t.rem(0.75)).border_l_1().border_color(gpui::transparent_black()).group_hover("ftree-box", |s| s.border_color(t.colors.border))))
                 .child(if is_dir {
@@ -394,6 +627,26 @@ impl Render for FilesTree {
                     .ok();
                 })))
         });
+        let umenu = self.upload_menu.then(|| {
+            let (a, b, me) = (cx.entity().downgrade(), cx.entity().downgrade(), cx.entity().downgrade());
+            let entries = vec![
+                entry(i.t("files.uploadFiles"), move |_, cx| {
+                    a.update(cx, |s, cx| s.pick(false, cx)).ok();
+                })
+                .icon("upload"),
+                entry(i.t("files.uploadFolder"), move |_, cx| {
+                    b.update(cx, |s, cx| s.pick(true, cx)).ok();
+                })
+                .icon("upload"),
+            ];
+            div().absolute().top_full().right_0().child(anchored().child(menu_popup("ftree-um", &t, entries, Anchor::TopRight, move |_, cx| {
+                me.update(cx, |s, cx| {
+                    s.upload_menu = false;
+                    cx.notify();
+                })
+                .ok();
+            })))
+        });
         let head = div()
             .flex()
             .items_center()
@@ -418,6 +671,15 @@ impl Render for FilesTree {
             )
             .child(icon_button("ftree-newfile", "file_plus", i.t("files.newFile")).size(ControlSize::Sm).disabled(!has).on_click(cx.listener(|s, _, w, cx| s.start_create(String::new(), false, w, cx))))
             .child(icon_button("ftree-newdir", "folder_plus", i.t("files.newFolder")).size(ControlSize::Sm).disabled(!has).on_click(cx.listener(|s, _, w, cx| s.start_create(String::new(), true, w, cx))))
+            .child(
+                div()
+                    .relative()
+                    .child(icon_button("ftree-upload", "upload", i.t("files.upload")).size(ControlSize::Sm).disabled(!has).on_click(cx.listener(|s, _, _, cx| {
+                        s.upload_menu = !s.upload_menu;
+                        cx.notify();
+                    })))
+                    .children(umenu),
+            )
             .child(icon_button("ftree-collapse", "collapse_all", i.t("files.collapseAll")).size(ControlSize::Sm).disabled(!has || self.open.is_empty()).on_click(cx.listener(|s, _, _, cx| {
                 s.open.clear();
                 s.capped = false;
@@ -484,10 +746,53 @@ impl Render for FilesTree {
             self.dir_rows(&t, &i, "", 0, &mut rows, cx);
         }
         // kotak pohon: border lembut + sudut besar, mengisi sisa tinggi dan menggulir sendiri (.ftree__tree)
-        col = col.child(div().group("ftree-box").flex().flex_col().flex_1().min_h_0().mx(t.space(3)).mb(t.space(3)).border_1().border_color(t.colors.border_soft).rounded(t.rem(rem::RADIUS_LG)).child(div().id("ftree-tree").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.space(1)).children(rows)));
+        let focus_c = t.colors.focus;
+        col = col.child(div()
+            .group("ftree-box")
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|s, e: &KeyDownEvent, _, cx| {
+                let m = &e.keystroke.modifiers;
+                if s.creating.is_some() || !(m.control || m.platform) {
+                    return;
+                }
+                match e.keystroke.key.as_str() {
+                    "c" => s.copy_selected(false, cx),
+                    "x" => s.copy_selected(true, cx),
+                    "v" => s.paste(cx),
+                    _ => return,
+                }
+                cx.stop_propagation();
+            }))
+            .on_mouse_down(MouseButton::Right, cx.listener(|s, e: &MouseDownEvent, _, cx| {
+                s.selected = None;
+                s.ctx = Some(e.position);
+                cx.notify();
+            }))
+            .drag_over::<ExternalPaths>(move |st, _, _, _| st.border_color(focus_c))
+            .drag_over::<DragEntry>(move |st, _, _, _| st.border_color(focus_c))
+            .on_drop(cx.listener(|s, d: &ExternalPaths, _, cx| s.transfer(d.paths().to_vec(), String::new(), Mode::Copy, cx)))
+            .on_drop(cx.listener(|s, d: &DragEntry, w, cx| {
+                let mode = if w.modifiers().control { Mode::Copy } else { Mode::Move };
+                s.transfer(vec![d.abs.clone()], String::new(), mode, cx);
+            }))
+            .flex().flex_col().flex_1().min_h_0().mx(t.space(3)).mb(t.space(3)).border_1().border_color(t.colors.border_soft).rounded(t.rem(rem::RADIUS_LG)).child(div().id("ftree-tree").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().p(t.space(1)).children(rows)));
         if self.capped {
             col = col.child(Self::note(&t, i.tp("files.partial", &[("max", &MAX_EXPAND.to_string())]), 0.75));
         }
-        col.into_any_element()
+        col.children(self.context_menu(&t, &i, cx)).into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jalur_engine_windows_dinormalkan() {
+        assert_eq!(norm("dirB\\"), "dirB");
+        assert_eq!(norm("a/b/"), "a/b");
+        assert_eq!(parent_of("dirB\\a.txt"), "dirB");
+        assert_eq!(parent_of("a/b/c.txt"), "a/b");
+        assert_eq!(parent_of("a.txt"), "");
     }
 }

@@ -1,4 +1,5 @@
 //! Toast — port molecules/Toast.tsx + .z-toast (kanan-bawah, monokrom, warna status hanya di ikon).
+//! Tanpa bayangan; ikon di lingkaran bertinta (alpha 16% warna status) — varian 8 di Labs → Notifikasi.
 use super::icon::{icon, IconSize};
 use crate::theme::{rem, Theme, H4, LABEL, SMALL};
 use gpui::{
@@ -173,8 +174,7 @@ impl Render for Toasts {
                     .rounded(t.rem(rem::RADIUS_LG))
                     .bg(c.composer)
                     .text_color(c.fg)
-                    .shadow(t.shadow_panel())
-                    .child(div().mt(t.rem(0.0625)).child(icon(glyph).color(tone_fg)))
+                    .child(div().size(t.rem(2.)).flex_none().flex().items_center().justify_center().rounded_full().bg(tone_fg.opacity(0.16)).child(icon(glyph).color(tone_fg)))
                     .child(content)
                     .child(
                         div()

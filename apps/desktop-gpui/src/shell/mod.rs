@@ -2,6 +2,7 @@
 pub mod agent_control;
 pub mod automation_page;
 pub mod design_system_page;
+pub mod labs_notif;
 pub mod labs_page;
 pub mod chat_panel;
 pub mod chat_style_section;

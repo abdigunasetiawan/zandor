@@ -121,7 +121,7 @@ pub fn file_card(t: &Theme, i: &I18n, id: &str, filename: Option<&str>, mime: &s
                 .on_click(move |_, _, cx| match &t1 {
                     Some(p) if std::path::Path::new(p).is_file() => crate::shell::docs_panel::DocsState::global(cx).update(cx, |d, cx| d.open_file(p.clone(), cx)),
                     Some(_) => warn(cx, "doc.outside"),
-                    None => warn(cx, "file.demoNote"),
+                    None => warn(cx, "file.noPath"),
                 }),
         )
         .child(
@@ -130,7 +130,7 @@ pub fn file_card(t: &Theme, i: &I18n, id: &str, filename: Option<&str>, mime: &s
                 .variant(ButtonVariant::Ghost)
                 .on_click(move |_, _, cx| {
                     let Some(src) = t2.clone().filter(|p| std::path::Path::new(p).is_file()) else {
-                        return warn(cx, if t2.is_some() { "doc.outside" } else { "file.demoNote" });
+                        return warn(cx, if t2.is_some() { "doc.outside" } else { "file.noPath" });
                     };
                     let dir = std::path::PathBuf::from(&src).parent().map(|p| p.to_path_buf()).unwrap_or_default();
                     let rx = cx.prompt_for_new_path(&dir, Some(&n2));

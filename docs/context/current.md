@@ -17,7 +17,14 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
   - Folder data pindah ke `%APPDATA%\Zandor` (debug: `ZandorDev`). Folder lama di-rename dan diberi junction, dan
     daftar Chat juga menanyakan jalur lama.
   - Kunci publik pembaruan: `src/core/update_key.pub`. Kunci privat di `%USERPROFILE%\.zandor\` (wajib dicadangkan).
-  - Belum ada rilis pertama di GitHub; Authenticode belum ada.
+  - Rilis v0.1.0 (beta) terbit 23-11-2026; Authenticode belum ada (SmartScreen masih memperingatkan).
+  - Lanjutan (23-11-2026, belum dicommit): build rilis tanpa jendela konsol (`windows_subsystem`), halaman
+    persetujuan ketentuan beta di installer (`installer/terms-*.txt`), onboarding di tengah layar, tampilan awal
+    Sidebar + Chat + rel (panel Alat terlipat), model pertama kali = DeepSeek dari opencode (varian gratis terbaru,
+    `model_prefs::first_run_model`), dan sesi demo dihapus (ADR-043 dicabut).
+  - Crash saat membuka Zandor dengan panel Browser sudah aktif (panik "RefCell already borrowed" → abort 0xc0000409)
+    diperbaiki: WebView2 kini dibuat oleh tugas async di luar frame gambar (`BrowserPanel::new`, antrean `create_tx`),
+    bukan di `prepaint`; ditambah gerbang startup (`startup_settled`). Enam run berturut-turut bersih.
 - **Agent CLI lewat ACP (23-11-2026, commit `38d722b`, digabung ke `zandor/perf-gpui`, ADR-083):** Claude Code,
   Codex, dan Gemini (Antigravity) bisa dipakai dengan langganan pengguna lewat Agent Client Protocol (`core/acp/`).
   - UI: Pengaturan > Model > Agent CLI dan langkah provider di Onboarding (`shell/acp_section.rs`, i18n ID+EN).
@@ -321,3 +328,13 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
   rilis tanpa Inspect/F12, menu Dev disembunyikan, `browser-guard.ts` meredam klik kanan bawaan WebView2, pintasan
   browser (F5/Ctrl+R/Ctrl+P/Ctrl+U/Ctrl+Shift+I…), dan seleksi teks bebas (kecuali isi chat, kode, kolom isian, editor).
   Catatan: salinan stabil (`Perbarui-Zandor.cmd`) juga kehilangan DevTools; pakai build dev untuk debugging.
+
+## Tab Berkas: salin, tempel, seret-lepas, unggah (GPUI)
+
+- Tab Berkas di sidebar kini mendukung Ctrl+C / Ctrl+X / Ctrl+V pada item terpilih, seret-lepas antar folder (pindah;
+  tahan Ctrl untuk salin), unggah berkas/folder lewat tombol di header (dialog OS), dan tempel berkas dari Explorer.
+- Logika berkas ada di `src/core/fs_ops.rs`: tidak menimpa (akhiran " (2)"), folder tak bisa masuk dirinya sendiri,
+  symlink dilewati, pindah lintas drive = salin lalu hapus.
+- Terverifikasi di jendela: salin/tempel (Ctrl+C/V) dan seret-lepas internal. Belum teruji otomatis: Ctrl+seret,
+  potong+tempel, menu klik kanan, dialog unggah, dan drop dari Explorer.
+- Keterbatasan: tanpa multi-pilih; menyalin/menyeret keluar ke Explorer tidak didukung GPUI di Windows.

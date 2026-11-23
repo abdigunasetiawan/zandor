@@ -145,9 +145,36 @@ impl ModelPrefsStore {
     }
 }
 
+/// Model bawaan saat pertama kali dipakai (belum ada model tersimpan maupun model chat bawaan di Pengaturan):
+/// DeepSeek dari provider `opencode` (OpenCode Zen). Varian gratis diutamakan karena bisa dipakai tanpa kunci API;
+/// varian eksperimen/vision dilewati; di antara sisanya dipilih versi terbaru (id terbesar, mis. v4.1 > v4).
+pub fn first_run_model(list: &[crate::core::engine::ModelOption]) -> Option<&crate::core::engine::ModelOption> {
+    let id = |m: &crate::core::engine::ModelOption| m.model_id.to_ascii_lowercase();
+    list.iter()
+        .filter(|m| m.provider_id == "opencode" && id(m).contains("deepseek") && !id(m).contains("exp") && !id(m).contains("vision"))
+        .max_by(|a, b| (id(a).contains("free"), id(a)).cmp(&(id(b).contains("free"), id(b))))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn model_pertama_deepseek_opencode() {
+        let m = |p: &str, id: &str| crate::core::engine::ModelOption { provider_id: p.into(), model_id: id.into(), ..Default::default() };
+        let list = vec![
+            m("anthropic", "claude"),
+            m("opencode", "big-pickle"),
+            m("opencode", "deepseek-v4-pro"),
+            m("opencode", "deepseek-v4-flash-free"),
+            m("opencode", "deepseek-v4.1-flash-free"),
+            m("opencode", "deepseek-v4-flash-vision-exp"),
+            m("deepseek", "deepseek-chat"),
+        ];
+        assert_eq!(super::first_run_model(&list).map(|x| x.model_id.as_str()), Some("deepseek-v4.1-flash-free"));
+        // tanpa varian gratis: tetap DeepSeek opencode terbaru
+        assert_eq!(super::first_run_model(&list[..3]).map(|x| x.model_id.as_str()), Some("deepseek-v4-pro"));
+        assert!(super::first_run_model(&list[..2]).is_none());
+    }
     #[test]
     fn roundtrip_and_validation() {
         let mut p = parse(Some(r#"{"defaultChat":{"providerID":"a","modelID":"b"},"hidden":["x/y",3],"providerLogos":{"a":"data:image/png;base64,AAAA","b":"http://x"}}"#));

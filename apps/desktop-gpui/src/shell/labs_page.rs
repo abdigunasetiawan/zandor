@@ -8,7 +8,7 @@ use crate::ui::{button, ButtonVariant, ControlSize, TextInput, TypeExt};
 use gpui::{div, prelude::*, AnyElement, Context, Entity, FontStyle, FontWeight, Hsla, IntoElement, SharedString, StyledText, UnderlineStyle, Window};
 
 /// Halaman lab yang tersedia: (id, kunci i18n judul).
-const PAGES: [(&str, &str); 1] = [("inline-code", "labs.page.inlineCode")];
+const PAGES: [(&str, &str); 2] = [("inline-code", "labs.page.inlineCode"), ("notification", "labs.page.notification")];
 
 const DEFAULT_SAMPLE: &str = "Proyek aktif: `fpk-be`: Backend, `fpk-public`: Publik, `fpk-admin`: Admin. Atribut: `alt=\"Abdi\"` dan `loading=\"lazy\"`.";
 
@@ -219,6 +219,7 @@ impl Render for LabsPage {
                 }))
         }));
         let body = match self.page {
+            "notification" => super::labs_notif::view(&t, &i),
             _ => self.inline_code(&t, &i, cx),
         };
         div()

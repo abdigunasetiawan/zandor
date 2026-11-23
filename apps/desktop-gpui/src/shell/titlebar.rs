@@ -73,7 +73,8 @@ impl TitleBar {
         let i = cx.global::<I18n>().clone();
         let i = &i;
         let mut bar = div().flex().flex_none().items_center().gap(t.space(1));
-        for (idx, (label_key, ids)) in MENUS.iter().enumerate() {
+        // Menu Dev Tools hanya untuk build pengembangan; pengguna rilis tidak melihatnya.
+        for (idx, (label_key, ids)) in MENUS.iter().filter(|(k, _)| cfg!(debug_assertions) || *k != "menu.dev").enumerate() {
             let open = self.open_menu == Some(idx);
             let mut wrap = div().relative().child(
                 button(("menu", idx))

@@ -1,4 +1,7 @@
 //! Zandor — rewrite ke Rust + GPUI.
+// Build rilis = aplikasi GUI Windows: tanpa jendela konsol (cmd) yang ikut terbuka. Build debug tetap berkonsol
+// supaya log `eprintln!` terlihat saat pengembangan.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod assets;
 mod core;
 mod i18n;

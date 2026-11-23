@@ -1,6 +1,7 @@
 # ADR-043 — Sesi demo bawaan (disematkan, permanen, hanya-baca)
 
-Tanggal: 14-11-2026. Status: diterima.
+Tanggal: 14-11-2026. Status: **dicabut 23-11-2026** — atas permintaan pemilik, sesi demo dihapus dari GPUI (dan dari
+sidebar React beserta pengaturan `showDemos`) menjelang rilis beta untuk pengguna lain.
 
 ## Konteks
 

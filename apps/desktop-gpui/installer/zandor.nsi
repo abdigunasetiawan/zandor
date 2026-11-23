@@ -38,6 +38,10 @@ BrandingText "${APP} ${VERSION}"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\Zandor.exe"
 
+; Ketentuan penggunaan beta: tombol Berikutnya aktif setelah kotak persetujuan dicentang. Mode senyap (/S, dipakai
+; pembaruan otomatis) melewati semua halaman, jadi persetujuan hanya diminta saat pemasangan manual.
+!define MUI_LICENSEPAGE_CHECKBOX
+!insertmacro MUI_PAGE_LICENSE $(TermsFile)
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -45,6 +49,9 @@ BrandingText "${APP} ${VERSION}"
 !insertmacro MUI_UNPAGE_INSTFILES
 !insertmacro MUI_LANGUAGE "Indonesian"
 !insertmacro MUI_LANGUAGE "English"
+
+LicenseLangString TermsFile ${LANG_INDONESIAN} "terms-id.txt"
+LicenseLangString TermsFile ${LANG_ENGLISH} "terms-en.txt"
 
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "${APP}"

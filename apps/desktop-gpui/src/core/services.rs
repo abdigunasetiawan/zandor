@@ -36,6 +36,11 @@ impl EngineStatus {
         cx.global::<EngineHandle>().0.clone()
     }
 
+    /// Seperti `global`, tetapi `None` bila engine belum diinisialisasi.
+    pub fn try_global(cx: &App) -> Option<Entity<EngineStatus>> {
+        cx.try_global::<EngineHandle>().map(|h| h.0.clone())
+    }
+
     /// Beri tahu pengamat engine bahwa daftar model berubah tanpa memulai ulang engine (mis. agent CLI
     /// diaktifkan atau modelnya diambil ulang); pemilih model dan Pengaturan memuat ulang daftarnya.
     pub fn models_changed(cx: &mut App) {

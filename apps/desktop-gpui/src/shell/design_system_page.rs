@@ -241,6 +241,65 @@ impl DesignSystemPage {
             .into_any_element()
     }
 
+    /// Toggle kanal notifikasi (Windows, Zandor) memakai pengaturan nyata `notifySystem`/`notifyToast`, dan tombol uji
+    /// untuk setiap jenis notifikasi (selesai, gagal, batas, izin, pertanyaan) yang dikirim lewat kanal yang aktif.
+    fn notification_demo(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
+        use crate::core::settings::SettingsStore;
+        let i = cx.global::<I18n>().clone();
+        let (win_on, app_on, snd_on) = {
+            let s = SettingsStore::global(cx).read(cx);
+            (s.bool("notifySystem"), s.bool("notifyToast"), s.bool("notifySound"))
+        };
+        let toggle = |id: &'static str, label: String, key: &'static str, on: bool, cx: &mut Context<Self>| {
+            let me = cx.entity().downgrade();
+            switch(id, label, on).on_change(move |v, _, cx| {
+                let st = SettingsStore::global(cx);
+                let _ = st.update(cx, |s, cx| s.set(key, serde_json::json!(v), cx));
+                me.update(cx, |_, cx| cx.notify()).ok();
+            })
+        };
+        // (id, kunci judul i18n, nada toast)
+        let kinds: [(&str, &str, ToastTone, &str, &str); 5] = [
+            ("ds-n-done", "notify.done", ToastTone::Success, "done", "soundDone"),
+            ("ds-n-failed", "notify.failed", ToastTone::Danger, "failed", "soundFailed"),
+            ("ds-n-limit", "notify.limit", ToastTone::Danger, "failed", "soundFailed"),
+            ("ds-n-perm", "notify.permission", ToastTone::Warning, "action", "soundAction"),
+            ("ds-n-q", "notify.question", ToastTone::Warning, "action", "soundAction"),
+        ];
+        let buttons = kinds.iter().map(|(id, key, tone, ev, skey)| {
+            let (title, tone, ev, skey) = (i.t(key), *tone, *ev, *skey);
+            button(*id).size(ControlSize::Sm).label(title.clone()).on_click(move |_, _, cx| {
+                let s = SettingsStore::global(cx).read(cx);
+                let (sys, app, snd) = (s.bool("notifySystem"), s.bool("notifyToast"), s.bool("notifySound"));
+                let (choice, vol) = (s.str(skey), s.num("notifyVolume"));
+                if snd {
+                    crate::sound::play(&choice, vol, ev);
+                }
+                let body = "Sesi contoh".to_string();
+                if app {
+                    Toasts::show(ToastInput { title: title.clone().into(), description: Some(body.clone().into()), tone, timeout_ms: Some(6000), action: None }, cx);
+                }
+                if sys {
+                    let (t2, b2) = (title.clone(), body.clone());
+                    std::thread::spawn(move || {
+                        let _ = crate::sound::system_notify(&t2, &b2);
+                    });
+                }
+                if !sys && !app && !snd {
+                    Toasts::show(ToastInput::new("Semua kanal notifikasi nonaktif"), cx);
+                }
+            })
+        });
+        div()
+            .flex()
+            .flex_col()
+            .gap(t.space(3))
+            .child(row(t).gap(t.space(4)).child(toggle("ds-n-win", "Notifikasi Windows".into(), "notifySystem", win_on, cx)).child(toggle("ds-n-app", "Notifikasi Zandor".into(), "notifyToast", app_on, cx)).child(toggle("ds-n-snd", "Suara".into(), "notifySound", snd_on, cx)))
+            .child(div().small(t).text_color(t.colors.fg_muted).child("Uji setiap jenis; terkirim lewat kanal yang aktif. Pengaturan sama dengan Pengaturan → Notifikasi."))
+            .child(row(t).children(buttons))
+            .into_any_element()
+    }
+
     fn molecules(&self, t: &Theme, cx: &mut Context<Self>) -> AnyElement {
         let me = cx.entity().downgrade();
         let items = vec![
@@ -271,6 +330,7 @@ impl DesignSystemPage {
                     .child(button("ds-t2").label("Sukses").on_click(|_, _, cx| { Toasts::show(ToastInput { tone: ToastTone::Success, ..ToastInput::new("Project ditambahkan") }, cx); }))
                     .child(button("ds-t3").label("Galat").on_click(|_, _, cx| { Toasts::show(ToastInput { tone: ToastTone::Danger, ..ToastInput::new("Engine tidak merespons") }, cx); })),
             ))
+            .child(demo(t, "Notifikasi", self.notification_demo(t, cx)))
             .child(demo(
                 t,
                 "Field",

@@ -286,13 +286,6 @@ export const SETTINGS_SCHEMA = {
       default: true,
       "x-zandor": { titleKey: "settings.confirmDelete", group: "chat" },
     },
-    showDemos: {
-      type: "boolean",
-      title: "Tampilkan sesi demo",
-      description: "Tampilkan tiga sesi demo bawaan di daftar Chat.",
-      default: true,
-      "x-zandor": { titleKey: "settings.showDemos", group: "chat" },
-    },
     terminalFontSize: {
       type: "number",
       title: "Ukuran huruf terminal",
@@ -331,7 +324,6 @@ export type Settings = {
   pasteLongText: "attach" | "inline";
   chatWidth: "narrow" | "normal" | "wide";
   confirmDelete: boolean;
-  showDemos: boolean;
   terminalFontSize: 11 | 12 | 13 | 14 | 16;
 };
 
