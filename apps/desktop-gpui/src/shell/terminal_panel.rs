@@ -153,7 +153,14 @@ impl TerminalPanel {
         self.next += 1;
         self.tabs.push(Tab { id, key: key.clone(), title, term, remote, command });
         self.active.insert(key, id);
+        self.publish_count(cx);
         cx.notify();
+    }
+
+    /// Jumlah terminal terbuka → lencana rel.
+    fn publish_count(&self, cx: &mut Context<Self>) {
+        let n = self.tabs.len();
+        super::layout::set_rail_counts(cx, |c| c.terminal = n);
     }
 
     /// Ambil alih PTY engine yang masih hidup untuk konteks ini.
@@ -239,6 +246,7 @@ impl TerminalPanel {
                     None => self.active.remove(&key),
                 };
             }
+            self.publish_count(cx);
         }
         cx.notify();
     }

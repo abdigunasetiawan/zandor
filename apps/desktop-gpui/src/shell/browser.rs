@@ -184,6 +184,7 @@ impl BrowserPanel {
                         if let Some(t) = s.tabs.iter_mut().find(|t| t.id == id) {
                             t.url = url.clone();
                         }
+                        s.publish_count(cx);
                         if s.active == id {
                             s.address.update(cx, |a, cx| a.set_text(url, cx));
                             s.error = None; // halaman berhasil dimuat/berpindah: galat alamat lama tidak relevan lagi
@@ -402,12 +403,19 @@ impl BrowserPanel {
         cx.notify();
     }
 
+    /// Jumlah tab → lencana rel (satu tab kosong bawaan tidak dihitung).
+    fn publish_count(&self, cx: &mut Context<Self>) {
+        let n = if self.tabs.len() == 1 && self.tabs[0].url == HOME_URL { 0 } else { self.tabs.len() };
+        super::layout::set_rail_counts(cx, |c| c.browser = n);
+    }
+
     fn add(&mut self, cx: &mut Context<Self>) {
         if self.tabs.len() >= MAX_BROWSER_TABS {
             return;
         }
         let id = next_id(&self.tabs);
         self.tabs.push(Tab { id: id.clone(), url: HOME_URL.into(), agent: false });
+        self.publish_count(cx);
         self.select(id, cx);
     }
 
@@ -423,6 +431,7 @@ impl BrowserPanel {
             let fresh = if id == "b1" { "b2" } else { "b1" };
             self.tabs.push(Tab { id: fresh.into(), url: HOME_URL.into(), agent: false });
         }
+        self.publish_count(cx);
         if self.active == id {
             let n = self.tabs[i.min(self.tabs.len() - 1)].id.clone();
             self.select(n, cx);
@@ -457,6 +466,7 @@ impl BrowserPanel {
                 }
                 let id = next_id(&self.tabs);
                 self.tabs.push(Tab { id: id.clone(), url: String::new(), agent: true });
+                self.publish_count(cx);
                 id
             }
         };

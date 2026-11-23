@@ -102,10 +102,20 @@ impl ToolsHost {
         if sid != self.changes_for {
             self.changes_for = sid;
             self.changes = None;
+            self.publish_changes(cx);
             self.open_change.clear();
             self.changes_trigger = None;
             self.refresh_changes(cx);
         }
+    }
+
+    /// Jumlah berkas berubah pada sesi aktif → lencana rel (galat/belum dimuat = 0).
+    fn publish_changes(&self, cx: &mut Context<Self>) {
+        let n = match &self.changes {
+            Some(Ok(l)) => l.len(),
+            _ => 0,
+        };
+        super::layout::set_rail_counts(cx, |c| c.changes = n);
     }
 
     fn refresh_changes(&mut self, cx: &mut Context<Self>) {
@@ -116,6 +126,7 @@ impl ToolsHost {
             let r = task.await;
             this.update(cx, |s, cx| {
                 s.changes = Some(r);
+                s.publish_changes(cx);
                 cx.notify();
             })
             .ok();

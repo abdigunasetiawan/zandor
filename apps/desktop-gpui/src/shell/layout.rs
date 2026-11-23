@@ -26,7 +26,51 @@ pub fn set_panel_shown(v: PanelShown, cx: &mut gpui::App) {
     }
 }
 
-const RESIZABLE: [PanelId; 4] = [PanelId::Sidebar, PanelId::Chat, PanelId::Docs, PanelId::Tools];
+/// Jumlah per alat untuk lencana di rel: Terminal, Browser, dan Changes dipublikasikan panel sumbernya
+/// (`set_rail_counts`); Jobs dihitung ShellLayout sendiri karena panelnya baru dibuat saat dibuka.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct RailCounts {
+    pub terminal: usize,
+    pub browser: usize,
+    pub changes: usize,
+}
+impl gpui::Global for RailCounts {}
+
+/// Ubah `RailCounts`; pengamat dipanggil hanya bila nilainya berubah.
+pub fn set_rail_counts(cx: &mut gpui::App, f: impl FnOnce(&mut RailCounts)) {
+    let old = cx.try_global::<RailCounts>().copied().unwrap_or_default();
+    let mut new = old;
+    f(&mut new);
+    if new != old {
+        cx.set_global(new);
+    }
+}
+
+/// Lencana jumlah di pojok kanan atas ikon rel (maks "99+").
+fn rail_badge(t: &Theme, n: usize) -> impl IntoElement {
+    let c = &t.colors;
+    let text = if n > 99 { "99+".to_string() } else { n.to_string() };
+    div()
+        .absolute()
+        .top(t.space(0))
+        .right(t.space(0))
+        .flex()
+        .items_center()
+        .justify_center()
+        .min_w(t.rem(rem::ICON_MD))
+        .h(t.rem(rem::ICON_MD))
+        .px(t.space(1))
+        .rounded(t.rem(rem::RADIUS_FULL))
+        .bg(c.accent)
+        .text_color(c.on_accent)
+        .text_size(t.rem(t.ty(crate::theme::SMALL).size))
+        .font_weight(gpui::FontWeight(t.ty(crate::theme::LABEL).weight))
+        .line_height(gpui::relative(1.))
+        .whitespace_nowrap()
+        .child(text)
+}
+
+const RESIZABLE: [PanelId; 4] =[PanelId::Sidebar, PanelId::Chat, PanelId::Docs, PanelId::Tools];
 /// Lebar minimum (rem).
 fn min_rem(p: PanelId) -> f32 {
     match p {
@@ -122,6 +166,8 @@ pub struct ShellLayout {
     auto_w: f32,
     /// Status terlipat pada render sebelumnya, untuk mempertahankan lebar sidebar saat panel lain dibuka/ditutup.
     prev_collapsed: Option<Vec<bool>>,
+    /// Jumlah background job aktif (sesi terpilih, atau semua bila belum ada sesi) untuk lencana Jobs.
+    jobs_badge: usize,
 }
 
 fn layout_path() -> std::path::PathBuf {
@@ -146,7 +192,37 @@ impl ShellLayout {
             }
         })
         .detach();
-        let mut me = Self { app, sizes: DEFAULT_LAYOUT, active_tool: ToolId::Terminal, group: None, dragging: None, content, saved: String::new(), auto_smart: true, auto_w: 0., prev_collapsed: None };
+        let mut me = Self { app, sizes: DEFAULT_LAYOUT, active_tool: ToolId::Terminal, group: None, dragging: None, content, saved: String::new(), auto_smart: true, auto_w: 0., prev_collapsed: None, jobs_badge: 0 };
+        cx.observe_global::<RailCounts>(|_, cx| cx.notify()).detach();
+        // Jumlah job aktif: baca berkas job di latar tiap 2 dtk (panel Jobs sendiri baru dibuat saat dibuka).
+        cx.spawn(async move |this, cx| loop {
+            let live: Vec<Option<String>> = cx
+                .background_executor()
+                .spawn(async {
+                    let dir = crate::core::services::app_data_dir().join("jobs");
+                    crate::jobs::list(&dir)
+                        .iter()
+                        .filter(|j| matches!(j["status"].as_str(), Some("running" | "starting")))
+                        .map(|j| j["sessionID"].as_str().map(String::from))
+                        .collect()
+                })
+                .await;
+            let alive = this
+                .update(cx, |s, cx| {
+                    let sel = crate::core::projects::ProjectStore::global(cx).read(cx).selection.session_id.clone();
+                    let n = live.iter().filter(|sid| sel.is_none() || sid.as_deref() == sel.as_deref()).count();
+                    if n != s.jobs_badge {
+                        s.jobs_badge = n;
+                        cx.notify();
+                    }
+                })
+                .is_ok();
+            if !alive {
+                break;
+            }
+            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
+        })
+        .detach();
         if remember(cx) {
             me.restore(cx);
         }
@@ -523,10 +599,19 @@ impl Render for ShellLayout {
                     let app = self.app.clone();
                     move |_, _, cx| app.update(cx, |a, cx| a.set_active_panel(PanelId::Rail, cx))
                 });
+            let rc = cx.try_global::<RailCounts>().copied().unwrap_or_default();
             for (n, tool) in TOOL_IDS.iter().enumerate() {
                 let tool = *tool;
                 let pressed = tool == self.active_tool && tools_open;
-                let mut b = icon_button(("rail", n), tool.icon(), rail_labels[n].clone())
+                let count = match tool {
+                    ToolId::Terminal => rc.terminal,
+                    ToolId::Jobs => self.jobs_badge,
+                    ToolId::Browser => rc.browser,
+                    ToolId::Changes => rc.changes,
+                    _ => 0,
+                };
+                let label = if count > 0 { format!("{} · {count}", rail_labels[n]) } else { rail_labels[n].clone() };
+                let mut b = icon_button(("rail", n), tool.icon(), label)
                     .on_click(cx.listener(move |s, _, _, cx| {
                         // klik ikon yang sedang aktif → tutup Panel 4
                         if tool == s.active_tool && !s.app.read(cx).is_collapsed(PanelId::Tools) {
@@ -540,7 +625,7 @@ impl Render for ShellLayout {
                 if pressed {
                     b = b.variant(ButtonVariant::Outline).pressed(true);
                 }
-                rail = rail.child(b);
+                rail = rail.child(div().relative().flex_none().child(b).when(count > 0, |d| d.child(rail_badge(&t, count))));
             }
             body = body.child(rail);
         }
