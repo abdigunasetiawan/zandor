@@ -81,6 +81,14 @@ impl PingStore {
 }
 
 fn run_ping(provider: &str, model: &str, snap: crate::engine::EngineSnapshot) -> ProbeResult {
+    // Agent CLI (ACP): tidak ada endpoint HTTP; ping = satu giliran pendek lewat agent itu sendiri.
+    if super::acp::is_acp_provider(provider) {
+        let start = std::time::Instant::now();
+        return match super::acp::host().complete_once(provider, model, "Reply with the single word: ok") {
+            Ok(_) => ProbeResult { ok: true, status: None, latency_ms: start.elapsed().as_millis() as u64, models: vec![], info: Default::default(), kind: "ok".into(), error: None },
+            Err(e) => netprobe::failed(if e.contains("login") { "auth" } else { "server" }, e),
+        };
+    }
     let store = provider_store();
     let stored_key = store.api_key(provider).ok().flatten();
     let timeout = Duration::from_secs(90);

@@ -285,7 +285,18 @@ impl EngineApi {
         Ok(sv(&self.get("/global/health", None, &[])?, "version"))
     }
     pub fn list_sessions(&self, dir: &str) -> Result<Vec<SessionInfo>> {
-        Ok(arr(self.get("/session", Some(dir), &[])?).iter().map(to_session).collect())
+        let acp = super::acp::host();
+        Ok(arr(self.get("/session", Some(dir), &[])?)
+            .iter()
+            .map(to_session)
+            .map(|mut s| {
+                // Giliran agent ACP tidak menyentuh waktu sesi di engine: pakai aktivitas ACP terakhir bila lebih baru.
+                if let Some(t) = acp.last_activity(&s.id) {
+                    s.updated = s.updated.max(t);
+                }
+                s
+            })
+            .collect())
     }
     pub fn create_session(&self, dir: &str, title: Option<&str>) -> Result<SessionInfo> {
         let body = title.map(|t| json!({ "title": t })).unwrap_or(json!({}));
@@ -332,7 +343,9 @@ impl EngineApi {
         Ok(format!("{ws}/pty/{}/connect?ticket={}&cursor={cursor}&directory={}", q(id), q(ticket), q(dir)))
     }
     pub fn delete_session(&self, dir: &str, id: &str) -> Result<()> {
-        self.call("DELETE", &self.url(&format!("/session/{id}"), Some(dir), &[]), None).map(|_| ())
+        self.call("DELETE", &self.url(&format!("/session/{id}"), Some(dir), &[]), None)?;
+        super::acp::host().forget(id);
+        Ok(())
     }
     pub fn list_files(&self, dir: &str, path: &str) -> Result<Vec<FileNode>> {
         Ok(arr(self.get("/file", Some(dir), &[("path", path.into())])?)
@@ -372,13 +385,24 @@ impl EngineApi {
                 });
             }
         }
+        // Model agent CLI (ACP) yang diaktifkan pengguna: memakai login langganan CLI masing-masing.
+        out.extend(super::acp::host().models());
         Ok(out)
     }
+    /// Pesan sesi: dari engine, digabung dengan giliran agent ACP (urut menurut id menaik).
     pub fn list_messages(&self, dir: &str, id: &str) -> Result<Vec<ChatMessage>> {
-        Ok(arr(self.get(&format!("/session/{id}/message"), Some(dir), &[])?).iter().filter_map(to_message).collect())
+        let mut msgs: Vec<ChatMessage> = arr(self.get(&format!("/session/{id}/message"), Some(dir), &[])?).iter().filter_map(to_message).collect();
+        let acp = super::acp::host().messages(id);
+        if !acp.is_empty() {
+            msgs.extend(acp);
+            msgs.sort_by(|a, b| a.info.id.cmp(&b.info.id));
+        }
+        Ok(msgs)
     }
     pub fn list_permissions(&self, dir: &str) -> Result<Vec<PermissionRequest>> {
-        Ok(arr(self.get("/permission", Some(dir), &[])?).iter().filter_map(to_permission).collect())
+        let mut v: Vec<PermissionRequest> = arr(self.get("/permission", Some(dir), &[])?).iter().filter_map(to_permission).collect();
+        v.extend(super::acp::host().permissions(dir));
+        Ok(v)
     }
     pub fn list_questions(&self, dir: &str) -> Result<Vec<QuestionRequest>> {
         Ok(arr(self.get("/question", Some(dir), &[])?).iter().filter_map(to_question).collect())
@@ -386,10 +410,16 @@ impl EngineApi {
     /// Status jalan sesi menurut engine (`GET /session/status`: hanya sesi yang sedang jalan yang tercantum).
     /// Ini sumber kebenaran: pesan asisten tanpa `completed` bisa saja yatim karena engine sempat dimatikan.
     pub fn session_status(&self, dir: &str, id: &str) -> Result<SessionRunStatus> {
+        if super::acp::host().busy(id) {
+            return Ok(SessionRunStatus::Busy);
+        }
         let v = self.get("/session/status", Some(dir), &[])?;
         Ok(v.get(id).and_then(Value::as_object).map(parse_run_status).unwrap_or(SessionRunStatus::Idle))
     }
     pub fn list_todos(&self, dir: &str, id: &str) -> Result<Vec<Todo>> {
+        if let Some(t) = super::acp::host().todos(id) {
+            return Ok(t);
+        }
         Ok(to_todos(Some(&self.get(&format!("/session/{id}/todo"), Some(dir), &[])?)))
     }
     pub fn reply_question(&self, dir: &str, req: &str, answers: Vec<Vec<String>>) -> Result<()> {
@@ -421,9 +451,33 @@ impl EngineApi {
         files: &[FileAttachment],
         synthetic: &[String],
     ) -> Result<()> {
+        let acp = super::acp::host();
+        if let Some(m) = model.filter(|m| super::acp::is_acp_provider(&m.provider_id)) {
+            // Agent ACP: riwayat sesi (engine + ACP) dioper bila agent belum melihatnya.
+            let history = self.list_messages(dir, id).unwrap_or_default();
+            // OpenCode tidak melihat giliran ACP, jadi tidak membuat judul dari pesan pertama. Beri judul sementara
+            // dari pesan itu (hanya bila judul masih bawaan); event session.updated menandainya sebagai judul
+            // otomatis sehingga penamaan ulang Zandor (autotitle) tetap bisa memperbaikinya.
+            if !history.iter().any(|m| m.info.role == super::types::Role::User) {
+                if let Some(title) = super::acp::convert::provisional_title(text) {
+                    let (api, dir, id) = (self.clone(), dir.to_string(), id.to_string());
+                    std::thread::spawn(move || {
+                        let current = api.get(&format!("/session/{id}"), Some(&dir), &[]).ok().and_then(|v| v["title"].as_str().map(str::to_string));
+                        if current.as_deref().is_some_and(is_default_session_title) {
+                            let _ = api.rename_session(&dir, &id, &title);
+                        }
+                    });
+                }
+            }
+            return acp.prompt(dir, id, text, &m.provider_id, &m.model_id, variant, files, synthetic, history).map_err(EngineError);
+        }
         let mut parts = vec![json!({ "type": "text", "text": text })];
         parts.extend(attachment_parts(files));
         parts.extend(synthetic.iter().map(|s| json!({ "type": "text", "synthetic": true, "text": s })));
+        // Kembali dari agent ACP ke model engine: giliran ACP yang belum dilihat engine dioper sebagai catatan.
+        if let Some(note) = acp.opencode_handoff(id) {
+            parts.push(json!({ "type": "text", "synthetic": true, "text": note }));
+        }
         let mut body = json!({ "parts": parts });
         if let Some(m) = model {
             body["model"] = json!({ "providerID": m.provider_id, "modelID": m.model_id });
@@ -454,18 +508,53 @@ impl EngineApi {
         let r = self.get(&format!("/session/{id}"), Some(dir), &[])?;
         Ok(r.get("revert").and_then(|x| x.get("messageID")).and_then(Value::as_str).map(String::from))
     }
+    /// Waktu dibuat pesan engine pertama yang dibuat sejak `t` (untuk memotong bagian engine di sesi campuran).
+    fn engine_message_from(&self, dir: &str, id: &str, t: f64) -> Option<String> {
+        arr(self.get(&format!("/session/{id}/message"), Some(dir), &[]).ok()?).iter().filter_map(to_message).filter(|m| m.info.created >= t).min_by(|a, b| a.info.id.cmp(&b.info.id)).map(|m| m.info.id)
+    }
     pub fn revert(&self, dir: &str, id: &str, message_id: &str) -> Result<()> {
-        self.post(&format!("/session/{id}/revert"), Some(dir), json!({ "messageID": message_id })).map(|_| ())
+        let acp = super::acp::host();
+        if acp.owns_message(id, message_id) {
+            // Pesan agent ACP: potong transkrip lokal (tidak bisa di-unrevert) dan bagian engine sesudahnya.
+            let t = acp.message_created(id, message_id).unwrap_or(0.);
+            acp.truncate(id, Some(message_id), None);
+            if let Some(m) = self.engine_message_from(dir, id, t) {
+                self.post(&format!("/session/{id}/revert"), Some(dir), json!({ "messageID": m }))?;
+            }
+            return Ok(());
+        }
+        self.post(&format!("/session/{id}/revert"), Some(dir), json!({ "messageID": message_id }))?;
+        // Giliran ACP sesudah pesan ini ikut dibuang.
+        if let Some(t) = self.list_messages(dir, id).ok().and_then(|v| v.into_iter().find(|m| m.info.id == message_id)).map(|m| m.info.created) {
+            acp.truncate(id, None, Some(t));
+        }
+        Ok(())
     }
     pub fn delete_message(&self, dir: &str, id: &str, message_id: &str) -> Result<()> {
+        let acp = super::acp::host();
+        if acp.owns_message(id, message_id) {
+            // Transkrip ACP hanya bisa dipotong dari satu pesan ke akhir. Rewind menghapus dari pesan terakhir ke awal,
+            // jadi memotong dari pesan ini sama dengan menghapusnya.
+            acp.truncate(id, Some(message_id), None);
+            return Ok(());
+        }
         self.call("DELETE", &self.url(&format!("/session/{id}/message/{message_id}"), Some(dir), &[]), None).map(|_| ())
     }
     pub fn unrevert(&self, dir: &str, id: &str) -> Result<()> {
         self.post(&format!("/session/{id}/unrevert"), Some(dir), json!({})).map(|_| ())
     }
     pub fn fork(&self, dir: &str, id: &str, message_id: Option<&str>) -> Result<SessionInfo> {
-        let body = message_id.map(|m| json!({ "messageID": m })).unwrap_or(json!({}));
-        Ok(to_session(&self.post(&format!("/session/{id}/fork"), Some(dir), body)?))
+        let acp = super::acp::host();
+        // Batas cabang: waktu pesan itu. Pesan ACP bukan milik engine, jadi engine diberi pesan engine pertama sesudahnya.
+        let cutoff = message_id.and_then(|m| self.list_messages(dir, id).ok()?.into_iter().find(|x| x.info.id == m).map(|x| x.info.created));
+        let engine_mid = match (message_id, cutoff) {
+            (Some(m), Some(t)) if acp.owns_message(id, m) => self.engine_message_from(dir, id, t),
+            (m, _) => m.map(String::from),
+        };
+        let body = engine_mid.map(|m| json!({ "messageID": m })).unwrap_or(json!({}));
+        let s = to_session(&self.post(&format!("/session/{id}/fork"), Some(dir), body)?);
+        acp.copy_for_fork(id, &s.id, dir, cutoff);
+        Ok(s)
     }
     pub fn find_files(&self, dir: &str, query: &str, limit: u32) -> Result<Vec<String>> {
         let r = self.get("/find/file", Some(dir), &[("query", query.into()), ("dirs", "false".into()), ("limit", limit.to_string())])?;
@@ -492,6 +581,11 @@ impl EngineApi {
         variant: Option<&str>,
         files: &[FileAttachment],
     ) -> Result<()> {
+        if model.is_some_and(|m| super::acp::is_acp_provider(&m.provider_id)) {
+            // Agent ACP menangani perintah garis miring sendiri (Claude Code, Codex, Antigravity).
+            let text = if arguments.trim().is_empty() { format!("/{command}") } else { format!("/{command} {arguments}") };
+            return self.send_prompt(dir, id, &text, model, variant, files);
+        }
         let all = attachment_parts(files);
         let file_parts: Vec<Value> = all.iter().filter(|p| p["type"] == "file").cloned().collect();
         let notes: Vec<String> = all.iter().filter(|p| p["type"] == "text").filter_map(|p| p["text"].as_str().map(String::from)).collect();
@@ -513,6 +607,9 @@ impl EngineApi {
     /// Satu panggilan model sinkron (mis. membuat judul): sesi sementara berjudul eksplisit (agar engine tidak membuat
     /// judul otomatis untuknya) → `POST /session/:id/message` (menunggu balasan) → sesi selalu dihapus lagi.
     pub fn complete_once(&self, dir: &str, prompt: &str, model: Option<&ModelRef>) -> Result<String> {
+        if let Some(m) = model.filter(|m| super::acp::is_acp_provider(&m.provider_id)) {
+            return super::acp::host().complete_once(&m.provider_id, &m.model_id, prompt).map_err(EngineError);
+        }
         let s = self.create_session(dir, Some("Zandor · tugas singkat"))?;
         let run = || {
             let mut body = json!({ "parts": [{ "type": "text", "text": prompt }] });
@@ -526,15 +623,25 @@ impl EngineApi {
         out
     }
     pub fn summarize(&self, dir: &str, id: &str, model: &ModelRef) -> Result<()> {
+        if super::acp::is_acp_provider(&model.provider_id) {
+            // Agent ACP mengelola konteksnya sendiri (Claude Code/Codex meringkas otomatis, atau perintah /compact).
+            return self.send_prompt(dir, id, "/compact", Some(model), None, &[]);
+        }
         self.post(&format!("/session/{id}/summarize"), Some(dir), json!({ "providerID": model.provider_id, "modelID": model.model_id })).map(|_| ())
     }
     pub fn abort(&self, dir: &str, id: &str) -> Result<()> {
+        if super::acp::host().cancel(id) {
+            return Ok(());
+        }
         self.post(&format!("/session/{id}/abort"), Some(dir), json!({})).map(|_| ())
     }
     pub fn dispose_instance(&self, dir: &str) -> Result<()> {
         self.post("/instance/dispose", Some(dir), json!({})).map(|_| ())
     }
     pub fn reply_permission(&self, dir: &str, req: &str, reply: PermissionReply) -> Result<()> {
+        if super::acp::host::AcpHost::owns_permission(req) {
+            return super::acp::host().reply_permission(req, reply).map_err(EngineError);
+        }
         self.post(&format!("/permission/{req}/reply"), Some(dir), json!({ "reply": reply.as_str() })).map(|_| ())
     }
     pub fn list_catalog(&self) -> Result<Vec<CatalogProvider>> {
@@ -582,11 +689,14 @@ impl EngineApi {
     pub fn subscribe(
         &self,
         dir: &str,
-        on_event: impl Fn(EngineEvent) + Send + 'static,
+        on_event: impl Fn(EngineEvent) + Send + Sync + 'static,
         on_state: impl Fn(bool) + Send + 'static,
     ) -> Arc<AtomicBool> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
+        // Event agent ACP untuk direktori ini lewat jalur yang sama.
+        let on_event: Arc<dyn Fn(EngineEvent) + Send + Sync> = Arc::new(on_event);
+        super::acp::host().subscribe(dir, stop.clone(), on_event.clone());
         let url = self.url("/event", Some(dir), &[]);
         let auth = self.target(Some(dir)).1;
         std::thread::Builder::new()

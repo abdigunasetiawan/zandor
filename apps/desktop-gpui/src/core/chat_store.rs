@@ -154,6 +154,20 @@ impl ChatStore {
         let (tx, mut rx) = futures::channel::mpsc::unbounded::<Msg>();
         let e = cx.new(|_| ChatStore { delta_pending: false, api: None, sessions: HashMap::new(), dirs: HashMap::new(), subs: HashMap::new(), tx, model: None, activity: Default::default(), permission_mode: read_pref("zandor.permissionMode").filter(|m| super::composer::PERMISSION_MODES.contains(&m.as_str())).unwrap_or_else(|| super::composer::DEFAULT_PERMISSION_MODE.into()), variant: read_pref("zandor.variant").filter(|v| !v.is_empty()), queues: HashMap::new(), queue_paused: Default::default(), force_next: Default::default(), q_seq: 0, pinned_messages: parse_pinned(read_pref(PINNED_MSG_PREF).as_deref()), pinned_models: parse_keys(read_pref("zandor.pinnedModels").as_deref()), recent_models: parse_keys(read_pref("zandor.recentModels").as_deref()).into_iter().take(MAX_RECENT).collect(), retitled_at: HashMap::new(), next_steps: HashMap::new(), ns_for: HashMap::new(), ctx: ContextState::default() });
         cx.set_global(ChatHandle(e.clone()));
+        super::acp::host().set_permission_mode(&e.read(cx).permission_mode);
+        // Agent CLI aktif yang daftar modelnya belum pernah diambil: ambil di latar sekali saat mulai.
+        let pending = super::acp::host().agents_needing_models();
+        if !pending.is_empty() {
+            let task = cx.background_spawn(async move {
+                pending.into_iter().filter(|id| super::acp::host().refresh_models(id).is_ok()).count()
+            });
+            cx.spawn(async move |cx| {
+                if task.await > 0 {
+                    cx.update(super::services::EngineStatus::models_changed);
+                }
+            })
+            .detach();
+        }
         let weak = e.downgrade();
         cx.spawn(async move |cx| {
             while let Some(m) = rx.next().await {
@@ -591,6 +605,10 @@ impl ChatStore {
         }
         let (max, auto, thr) = Self::context_settings(cx);
         let (Some(model), true) = (self.model.clone(), auto) else { return };
+        // Agent ACP (Claude Code, Codex, Antigravity) meringkas konteksnya sendiri.
+        if super::acp::is_acp_provider(&model.provider_id) {
+            return;
+        }
         if self.sessions.get(sid).is_none_or(|s| s.busy() || !s.loaded) {
             return;
         }
@@ -611,6 +629,7 @@ impl ChatStore {
         }
         self.permission_mode = mode.to_string();
         write_pref("zandor.permissionMode", mode);
+        super::acp::host().set_permission_mode(mode);
         // permintaan yang menunggu ikut dijawab sesuai mode baru
         let pending: Vec<_> = self.sessions.values().flat_map(|s| s.permissions.clone()).collect();
         for p in pending {

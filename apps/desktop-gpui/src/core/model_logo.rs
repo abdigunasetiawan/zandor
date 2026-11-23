@@ -75,7 +75,11 @@ fn model_family(t: &str) -> Option<&'static str> {
     pats.iter().find(|(f, k)| f() && has(k)).map(|(_, k)| *k)
 }
 
-const ALIASES: [(&str, &str); 33] = [
+const ALIASES: [(&str, &str); 36] = [
+    // agent CLI lewat ACP (provider `acp-<agent>`, ADR-083)
+    ("acpclaude", "claude"),
+    ("acpcodex", "codex"),
+    ("acpantigravity", "gemini"),
     ("googlevertex", "vertexai"),
     ("googleaistudio", "aistudio"),
     ("amazonbedrock", "bedrock"),

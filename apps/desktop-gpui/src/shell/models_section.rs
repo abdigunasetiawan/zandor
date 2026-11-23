@@ -442,6 +442,7 @@ impl ModelsSection {
                 .collect::<Vec<_>>()
                 .join(" · ");
             let kind = match r.spec.as_ref().map(|s| &s.kind) {
+                _ if crate::core::acp::is_acp_provider(&r.id) => "pv.kind.agent",
                 Some(Kind::Custom) => "pv.kind.custom",
                 Some(Kind::Local) => "pv.kind.local",
                 _ => "pv.kind.builtin",

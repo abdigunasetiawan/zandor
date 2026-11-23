@@ -571,7 +571,13 @@ impl ChatPanel {
 
     fn picker_provider_tab(&self, t: &Theme, i: &I18n, id: &str, name: &str, models: &[ModelOption], cx: &mut Context<Self>) -> AnyElement {
         let owned = crate::core::pings::owned_provider(id);
-        let kind = i.t(if owned { "pv.kind.custom" } else { "pv.kind.builtin" });
+        let kind = i.t(if crate::core::acp::is_acp_provider(id) {
+            "pv.kind.agent"
+        } else if owned {
+            "pv.kind.custom"
+        } else {
+            "pv.kind.builtin"
+        });
         let sub = format!("{kind} · {}", i.tp("mp.provider.models", &[("n", &models.len().to_string())]));
         let ids: Vec<(String, String)> = models.iter().map(|m| (m.provider_id.clone(), m.model_id.clone())).collect();
         // Virtual: provider bisa punya ratusan model (mis. 831); hanya baris yang terlihat yang dirender.

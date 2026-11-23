@@ -1,4 +1,5 @@
 //! Core Zandor dalam Rust — port packages/core.
+pub mod acp;
 pub mod re;
 pub mod rewind;
 pub mod demo;

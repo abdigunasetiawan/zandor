@@ -87,6 +87,7 @@ pub struct OnboardingPage {
     models: Option<Vec<crate::core::engine::ModelOption>>,
     profile: Entity<super::profile_section::ProfileSection>,
     providers: Entity<super::providers_section::ProvidersSection>,
+    agents: Entity<super::acp_section::AcpSection>,
     adding: bool,
     mem_mode: Option<&'static str>,
     skill_mode: Option<&'static str>,
@@ -135,6 +136,11 @@ impl OnboardingPage {
             t
         });
         cx.subscribe(&paste, |_, _, _: &InputChanged, cx| cx.notify()).detach();
+        let agents = cx.new(|cx| {
+            let mut a = super::acp_section::AcpSection::new(cx);
+            a.heading = false;
+            a
+        });
         let existing = crate::memory::read_memory(&app_data_dir().join("memory"), mem::FILE_GLOBAL).unwrap_or_default();
         let mut me = Self {
             app,
@@ -143,6 +149,7 @@ impl OnboardingPage {
             models: None,
             profile,
             providers,
+            agents,
             adding: false,
             mem_mode: None,
             skill_mode: None,
@@ -450,7 +457,19 @@ impl OnboardingPage {
             }
             col = col.child(list);
         }
-        col.child(div().child(button("onb-prov-add").variant(ButtonVariant::Solid).label(i.t("onb.provider.add")).on_click(cx.listener(|s, _, _, cx| {
+        // Langganan lewat CLI agent resmi (Claude Code, Codex, Antigravity) — tanpa kunci API.
+        col = col.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(t.space(2))
+                .pt(t.space(2))
+                .child(div().typo(t, H4).child(i.t("onb.provider.agents")))
+                .child(muted(t, i.t("onb.provider.agentsBody")))
+                .child(self.agents.clone()),
+        );
+        col.child(div().typo(t, H4).pt(t.space(2)).child(i.t("onb.provider.connections")))
+        .child(div().child(button("onb-prov-add").variant(ButtonVariant::Solid).label(i.t("onb.provider.add")).on_click(cx.listener(|s, _, _, cx| {
             s.adding = true;
             s.providers.update(cx, |p, cx| p.open_form(None, cx));
             cx.notify();

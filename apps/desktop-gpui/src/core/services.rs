@@ -35,6 +35,14 @@ impl EngineStatus {
     pub fn global(cx: &App) -> Entity<EngineStatus> {
         cx.global::<EngineHandle>().0.clone()
     }
+
+    /// Beri tahu pengamat engine bahwa daftar model berubah tanpa memulai ulang engine (mis. agent CLI
+    /// diaktifkan atau modelnya diambil ulang); pemilih model dan Pengaturan memuat ulang daftarnya.
+    pub fn models_changed(cx: &mut App) {
+        if let Some(h) = cx.try_global::<EngineHandle>().map(|h| h.0.clone()) {
+            h.update(cx, |_, cx| cx.notify());
+        }
+    }
 }
 
 /// Direktori data aplikasi. Build debug memakai data dev (sama dengan Zandor Dev), rilis memakai data produksi.

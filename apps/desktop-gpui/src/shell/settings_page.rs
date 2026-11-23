@@ -38,6 +38,7 @@ pub struct SettingsPage {
     scroll: ScrollHandle,
     models: Option<Result<Vec<ModelOption>, String>>,
     providers: Entity<super::providers_section::ProvidersSection>,
+    agents: Entity<super::acp_section::AcpSection>,
     models_sec: Entity<super::models_section::ModelsSection>,
     notif: Entity<super::notification_section::NotificationSection>,
     profile: Entity<super::profile_section::ProfileSection>,
@@ -80,6 +81,9 @@ impl SettingsPage {
         })
         .detach();
         let providers = cx.new(super::providers_section::ProvidersSection::new);
+        let agents = cx.new(super::acp_section::AcpSection::new);
+        // Daftar model berubah (engine dimulai ulang atau agent CLI diaktifkan): muat ulang.
+        cx.observe(&crate::core::services::EngineStatus::global(cx), |s, _, cx| s.load_models(cx)).detach();
         let profile = cx.new(super::profile_section::ProfileSection::new);
         let voice = cx.new(super::voice_section::VoiceSection::new);
         let themes = cx.new(super::themes_section::ThemesSection::new);
@@ -108,7 +112,7 @@ impl SettingsPage {
                 a
             }
         });
-        let mut me = Self { memory, automation, app, settings, search, active: "general", ap_tab: "themes", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, models_sec, notif, profile, voice, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
+        let mut me = Self { memory, automation, app, settings, search, active: "general", ap_tab: "themes", scroll: ScrollHandle::new(), models: None, on_reset_layout: None, providers, agents, models_sec, notif, profile, voice, themes, typography, chat_style, keys, pstyles, editor, remote, docs_style };
         me.load_models(cx);
         me
     }
@@ -400,9 +404,10 @@ impl Render for SettingsPage {
                 vec![div().flex().flex_col().gap(t.space(3)).py(t.space(2)).child(div().small(&t).text_color(t.colors.fg_muted).child(i.t("docStyle.body"))).child(self.docs_style.clone()).into_any_element()],
             ));
         }
-        if show("models") && matches_q(&q, &[&i.t("settings.models"), &i.t("ms.defaults"), &i.t("ms.providers")]) {
+        if show("models") && matches_q(&q, &[&i.t("settings.models"), &i.t("ms.defaults"), &i.t("ms.providers"), &i.t("acp.title"), &i.t("acp.keywords")]) {
             let rows = vec![
                 div().py(t.space(2)).child(self.models_sec.clone()).into_any_element(),
+                div().py(t.space(2)).child(self.agents.clone()).into_any_element(),
                 div().py(t.space(2)).child(self.providers.clone()).into_any_element(),
             ];
             content = content.child(group(&t, i.t("settings.models"), rows));

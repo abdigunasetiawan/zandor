@@ -86,3 +86,32 @@ tab Endpoint kustom, Lokal, Katalog provider, dan Masuk (OAuth lewat engine; plu
 reasoning, alat, lampiran) dan menyimpannya bersama koneksi. Ollama (`/v1/models`) tidak memberi metadata; isi manual.
 Tes: `model-info.test.ts`, cargo `netprobe::model_info_reads_openrouter_and_lmstudio_fields`, e2e `providers.spec.ts`.
 Pilih semua / Batalkan semua tersedia di daftar hasil fetch (mengikuti filter pencarian).
+
+## Agent CLI dengan langganan (ACP, GPUI, ADR-083)
+
+- **Apa:** Claude Code, Codex, dan Gemini (Antigravity) dijalankan lewat Agent Client Protocol, memakai login CLI resmi
+  di mesin pengguna. Zandor tidak menyimpan token. Kode ada di `apps/desktop-gpui/src/core/acp/` dan
+  `shell/acp_section.rs`.
+- **Persiapan pengguna:**
+  1. Pasang CLI dan login (`claude auth login`, `codex login`, `agy`).
+  2. Buka Pengaturan > Model > Agent CLI. Aktifkan agent; bila diminta, tekan **Pasang adaptor** (butuh Node.js + npm).
+  3. Model muncul di pemilih model dengan nama provider agent itu.
+- **Status yang ditampilkan:** CLI tidak ditemukan, Adaptor belum dipasang, Node.js tidak ada, Perlu login, Galat
+  (dengan pesan agent), Belum diuji, atau Siap · N model. Tombol **Uji koneksi** membuka sesi sementara dan mengambil
+  daftar model.
+- **Data:**
+  - `<data>/acp/agents.json`: aktif/nonaktif, perintah kustom.
+  - `acp/models.json`: cache daftar model.
+  - `acp/sessions/<id>.json`: transkrip giliran ACP.
+  - `acp/tools/`: adaptor npm.
+  - `acp/scratch/`: sesi uji.
+- **Batasan:**
+  - Unrevert tidak berlaku untuk pesan ACP.
+  - Fork pada sesi campuran urutannya belum sempurna.
+  - Kompaksi otomatis dilewati untuk model ACP.
+  - Ping dan uji memakai kuota langganan.
+  - Agent butuh engine OpenCode berjalan, karena sesi tetap dibuat oleh OpenCode.
+- **Cara test:**
+  - Otomatis: `cargo test --offline acp` (unit).
+  - Langsung: `ZANDOR_ACP_LIVE=<claude|codex|antigravity> ZANDOR_ACP_LIVE_CMD=node ZANDOR_ACP_LIVE_ARGS=<adaptor>/dist/index.js cargo test --offline live_acp -- --ignored --nocapture`.
+    Untuk Antigravity, isi `ZANDOR_ACP_LIVE_CMD` dengan jalur `agy.exe` dan `ZANDOR_ACP_LIVE_ARGS=acp`.

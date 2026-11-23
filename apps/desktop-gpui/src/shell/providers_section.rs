@@ -742,7 +742,8 @@ impl Render for ProvidersSection {
                 div()
                     .flex()
                     .items_center()
-                    .child(div().flex_1().flex().flex_col().child(div().font_weight(FontWeight::SEMIBOLD).child(i.t("ms.providers"))).child(div().small(&t).text_color(t.colors.fg_muted).child(i.t("ms.providersBody"))))
+                    .gap(t.space(2))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().font_weight(FontWeight::SEMIBOLD).child(i.t("ms.providers"))).child(div().small(&t).text_color(t.colors.fg_muted).child(i.t("ms.providersBody"))))
                     .child(button("pv-add").label(i.t("pv.add")).size(ControlSize::Sm).variant(ButtonVariant::Solid).on_click(cx.listener(|s, _, _, cx| s.open_form(None, cx)))),
             );
             col = col.child(div().small(&t).text_color(t.colors.fg_subtle).child(i.t("pv.secure.yes")));

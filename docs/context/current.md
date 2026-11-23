@@ -1,6 +1,6 @@
 # Kondisi Saat Ini
 
-> Snapshot, selalu ditimpa. Terakhir diperbarui: 20-11-2026.
+> Snapshot, selalu ditimpa. Terakhir diperbarui: 23-11-2026.
 
 ## Fokus: Rust GPUI (19-11-2026, ADR-078)
 
@@ -8,6 +8,19 @@ Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpu
 `packages/*` dibekukan sebagai referensi paritas 1:1. Panduan: [`features/gpui.md`](../features/gpui.md). Bagian
 "Terbaru/Sebelumnya" di bawah mendeskripsikan perilaku versi React yang menjadi acuan port.
 
+- **Agent CLI lewat ACP (23-11-2026, branch `acp`, worktree `Zandor-acp`, belum di-commit, ADR-083):** Claude Code,
+  Codex, dan Gemini (Antigravity) bisa dipakai dengan langganan pengguna lewat Agent Client Protocol (`core/acp/`).
+  - UI: Pengaturan > Model > Agent CLI dan langkah provider di Onboarding (`shell/acp_section.rs`, i18n ID+EN).
+  - Model muncul di pemilih sebagai provider `acp-*`, dengan logo, ping lewat agent, dan pemilih model dimuat ulang saat
+    daftar berubah.
+  - OpenCode tetap jalur bawaan; sesi tetap miliknya.
+  - **Uji langsung:** ketiga agent lulus (berkas dibuat lewat izin, konteks giliran kedua benar).
+  - **Diuji di jendela (build release, data asli):** pasang adaptor, aktifkan, pemilih model, satu sesi berganti
+    Claude → Codex → Gemini dengan konteks dioper, judul sesi, dan Onboarding.
+  - **Belum:** unrevert untuk pesan ACP, urutan fork sesi campuran, dan kartu izin di jendela (izin hanya teruji lewat
+    tes langsung).
+  - Catatan alat: worktree baru tidak punya `apps/desktop/src-tauri/binaries/opencode-*.exe` dan
+    `resources/zandor-plugin.js` (diabaikan git); salin dari worktree utama atau engine akan "bermasalah".
 - **Rewind (22-11-2026, belum di-commit; ketiga mode terverifikasi di app):** dialog "Rewind ke pesan ini?" (`shell/rewind_dialog.rs`, logika + 7 tes di `core/rewind.rs`) menggantikan konfirmasi revert; 3 mode (Kode dan percakapan = engine revert; Hanya percakapan = hapus pesan; Hanya kode = balikkan patch di disk, gagal jujur bila berkas berubah). Detail di `features/chat.md`. `cargo check` lulus; **belum dicoba di aplikasi/engine nyata** (asumsi `diff?messageID=` belum terbukti).
 - **Simulasi perangkat di Panel 4 Browser (22-11-2026):** bilah kedua di bawah bilah alamat: pemilih templat (Responsif, Android Galaxy S24/Redmi Note 13/Reno 11, iPhone SE/15/15 Pro Max, Pixel 8/Fold, iPad Mini/Pro 11/Galaxy Tab S9, Laptop 13"/14"/MacBook Air/15", Desktop FHD/QHD, Kustom), kolom lebar × tinggi (Enter), tombol putar, dan skala (Pas/50–150%). Cara kerja: webview diubah ukurannya ke viewport × skala dan diberi zoom WebView2 = skala, jadi viewport CSS persis ukuran perangkat; UA seluler + emulasi sentuh lewat CDP (halaman dimuat ulang saat UA berubah). Data di `shell/browser_devices.rs` (2 tes). **Bingkai standar** per jenis (ponsel/tablet/laptop/desktop; bezel digambar di canvas, sudut layar dibulatkan lewat `SetWindowRgn` pada jendela anak webview); saat webview disembunyikan menu/dropdown, bingkai + tangkapan terakhir tetap tampil (tangkapan diambil saat bilah simulasi ditekan). **Batasan jujur:** DPR/piksel fisik tidak disimulasikan, tanpa notch/tombol; simulasi berlaku untuk semua tab. `cargo test --offline` 297 lulus; **belum dicoba di jendela aplikasi** (webview native tidak bisa diuji dari browser pane) dan belum build rilis.
 - **Pin chat dan project (20-11-2026):** menu ⋯ sesi dan project punya "Sematkan/Lepas sematan"; item tersemat naik ke atas

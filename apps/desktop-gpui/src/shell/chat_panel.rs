@@ -152,7 +152,13 @@ impl ChatPanel {
         cx.observe_global::<crate::theme::Theme>(|_, cx| cx.notify()).detach();
         cx.observe_global::<crate::i18n::I18n>(|_, cx| cx.notify()).detach();
         cx.observe(&crate::core::appearance::AppearanceStore::global(cx), |_, _, cx| cx.notify()).detach();
-        cx.observe(&engine, |_, _, cx| cx.notify()).detach();
+        // Engine dimulai ulang atau daftar model agent CLI berubah: ambil ulang daftar model pemilih.
+        cx.observe(&engine, |s, _, cx| {
+            s.models_loaded = false;
+            s.load_models(cx);
+            cx.notify();
+        })
+        .detach();
         cx.observe(&crate::core::profile::Profile::global(cx), |_, _, cx| cx.notify()).detach();
         cx.subscribe(&input, |this, _, e: &InputSubmit, cx| this.submit(e.0.to_string(), cx)).detach();
         // pasteLongText = "attach": teks panjang → lampiran teks (port pastedAttachment)
