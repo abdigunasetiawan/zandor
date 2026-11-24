@@ -139,7 +139,7 @@ fn main() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     // Tanpa bingkai (sama dengan tauri.conf.json `decorations: false`).
                     titlebar: Some(TitlebarOptions {
-                        title: Some("Zandor".into()),
+                        title: Some(if cfg!(debug_assertions) { "Zandor Dev" } else { "Zandor" }.into()),
                         appears_transparent: true,
                         traffic_light_position: None,
                     }),

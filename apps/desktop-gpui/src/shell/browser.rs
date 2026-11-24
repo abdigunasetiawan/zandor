@@ -975,11 +975,22 @@ impl Render for BrowserPanel {
                     .min_h_0()
                     .relative()
                     .when(emu.is_some(), |d| d.bg(t.colors.surface))
-                    .when(cur_url.is_empty(), |d| {
+                    .when(!self.tabs.is_empty() && cur_url.is_empty(), |d| {
                         d.child(div().absolute().inset_0().flex().items_center().justify_center().gap(t.space(2)).text_color(t.colors.fg_subtle).child(icon("globe").size(IconSize::Md)).child(i.t("br.address")))
                     })
                     .children(snap_el)
-                    .child(host),
+                    .child(host)
+                    .when(self.tabs.is_empty(), |d| {
+                        d.child(
+                            div().absolute().inset_0().flex().items_center().justify_center().child(
+                                crate::ui::button("br-empty-new")
+                                    .variant(ButtonVariant::Solid)
+                                    .leading_icon("plus")
+                                    .label(i.t("br.newTab"))
+                                    .on_click(cx.listener(|s, _, _, cx| s.add(cx))),
+                            ),
+                        )
+                    }),
             )
     }
 }

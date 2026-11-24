@@ -20,31 +20,47 @@ $procName = 'zandor-gpui'
 function Write-Stamp($msg, $color) { Write-Host "[$(Get-Date -Format HH:mm:ss)] $msg" -ForegroundColor $color }
 
 function Stop-App {
-  # Cek dulu apakah Zandor benar-benar berjalan (dari mana pun: cargo run, target\debug, target\run).
-  # Bila ya, laporkan lalu matikan dan tunggu sampai benar-benar hilang (maks 10 dtk).
-  $running = @(Get-Process -Name $procName -ErrorAction SilentlyContinue)
+  # Hanya matikan Zandor Dev di dalam repo ini; JANGAN pernah menyentuh Zandor produksi yang terpasang.
+  $running = @(Get-Process -Name $procName -ErrorAction SilentlyContinue | Where-Object {
+    try { $_.Path -like "$root*" } catch { $false }
+  })
   if ($running.Count -eq 0) { return }
   foreach ($p in $running) {
     $where = try { $p.Path } catch { '?' }
-    Write-Stamp "Zandor masih berjalan (PID $($p.Id), $where). Mematikan..." Yellow
+    Write-Stamp "Zandor Dev masih berjalan (PID $($p.Id), $where). Mematikan..." Yellow
   }
   $running | Stop-Process -Force -ErrorAction SilentlyContinue
   $deadline = (Get-Date).AddSeconds(10)
-  while ((Get-Process -Name $procName -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) {
+  while ((Get-Process -Name $procName -ErrorAction SilentlyContinue | Where-Object {
+    try { $_.Path -like "$root*" } catch { $false }
+  }) -and (Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 200
   }
-  if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
-    throw "Zandor tidak bisa dimatikan. Tutup manual lalu jalankan ulang skrip ini."
+  if (Get-Process -Name $procName -ErrorAction SilentlyContinue | Where-Object {
+    try { $_.Path -like "$root*" } catch { $false }
+  }) {
+    throw "Zandor Dev tidak bisa dimatikan. Tutup manual lalu jalankan ulang skrip ini."
   }
-  Write-Stamp 'Zandor lama sudah mati.' DarkGray
+  Write-Stamp 'Zandor Dev lama sudah mati.' DarkGray
 }
 
 function Invoke-Build {
-  Write-Stamp 'Membangun...' Cyan
+  Write-Stamp 'Membangun (incremental + lld)...' Cyan
   Push-Location $app
-  # Tanpa incremental: artefak incremental rusak berulang kali memicu LNK1120 di Windows.
-  $env:CARGO_INCREMENTAL = '0'
-  try { cargo build } finally { Pop-Location }
+  $env:CARGO_INCREMENTAL = '1'
+  $sysroot = (rustc --print sysroot 2>$null | Out-String).Trim()
+  if ($sysroot) {
+    $lld = Join-Path $sysroot 'lib\rustlib\x86_64-pc-windows-msvc\bin\rust-lld.exe'
+    if (Test-Path $lld) { $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = $lld }
+  }
+  try {
+    cargo build --offline
+    if ($LASTEXITCODE -ne 0) {
+      Write-Stamp 'Build inkremental gagal; membersihkan cache crate utama lalu mencoba ulang...' Yellow
+      cargo clean -p zandor-gpui
+      cargo build --offline
+    }
+  } finally { Pop-Location }
   if ($LASTEXITCODE -ne 0) {
     Write-Host 'Build gagal. Perbaiki lalu simpan lagi.' -ForegroundColor Red
     return $false
@@ -63,11 +79,13 @@ function Start-App {
 }
 
 function Get-Stamp {
-  # Tanda perubahan: jumlah file + waktu tulis terbaru di src/ dan assets/.
-  $files = foreach ($dir in @('src', 'assets')) {
+  # Tanda perubahan: jumlah file + waktu tulis terbaru di src/, assets/, dan dev-build.txt.
+  $files = @(foreach ($dir in @('src', 'assets')) {
     $path = Join-Path $app $dir
     if (Test-Path $path) { Get-ChildItem -Path $path -Recurse -File -ErrorAction SilentlyContinue }
-  }
+  })
+  $devBuild = Join-Path $app 'dev-build.txt'
+  if (Test-Path $devBuild) { $files += Get-Item $devBuild }
   $max = ($files | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
   "$($files.Count)|$($max.Ticks)"
 }
@@ -105,7 +123,9 @@ try {
       $ok = Invoke-Build
       $stamp = Get-Stamp
       if (-not $ok) { continue }
-      $running = [bool](Get-Process -Name $procName -ErrorAction SilentlyContinue)
+      $running = [bool](Get-Process -Name $procName -ErrorAction SilentlyContinue | Where-Object {
+        try { $_.Path -like "$root*" } catch { $false }
+      })
       if ($Auto -or -not $running) {
         $pending = $false
         Start-App

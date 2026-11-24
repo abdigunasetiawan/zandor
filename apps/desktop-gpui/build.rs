@@ -12,6 +12,20 @@ fn main() {
     let release = std::env::var("ZANDOR_RELEASE_VERSION").ok().filter(|v| !v.is_empty());
     let version = release.or_else(|| git(&["rev-list", "--count", "HEAD"]).filter(|n| !n.is_empty()).map(|n| format!("0.0.{n}"))).unwrap_or_else(|| std::env::var("CARGO_PKG_VERSION").unwrap_or_default());
     println!("cargo:rustc-env=ZANDOR_VERSION={version}");
+    // Penanda build development: hanya aktif pada profil debug (bukan rilis/dist).
+    // Saat rilis, nilainya kosong sehingga informasi build dev otomatis hilang dari UI.
+    println!("cargo:rerun-if-changed=dev-build.txt");
+    let is_debug = std::env::var("PROFILE").as_deref() == Ok("debug") && std::env::var("ZANDOR_RELEASE_VERSION").ok().filter(|v| !v.is_empty()).is_none();
+    let dev_build = if is_debug {
+        std::fs::read_to_string("dev-build.txt")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "dev".to_string())
+    } else {
+        String::new()
+    };
+    println!("cargo:rustc-env=ZANDOR_DEV_BUILD={dev_build}");
     // Hitung ulang tiap commit baru (reflog HEAD berubah; juga bekerja di git worktree).
     for f in ["HEAD", "logs/HEAD"] {
         if let Some(path) = git(&["rev-parse", "--git-path", f]) {

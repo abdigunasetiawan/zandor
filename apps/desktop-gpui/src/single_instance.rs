@@ -9,7 +9,14 @@ pub fn acquire_or_activate() -> bool {
     use windows_sys::Win32::System::Threading::CreateMutexW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{FindWindowW, IsIconic, SetForegroundWindow, ShowWindow, SW_RESTORE};
 
-    let name: Vec<u16> = r"Local\Zandor-GPUI-single-instance".encode_utf16().chain(std::iter::once(0)).collect();
+    let name: Vec<u16> = (if cfg!(debug_assertions) {
+        r"Local\Zandor-GPUI-dev-single-instance"
+    } else {
+        r"Local\Zandor-GPUI-single-instance"
+    })
+    .encode_utf16()
+    .chain(std::iter::once(0))
+    .collect();
     for _ in 0..8 {
         // SAFETY: `name` berakhir NUL dan hidup selama pemanggilan; atribut keamanan boleh null.
         let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
@@ -24,7 +31,7 @@ pub fn acquire_or_activate() -> bool {
         unsafe { CloseHandle(h) };
         std::thread::sleep(std::time::Duration::from_millis(250));
     }
-    let title: Vec<u16> = "Zandor".encode_utf16().chain(std::iter::once(0)).collect();
+    let title: Vec<u16> = (if cfg!(debug_assertions) { "Zandor Dev" } else { "Zandor" }).encode_utf16().chain(std::iter::once(0)).collect();
     // SAFETY: judul berakhir NUL; handle jendela hanya dipakai untuk memunculkannya.
     unsafe {
         let w = FindWindowW(std::ptr::null(), title.as_ptr());

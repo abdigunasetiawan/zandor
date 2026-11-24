@@ -1,12 +1,30 @@
 # Kondisi Saat Ini
 
-> Snapshot, selalu ditimpa. Terakhir diperbarui: 23-11-2026.
+> Snapshot, selalu ditimpa. Terakhir diperbarui: 24-11-2026.
 
 ## Fokus: Rust GPUI (19-11-2026, ADR-078)
 
 Pengembangan aktif pindah ke **`apps/desktop-gpui`** (branch `zandor/rewrite-gpui`, worktree `Zandor-gpui`). Tauri/React dan
 `packages/*` dibekukan sebagai referensi paritas 1:1. Panduan: [`features/gpui.md`](../features/gpui.md). Bagian
 "Terbaru/Sebelumnya" di bawah mendeskripsikan perilaku versi React yang menjadi acuan port.
+
+- **Workflow build cepat, isolasi Zandor Dev, dan versi dev di Sidebar (24-11-2026, belum di-commit):**
+  - Build dev cepat: `scripts/dev-watch.ps1` mendeteksi otomatis `rust-lld.exe` (`lld-link`) dari `rustc --print sysroot` lewat
+    `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER`, `Cargo.toml` `[profile.dev]` memakai `opt-level = 0, debug = 0`
+    (dependensi tetap `opt-level = 3`), dan `dev-watch.ps1` memakai `CARGO_INCREMENTAL=1` (fallback `cargo clean -p zandor-gpui`
+    bila gagal) serta hanya menghentikan proses `zandor-gpui.exe` di dalam folder repo.
+  - Isolasi penuh dari Zandor terpasang: `single_instance.rs` dan `main.rs` memisahkan mutex
+    (`Local\Zandor-GPUI-dev-single-instance` vs `Local\Zandor-GPUI-single-instance`) dan judul jendela (`"Zandor Dev"` vs
+    `"Zandor"`), melengkapi pemisahan `%APPDATA%\ZandorDev` vs `%APPDATA%\Zandor` (`services.rs`).
+  - Versi dev di Sidebar: `scripts/bump-dev-build.ts` menaikkan `apps/desktop-gpui/dev-build.txt` (di-gitignore); `build.rs`
+    mengekspor `ZANDOR_DEV_BUILD` hanya saat profil debug; `shell/sidebar.rs` menampilkan `v<versi> · dev.<N>` di bawah
+    username khusus masa development (otomatis hilang di build rilis). Aturan baru didokumentasikan di `AGENTS.md`,
+    `docs/agents.md`, dan `docs/features/gpui.md`.
+
+- **Tombol Tab baru di keadaan kosong panel Browser (24-11-2026, belum di-commit):** di `shell/browser.rs`, saat
+  `self.tabs.is_empty()` area tengah menampilkan tombol solid **Tab baru** (`br.newTab` + ikon `plus`, memanggil
+  `self.add(cx)`) di atas canvas host menggantikan teks `Alamat (URL)`. `CARGO_INCREMENTAL=0 cargo test --offline` 349
+  lulus; **belum diuji visual** di jendela aplikasi maupun build release.
 
 - **Rilis dan pembaruan otomatis (23-11-2026, branch `zandor/release`, digabung ke `main` (lokal), ADR-084):**
   - `core/update.rs` memeriksa `latest.json` di GitHub Releases, mengunduh installer di latar, memverifikasi Ed25519 +

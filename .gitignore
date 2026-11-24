@@ -35,3 +35,5 @@ apps/desktop/src-tauri/resources/
 # Installer beta hasil Buat-Installer-Beta.cmd
 rilis-beta/
 /apps/desktop-gpui/target/
+# Penanda versi build lokal saat development (tidak ikut di-commit/rilis)
+apps/desktop-gpui/dev-build.txt

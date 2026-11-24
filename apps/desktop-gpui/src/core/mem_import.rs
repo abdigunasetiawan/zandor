@@ -201,14 +201,13 @@ pub fn build_memory(m: &MergedMemory, res: &HashMap<String, Resolution>, lists: 
     for k in &m.keyed {
         if !is_single_key(&k.key) {
             let pick = lists.get(&k.key);
-            let mut seen: Vec<String> = vec![];
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
             let values: Vec<String> = k.options.iter().map(|o| o.value.clone()).chain(pick.map(|p| p.extra.iter().map(|x| squash(x)).collect::<Vec<_>>()).unwrap_or_default()).collect();
             for v in values {
                 let id = value_id(&v);
-                if id.is_empty() || seen.contains(&id) || pick.is_some_and(|p| p.excluded.contains(&id)) {
+                if id.is_empty() || pick.is_some_and(|p| p.excluded.contains(&id)) || !seen.insert(id) {
                     continue;
                 }
-                seen.push(id);
                 lines.push(format!("- {}: {v}", k.label));
             }
             continue;

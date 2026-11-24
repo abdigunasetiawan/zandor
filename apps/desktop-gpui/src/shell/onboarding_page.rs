@@ -25,6 +25,7 @@ fn install(id: &str) -> Option<(Option<&'static str>, &'static str)> {
         "uv" => (Some("winget install -e --id astral-sh.uv"), "https://docs.astral.sh/uv/"),
         "gh" => (Some("winget install -e --id GitHub.cli"), "https://cli.github.com/"),
         "bun" => (Some("winget install -e --id Oven-sh.Bun"), "https://bun.sh/"),
+        "pnpm" => (Some("winget install -e --id pnpm.pnpm"), "https://pnpm.io/installation"),
         "opencode" => (Some("npm install -g opencode-ai"), "https://opencode.ai/"),
         "libreoffice" => (Some("winget install -e --id TheDocumentFoundation.LibreOffice"), "https://www.libreoffice.org/"),
         "winget" => (None, "https://aka.ms/getwinget"),
@@ -33,7 +34,7 @@ fn install(id: &str) -> Option<(Option<&'static str>, &'static str)> {
 }
 
 /// (grup, id, opsional) — urutan sama dengan useSystemRows.
-const CHECK_ROWS: [(&str, &str, bool); 12] = [
+const CHECK_ROWS: [(&str, &str, bool); 13] = [
     ("core", "opencode", true),
     ("python", "python", false),
     ("python", "pip", false),
@@ -44,6 +45,7 @@ const CHECK_ROWS: [(&str, &str, bool); 12] = [
     ("dev", "node", true),
     ("dev", "npm", true),
     ("dev", "bun", true),
+    ("dev", "pnpm", true),
     ("docs", "libreoffice", true),
     ("install", "winget", true),
 ];
@@ -101,6 +103,7 @@ pub struct OnboardingPage {
     picks: HashMap<String, ListPick>,
     extra_inputs: HashMap<String, Vec<Entity<TextInput>>>,
     saved: bool,
+    merge_cache: Option<(u64, std::rc::Rc<crate::core::mem_import::MergedMemory>)>,
 }
 
 impl OnboardingPage {
@@ -162,6 +165,7 @@ impl OnboardingPage {
             picks: HashMap::new(),
             extra_inputs: HashMap::new(),
             saved: false,
+            merge_cache: None,
         };
         me.load_models(cx);
         me
@@ -194,6 +198,26 @@ impl OnboardingPage {
             .ok();
         })
         .detach();
+    }
+
+    /// Hasil gabungan memori di-cache: `merge_memory` (parse + pemindaian rahasia per baris) mahal dan sebelumnya
+    /// dihitung ulang di SETIAP frame render, termasuk saat mengetik/hover di langkah impor.
+    fn merged(&mut self) -> std::rc::Rc<crate::core::mem_import::MergedMemory> {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.existing.hash(&mut h);
+        for s in &self.sources {
+            (&s.id, &s.text).hash(&mut h);
+        }
+        let key = h.finish();
+        if let Some((k, m)) = &self.merge_cache {
+            if *k == key {
+                return m.clone();
+            }
+        }
+        let m = std::rc::Rc::new(merge_memory(&self.merged_sources()));
+        self.merge_cache = Some((key, m.clone()));
+        m
     }
 
     fn merged_sources(&self) -> Vec<ImportSource> {
@@ -557,7 +581,8 @@ impl OnboardingPage {
 
     fn import_step(&mut self, t: &Theme, i: &I18n, cx: &mut Context<Self>) -> AnyElement {
         self.sync_picks(cx);
-        let merged = merge_memory(&self.merged_sources());
+        let merged = self.merged();
+        let merged = &*merged;
         let conflicts: Vec<KeyedFact> = conflicts_of(&merged).into_iter().cloned().collect();
         let lists: Vec<KeyedFact> = lists_of(&merged).into_iter().cloned().collect();
         let open = unresolved(&merged, &self.res).len();

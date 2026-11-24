@@ -172,6 +172,7 @@ pub fn check_all() -> Vec<Check> {
     out.push(simple("node", "node", &["--version"]));
     out.push(script("npm", "npm"));
     out.push(script("bun", "bun"));
+    out.push(script("pnpm", "pnpm"));
     out.push(script("uv", "uv"));
     out.push(opencode());
     out.push(libreoffice());

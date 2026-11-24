@@ -996,6 +996,16 @@ impl Render for Sidebar {
                             .flex_col()
                             .min_w_0()
                             .child(div().truncate().font_weight(gpui::FontWeight::MEDIUM).child(name))
+                            .when(cfg!(debug_assertions) && !env!("ZANDOR_DEV_BUILD").is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .truncate()
+                                        .small(&t)
+                                        .font_family(crate::theme::FONT_CODE)
+                                        .text_color(c.fg_subtle)
+                                        .child(format!("v{} · {}", env!("ZANDOR_VERSION"), env!("ZANDOR_DEV_BUILD"))),
+                                )
+                            })
                             .child(
                                 div()
                                     .flex()

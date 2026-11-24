@@ -7,14 +7,19 @@
 Dari `apps/desktop-gpui` (crate terpisah dari workspace, GPUI dari git Zed):
 
 ```bash
-CARGO_INCREMENTAL=0 cargo check --offline
-CARGO_INCREMENTAL=0 cargo test --offline          # 216 tes lulus (6 diabaikan: butuh jaringan/mesin nyata)
-cargo build --release --offline                    # pakai ini untuk menilai performa; build debug jauh lebih lambat
-./target/release/zandor-gpui.exe
+cargo check --offline
+cargo test --offline                              # tes unit + kontrak (6+ diabaikan: butuh jaringan/mesin nyata)
+bun ../../scripts/bump-dev-build.ts               # naikkan penanda dev.<N> di Sidebar (khusus development)
+CARGO_INCREMENTAL=0 cargo build --release --offline   # untuk audit performa/rilis; harian cukup dev.cmd (debug + lld-link + incremental)
 ```
 
-Hentikan instans lama sebelum build ulang (`taskkill //IM zandor-gpui.exe //F`), exe yang berjalan terkunci.
-Ikon aplikasi ditanam lewat `build.rs` + `app.rc` (`assets/icon.ico`).
+Hentikan instans **Zandor Dev** di dalam repo sebelum build ulang manual (`dev.cmd` otomatis melakukannya untuk proses di dalam folder repo saja; **jangan pernah** mematikan atau mengubah Zandor produksi yang terpasang). Ikon aplikasi ditanam lewat `build.rs` + `app.rc` (`assets/icon.ico`).
+
+## Isolasi Development & Build Cepat
+
+- **Linker cepat + profil dev:** `scripts/dev-watch.ps1` mendeteksi otomatis `rust-lld.exe` (`lld-link`) dari `rustc --print sysroot` lewat `CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER` serta mengaktifkan `CARGO_INCREMENTAL=1`. `[profile.dev]` memakai `opt-level = 0, debug = 0` sementara semua dependensi eksternal (`[profile.dev.package."*"]`) tetap `opt-level = 3`.
+- **Isolasi penuh dari Zandor terpasang:** build debug memakai folder data `%APPDATA%\ZandorDev`, judul jendela `"Zandor Dev"`, dan mutex `Local\Zandor-GPUI-dev-single-instance`. Build rilis memakai `%APPDATA%\Zandor`, judul `"Zandor"`, dan `Local\Zandor-GPUI-single-instance`.
+- **Versi di Sidebar (khusus dev):** `build.rs` membaca `apps/desktop-gpui/dev-build.txt` (di-gitignore) hanya pada profil debug tanpa `ZANDOR_RELEASE_VERSION`, lalu `shell/sidebar.rs` menampilkannya di bawah username (`v<ZANDOR_VERSION> · <ZANDOR_DEV_BUILD>`). Saat build rilis (`--release`/`--profile dist`/`scripts/rilis.ts`), informasi ini otomatis hilang.
 
 ## Struktur
 
